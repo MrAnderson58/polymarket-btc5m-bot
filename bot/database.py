@@ -538,3 +538,126 @@ def close_early_reversion_v2_trade(
             trade_id,
         ),
     )
+
+
+def has_early_reversion_v3_trade(
+    conn: sqlite3.Connection,
+    market_slug: str,
+    strategy_name: str,
+) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1 FROM early_reversion_v3_trades
+        WHERE market_slug = ? AND strategy_name = ?
+        LIMIT 1
+        """,
+        (market_slug, strategy_name),
+    ).fetchone()
+    return row is not None
+
+
+def insert_early_reversion_v3_trade(
+    conn: sqlite3.Connection,
+    *,
+    market_slug: str,
+    window_start_ts: int,
+    end_ts: int,
+    side: str,
+    strategy_name: str,
+    entry_price: float,
+    entry_ts: int,
+) -> int:
+    cursor = conn.execute(
+        """
+        INSERT INTO early_reversion_v3_trades (
+            market_slug, window_start_ts, end_ts, side, strategy_name,
+            entry_price, entry_ts, max_price_seen
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            market_slug,
+            window_start_ts,
+            end_ts,
+            side,
+            strategy_name,
+            entry_price,
+            entry_ts,
+            entry_price,
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
+def get_open_early_reversion_v3_trades(
+    conn: sqlite3.Connection,
+    market_slug: str | None = None,
+) -> list[sqlite3.Row]:
+    if market_slug:
+        return conn.execute(
+            """
+            SELECT * FROM early_reversion_v3_trades
+            WHERE status = 'open' AND market_slug = ?
+            ORDER BY entry_ts ASC
+            """,
+            (market_slug,),
+        ).fetchall()
+    return conn.execute(
+        """
+        SELECT * FROM early_reversion_v3_trades
+        WHERE status = 'open'
+        ORDER BY end_ts ASC, entry_ts ASC
+        """
+    ).fetchall()
+
+
+def update_early_reversion_v3_trade_tracking(
+    conn: sqlite3.Connection,
+    trade_id: int,
+    *,
+    max_price_seen: float,
+    last_bid: float,
+) -> None:
+    conn.execute(
+        """
+        UPDATE early_reversion_v3_trades
+        SET max_price_seen = ?, last_bid = ?
+        WHERE id = ?
+        """,
+        (max_price_seen, last_bid, trade_id),
+    )
+
+
+def close_early_reversion_v3_trade(
+    conn: sqlite3.Connection,
+    trade_id: int,
+    *,
+    exit_price: float,
+    exit_reason: str,
+    stop_loss_trigger_pnl: float | None,
+    pnl_percent: float,
+    pnl_usdc: float,
+    holding_time_seconds: float,
+) -> None:
+    conn.execute(
+        """
+        UPDATE early_reversion_v3_trades
+        SET status = 'closed',
+            exit_price = ?,
+            exit_reason = ?,
+            stop_loss_trigger_pnl = ?,
+            pnl_percent = ?,
+            pnl_usdc = ?,
+            holding_time_seconds = ?,
+            closed_at = datetime('now')
+        WHERE id = ?
+        """,
+        (
+            exit_price,
+            exit_reason,
+            stop_loss_trigger_pnl,
+            pnl_percent,
+            pnl_usdc,
+            holding_time_seconds,
+            trade_id,
+        ),
+    )

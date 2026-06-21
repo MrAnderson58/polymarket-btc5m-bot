@@ -46,3 +46,17 @@ ER_V2_GRACE_PERIOD_SEC = int(os.getenv("ER_V2_GRACE_PERIOD_SEC", "30"))
 ER_V2_TRAILING_STOP_PCT = float(os.getenv("ER_V2_TRAILING_STOP_PCT", "5"))
 ER_V2_STOP_LOSS_PCT = float(os.getenv("ER_V2_STOP_LOSS_PCT", "-10"))
 ER_V2_TIME_STOP_SEC = int(os.getenv("ER_V2_TIME_STOP_SEC", "90"))
+
+_DEFAULT_ENABLED_STRATEGIES_V3 = "YES_B,YES_C,NO_C"
+ENABLED_STRATEGIES_V3: frozenset[str] = frozenset(
+    name.strip()
+    for name in os.getenv("ENABLED_STRATEGIES_V3", _DEFAULT_ENABLED_STRATEGIES_V3).split(",")
+    if name.strip()
+)
+
+ER_V3_POLL_INTERVAL_SEC = float(os.getenv("ER_V3_POLL_INTERVAL_SEC", "0.5"))
+ER_V3_ENTRY_WINDOW_SEC = int(os.getenv("ER_V3_ENTRY_WINDOW_SEC", "30"))
+ER_V3_TRAILING_GRACE_SEC = int(os.getenv("ER_V3_TRAILING_GRACE_SEC", "30"))
+ER_V3_TRAILING_STOP_PCT = float(os.getenv("ER_V3_TRAILING_STOP_PCT", "5"))
+ER_V3_STOP_LOSS_PCT = float(os.getenv("ER_V3_STOP_LOSS_PCT", "-10"))
+ER_V3_TIME_STOP_SEC = int(os.getenv("ER_V3_TIME_STOP_SEC", "90"))

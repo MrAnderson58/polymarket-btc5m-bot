@@ -8,11 +8,12 @@ import time
 from datetime import datetime, timezone
 
 from bot.btc_price import BtcPriceError, get_current_btc_price, get_strike_price
-from bot.config import POLL_INTERVAL_SEC
+from bot.config import ER_V3_POLL_INTERVAL_SEC, POLL_INTERVAL_SEC
 from bot.database import connect, init_db, insert_market_check
 from bot.market_scanner import find_active_btc_5m_market, get_best_bid_ask
 from bot.early_reversion import close_due_early_reversion_trades, process_early_reversion
 from bot.early_reversion_v2 import close_due_early_reversion_v2_trades, process_early_reversion_v2
+from bot.early_reversion_v3 import close_due_early_reversion_v3_trades, process_early_reversion_v3
 from bot.paper_trader import record_virtual_trade, settle_due_trades, track_delta_for_open_trades
 from bot.strategy import evaluate
 
@@ -30,17 +31,48 @@ def _ts() -> str:
 
 def run() -> None:
     init_db()
-    logger.info("Starting BTC 5m paper trader | poll every %.1fs", POLL_INTERVAL_SEC)
+    logger.info(
+        "Starting BTC 5m paper trader | main poll %.1fs | v3 poll %.1fs",
+        POLL_INTERVAL_SEC,
+        ER_V3_POLL_INTERVAL_SEC,
+    )
+
+    last_full_cycle = 0.0
+    last_v3_cycle = 0.0
 
     while True:
+        now = time.time()
         try:
-            _cycle()
+            if now - last_v3_cycle >= ER_V3_POLL_INTERVAL_SEC:
+                _v3_cycle()
+                last_v3_cycle = now
+            if now - last_full_cycle >= POLL_INTERVAL_SEC:
+                _cycle()
+                last_full_cycle = now
         except KeyboardInterrupt:
             logger.info("Stopped by user")
             break
         except Exception:
             logger.exception("Unexpected error in main loop")
-        time.sleep(POLL_INTERVAL_SEC)
+        time.sleep(0.05)
+
+
+def _v3_cycle() -> None:
+    now_ts = int(time.time())
+    with connect() as conn:
+        closed = close_due_early_reversion_v3_trades(conn, now_ts)
+        if closed:
+            conn.commit()
+            logger.info("Closed %s Early Reversion v3 trade(s)", closed)
+
+    market = find_active_btc_5m_market()
+    if not market:
+        return
+
+    quotes = get_best_bid_ask(market)
+    with connect() as conn:
+        process_early_reversion_v3(conn, market, quotes)
+        conn.commit()
 
 
 def _cycle() -> None:

@@ -118,3 +118,31 @@ CREATE INDEX IF NOT EXISTS idx_early_reversion_v2_trades_status
     ON early_reversion_v2_trades (status);
 CREATE INDEX IF NOT EXISTS idx_early_reversion_v2_trades_market_slug
     ON early_reversion_v2_trades (market_slug);
+
+CREATE TABLE IF NOT EXISTS early_reversion_v3_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market_slug TEXT NOT NULL,
+    window_start_ts INTEGER NOT NULL,
+    end_ts INTEGER NOT NULL,
+    side TEXT NOT NULL CHECK (side IN ('YES', 'NO')),
+    strategy_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+    entry_price REAL NOT NULL,
+    entry_ts INTEGER NOT NULL,
+    max_price_seen REAL,
+    last_bid REAL,
+    exit_price REAL,
+    exit_reason TEXT CHECK (exit_reason IN ('TRAILING_STOP', 'STOP_LOSS', 'TIME_STOP')),
+    stop_loss_trigger_pnl REAL,
+    pnl_percent REAL,
+    pnl_usdc REAL,
+    holding_time_seconds REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    closed_at TEXT,
+    UNIQUE (market_slug, strategy_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_early_reversion_v3_trades_status
+    ON early_reversion_v3_trades (status);
+CREATE INDEX IF NOT EXISTS idx_early_reversion_v3_trades_market_slug
+    ON early_reversion_v3_trades (market_slug);
