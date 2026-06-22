@@ -15,6 +15,7 @@ from bot.database import (
     insert_virtual_trade,
     settle_virtual_trade,
 )
+from bot.execution import EntryOrder, attempt_entry_open
 from bot.market_scanner import Btc5mMarket
 from bot.strategy import SignalSide, StrategySignal
 
@@ -100,7 +101,30 @@ def record_virtual_trade(
         "shares": shares,
     }
 
-    trade_id = insert_virtual_trade(conn, trade)
+    def _insert() -> int:
+        return insert_virtual_trade(conn, trade)
+
+    opened = attempt_entry_open(
+        conn,
+        EntryOrder(
+            strategy_version="late_window",
+            strategy_name=f"LATE_{side}",
+            market_slug=market.slug,
+            side=side,
+            token_id=token_id,
+            price=entry_ask,
+            size_usdc=TRADE_SIZE_USDC,
+        ),
+        insert_trade=_insert,
+    )
+    if not opened:
+        return None
+
+    row = conn.execute(
+        "SELECT id FROM virtual_trades WHERE market_slug = ? AND side = ?",
+        (market.slug, side),
+    ).fetchone()
+    trade_id = int(row["id"])
     logger.info(
         "Paper trade #%s | %s | %s @ %.4f | BTC %.2f vs strike %.2f (Δ %.2f)",
         trade_id,

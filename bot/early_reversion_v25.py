@@ -1,4 +1,4 @@
-"""Early Reversion v2 — trailing stop, stop loss, time stop exits."""
+"""Early Reversion v2.5 — V2 with 15s grace period."""
 
 from __future__ import annotations
 
@@ -9,19 +9,19 @@ from typing import Literal
 
 from bot.config import (
     EARLY_REVERSION_POSITION_SIZE_USDC,
-    ENABLED_STRATEGIES_V2,
+    ENABLED_STRATEGIES_V25,
     ER_V2_ENTRY_WINDOW_SEC,
-    ER_V2_GRACE_PERIOD_SEC,
     ER_V2_STOP_LOSS_PCT,
     ER_V2_TIME_STOP_SEC,
     ER_V2_TRAILING_STOP_PCT,
+    ER_V25_GRACE_PERIOD_SEC,
 )
 from bot.database import (
-    close_early_reversion_v2_trade,
-    get_open_early_reversion_v2_trades,
-    has_early_reversion_v2_trade,
-    insert_early_reversion_v2_trade,
-    update_early_reversion_v2_trade_tracking,
+    close_early_reversion_v25_trade,
+    get_open_early_reversion_v25_trades,
+    has_early_reversion_v25_trade,
+    insert_early_reversion_v25_trade,
+    update_early_reversion_v25_trade_tracking,
 )
 from bot.early_reversion import SIGNALS
 from bot.execution import EntryOrder, attempt_entry_open, close_early_reversion_position
@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 ExitReason = Literal["TRAILING_STOP", "STOP_LOSS", "TIME_STOP"]
 
-ACTIVE_SIGNALS_V2 = tuple(
-    signal for signal in SIGNALS if signal.strategy_name in ENABLED_STRATEGIES_V2
+ACTIVE_SIGNALS_V25 = tuple(
+    signal for signal in SIGNALS if signal.strategy_name in ENABLED_STRATEGIES_V25
 )
 
 
@@ -63,7 +63,7 @@ def _resolve_exit_reason(
 ) -> ExitReason | None:
     pnl = _pnl_percent(entry_price, bid)
 
-    if seconds_in_trade < ER_V2_GRACE_PERIOD_SEC:
+    if seconds_in_trade < ER_V25_GRACE_PERIOD_SEC:
         return None
 
     if pnl <= ER_V2_STOP_LOSS_PCT:
@@ -97,7 +97,7 @@ def _close_trade(
     holding_time = now_ts - entry_ts
 
     def _finalize() -> None:
-        close_early_reversion_v2_trade(
+        close_early_reversion_v25_trade(
             conn,
             trade["id"],
             exit_price=bid,
@@ -107,7 +107,7 @@ def _close_trade(
             holding_time_seconds=holding_time,
         )
         logger.info(
-            "Early Reversion v2 %s | %s | %s @ %.3f | PnL %.2f%% | held %ss",
+            "Early Reversion v2.5 %s | %s | %s @ %.3f | PnL %.2f%% | held %ss",
             trade["strategy_name"],
             trade["market_slug"],
             exit_reason,
@@ -118,7 +118,7 @@ def _close_trade(
 
     close_early_reversion_position(
         conn,
-        strategy_version="v2",
+        strategy_version="v2.5",
         trade=trade,
         token_id=token_id,
         bid=bid,
@@ -159,7 +159,7 @@ def _manage_open_trade(
         )
         return
 
-    update_early_reversion_v2_trade_tracking(
+    update_early_reversion_v25_trade_tracking(
         conn,
         trade["id"],
         max_price_seen=max_price_seen,
@@ -173,8 +173,8 @@ def _try_open_signals(
     quotes: dict[str, float | None],
     now_ts: int,
 ) -> None:
-    for signal in ACTIVE_SIGNALS_V2:
-        if has_early_reversion_v2_trade(conn, market.slug, signal.strategy_name):
+    for signal in ACTIVE_SIGNALS_V25:
+        if has_early_reversion_v25_trade(conn, market.slug, signal.strategy_name):
             continue
 
         _, ask = _side_prices(quotes, signal.side)
@@ -185,7 +185,7 @@ def _try_open_signals(
         opened = attempt_entry_open(
             conn,
             EntryOrder(
-                strategy_version="v2",
+                strategy_version="v2.5",
                 strategy_name=signal.strategy_name,
                 market_slug=market.slug,
                 side=signal.side,
@@ -193,7 +193,7 @@ def _try_open_signals(
                 price=ask,
                 size_usdc=EARLY_REVERSION_POSITION_SIZE_USDC,
             ),
-            insert_trade=lambda: insert_early_reversion_v2_trade(
+            insert_trade=lambda: insert_early_reversion_v25_trade(
                 conn,
                 market_slug=market.slug,
                 window_start_ts=market.window_start_ts,
@@ -207,7 +207,7 @@ def _try_open_signals(
         if not opened:
             continue
         logger.info(
-            "Early Reversion v2 %s | %s | BUY %s @ %.3f",
+            "Early Reversion v2.5 %s | %s | BUY %s @ %.3f",
             signal.strategy_name,
             market.slug,
             signal.side,
@@ -224,7 +224,7 @@ def _close_expired_trades(
     if now_ts < market.end_ts:
         return
 
-    for trade in get_open_early_reversion_v2_trades(conn, market_slug=market.slug):
+    for trade in get_open_early_reversion_v25_trades(conn, market_slug=market.slug):
         bid, _ = _side_prices(quotes, trade["side"])
         if bid is None:
             bid = trade["last_bid"]
@@ -232,9 +232,8 @@ def _close_expired_trades(
             bid = float(trade["entry_price"])
 
         entry_price = float(trade["entry_price"])
-        entry_ts = int(trade["entry_ts"])
         max_price_seen = max(float(trade["max_price_seen"] or entry_price), float(bid))
-        seconds_in_trade = now_ts - entry_ts
+        seconds_in_trade = now_ts - int(trade["entry_ts"])
 
         exit_reason = _resolve_exit_reason(
             entry_price=entry_price,
@@ -253,10 +252,10 @@ def _close_expired_trades(
         )
 
 
-def close_due_early_reversion_v2_trades(conn: sqlite3.Connection, now_ts: int) -> int:
+def close_due_early_reversion_v25_trades(conn: sqlite3.Connection, now_ts: int) -> int:
     due = conn.execute(
         """
-        SELECT * FROM early_reversion_v2_trades
+        SELECT * FROM early_reversion_v25_trades
         WHERE status = 'open' AND end_ts <= ?
         ORDER BY end_ts ASC
         """,
@@ -269,9 +268,8 @@ def close_due_early_reversion_v2_trades(conn: sqlite3.Connection, now_ts: int) -
             bid = trade["entry_price"]
 
         entry_price = float(trade["entry_price"])
-        entry_ts = int(trade["entry_ts"])
         max_price_seen = max(float(trade["max_price_seen"] or entry_price), float(bid))
-        seconds_in_trade = now_ts - entry_ts
+        seconds_in_trade = now_ts - int(trade["entry_ts"])
 
         exit_reason = _resolve_exit_reason(
             entry_price=entry_price,
@@ -291,7 +289,7 @@ def close_due_early_reversion_v2_trades(conn: sqlite3.Connection, now_ts: int) -
     return len(due)
 
 
-def process_early_reversion_v2(
+def process_early_reversion_v25(
     conn: sqlite3.Connection,
     market: Btc5mMarket,
     quotes: dict[str, float | None],
@@ -302,7 +300,7 @@ def process_early_reversion_v2(
     if seconds_open <= ER_V2_ENTRY_WINDOW_SEC:
         _try_open_signals(conn, market, quotes, now_ts)
 
-    for trade in get_open_early_reversion_v2_trades(conn, market_slug=market.slug):
+    for trade in get_open_early_reversion_v25_trades(conn, market_slug=market.slug):
         bid, _ = _side_prices(quotes, trade["side"])
         if bid is None:
             continue

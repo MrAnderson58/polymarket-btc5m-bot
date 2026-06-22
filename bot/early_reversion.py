@@ -20,6 +20,7 @@ from bot.database import (
     insert_early_reversion_trade,
     upsert_early_reversion_market_prices,
 )
+from bot.execution import EntryOrder, attempt_entry_open
 from bot.market_scanner import Btc5mMarket
 
 logger = logging.getLogger(__name__)
@@ -192,17 +193,32 @@ def _try_open_signals(
         if ask is None or ask > signal.entry_threshold:
             continue
 
-        insert_early_reversion_trade(
+        token_id = market.yes_token_id if signal.side == "YES" else market.no_token_id
+        opened = attempt_entry_open(
             conn,
-            market_slug=market.slug,
-            window_start_ts=market.window_start_ts,
-            end_ts=market.end_ts,
-            side=signal.side,
-            strategy_name=signal.strategy_name,
-            entry_price=ask,
-            target_price=signal.target_price,
-            entry_ts=now_ts,
+            EntryOrder(
+                strategy_version="v1",
+                strategy_name=signal.strategy_name,
+                market_slug=market.slug,
+                side=signal.side,
+                token_id=token_id,
+                price=ask,
+                size_usdc=EARLY_REVERSION_POSITION_SIZE_USDC,
+            ),
+            insert_trade=lambda: insert_early_reversion_trade(
+                conn,
+                market_slug=market.slug,
+                window_start_ts=market.window_start_ts,
+                end_ts=market.end_ts,
+                side=signal.side,
+                strategy_name=signal.strategy_name,
+                entry_price=ask,
+                target_price=signal.target_price,
+                entry_ts=now_ts,
+            ),
         )
+        if not opened:
+            continue
         logger.info(
             "Early Reversion %s | %s | BUY %s @ %.3f → TP %.3f",
             signal.strategy_name,

@@ -8,13 +8,25 @@ import time
 from datetime import datetime, timezone
 
 from bot.btc_price import BtcPriceError, get_current_btc_price, get_strike_price
-from bot.config import ER_V3_POLL_INTERVAL_SEC, POLL_INTERVAL_SEC
+from bot.config import (
+    ER_V3_POLL_INTERVAL_SEC,
+    ENABLED_STRATEGIES,
+    ENABLED_STRATEGIES_V2,
+    ENABLED_STRATEGIES_V25,
+    ENABLED_STRATEGIES_V3,
+    LIVE_EXIT_ENABLED,
+    POLL_INTERVAL_SEC,
+    TRADING_MODE,
+    format_enabled_strategies,
+)
 from bot.database import connect, init_db, insert_market_check
 from bot.market_scanner import find_active_btc_5m_market, get_best_bid_ask
 from bot.early_reversion import close_due_early_reversion_trades, process_early_reversion
 from bot.early_reversion_v2 import close_due_early_reversion_v2_trades, process_early_reversion_v2
+from bot.early_reversion_v25 import close_due_early_reversion_v25_trades, process_early_reversion_v25
 from bot.early_reversion_v3 import close_due_early_reversion_v3_trades, process_early_reversion_v3
 from bot.paper_trader import record_virtual_trade, settle_due_trades, track_delta_for_open_trades
+from bot.recovery import run_startup_recovery
 from bot.strategy import evaluate
 
 logging.basicConfig(
@@ -30,11 +42,20 @@ def _ts() -> str:
 
 
 def run() -> None:
-    init_db()
+    run_startup_recovery()
     logger.info(
-        "Starting BTC 5m paper trader | main poll %.1fs | v3 poll %.1fs",
+        "Starting BTC 5m trader | mode=%s | live_exit=%s | main poll %.1fs | v3 poll %.1fs",
+        TRADING_MODE,
+        LIVE_EXIT_ENABLED,
         POLL_INTERVAL_SEC,
         ER_V3_POLL_INTERVAL_SEC,
+    )
+    logger.info(
+        "Active strategies | v1: %s | v2: %s | v2.5: %s | v3: %s",
+        format_enabled_strategies(ENABLED_STRATEGIES),
+        format_enabled_strategies(ENABLED_STRATEGIES_V2),
+        format_enabled_strategies(ENABLED_STRATEGIES_V25),
+        format_enabled_strategies(ENABLED_STRATEGIES_V3),
     )
 
     last_full_cycle = 0.0
@@ -87,7 +108,8 @@ def _cycle() -> None:
         settled = settle_due_trades(conn, btc_price=btc_price)
         closed_er = close_due_early_reversion_trades(conn, int(time.time()))
         closed_er_v2 = close_due_early_reversion_v2_trades(conn, int(time.time()))
-        if settled or closed_er or closed_er_v2:
+        closed_er_v25 = close_due_early_reversion_v25_trades(conn, int(time.time()))
+        if settled or closed_er or closed_er_v2 or closed_er_v25:
             conn.commit()
             if settled:
                 logger.info("Settled %s trade(s)", settled)
@@ -95,6 +117,8 @@ def _cycle() -> None:
                 logger.info("Closed %s Early Reversion trade(s)", closed_er)
             if closed_er_v2:
                 logger.info("Closed %s Early Reversion v2 trade(s)", closed_er_v2)
+            if closed_er_v25:
+                logger.info("Closed %s Early Reversion v2.5 trade(s)", closed_er_v25)
         else:
             conn.commit()
 
@@ -155,6 +179,7 @@ def _cycle() -> None:
 
         process_early_reversion(conn, market, quotes)
         process_early_reversion_v2(conn, market, quotes)
+        process_early_reversion_v25(conn, market, quotes)
 
         conn.commit()
 

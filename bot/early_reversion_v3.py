@@ -25,6 +25,7 @@ from bot.database import (
     update_early_reversion_v3_trade_tracking,
 )
 from bot.early_reversion import SIGNALS
+from bot.execution import EntryOrder, attempt_entry_open, close_early_reversion_position
 from bot.market_scanner import Btc5mMarket
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,10 @@ def _resolve_exit_decision(
     return None
 
 
+def _token_id_for_side(market: Btc5mMarket, side: str) -> str:
+    return market.yes_token_id if side == "YES" else market.no_token_id
+
+
 def _close_trade(
     conn: sqlite3.Connection,
     trade: sqlite3.Row,
@@ -90,45 +95,58 @@ def _close_trade(
     bid: float,
     decision: ExitDecision,
     now_ts: int,
+    token_id: str | None = None,
 ) -> None:
     entry_price = float(trade["entry_price"])
     entry_ts = int(trade["entry_ts"])
     holding_time = now_ts - entry_ts
     exit_pnl = _pnl_percent(entry_price, bid)
 
-    close_early_reversion_v3_trade(
-        conn,
-        trade["id"],
-        exit_price=bid,
-        exit_reason=decision.reason,
-        stop_loss_trigger_pnl=decision.stop_loss_trigger_pnl,
-        pnl_percent=exit_pnl,
-        pnl_usdc=_pnl_usdc(entry_price, bid),
-        holding_time_seconds=holding_time,
-    )
+    def _finalize() -> None:
+        close_early_reversion_v3_trade(
+            conn,
+            trade["id"],
+            exit_price=bid,
+            exit_reason=decision.reason,
+            stop_loss_trigger_pnl=decision.stop_loss_trigger_pnl,
+            pnl_percent=exit_pnl,
+            pnl_usdc=_pnl_usdc(entry_price, bid),
+            holding_time_seconds=holding_time,
+        )
 
-    if decision.reason == "STOP_LOSS":
-        slippage = exit_pnl - (decision.stop_loss_trigger_pnl or exit_pnl)
-        logger.info(
-            "Early Reversion v3 %s | %s | STOP_LOSS @ %.3f | trigger %.2f%% | exit %.2f%% | slip %.2f%% | held %ss",
-            trade["strategy_name"],
-            trade["market_slug"],
-            bid,
-            decision.stop_loss_trigger_pnl or exit_pnl,
-            exit_pnl,
-            slippage,
-            holding_time,
-        )
-    else:
-        logger.info(
-            "Early Reversion v3 %s | %s | %s @ %.3f | PnL %.2f%% | held %ss",
-            trade["strategy_name"],
-            trade["market_slug"],
-            decision.reason,
-            bid,
-            exit_pnl,
-            holding_time,
-        )
+        if decision.reason == "STOP_LOSS":
+            slippage = exit_pnl - (decision.stop_loss_trigger_pnl or exit_pnl)
+            logger.info(
+                "Early Reversion v3 %s | %s | STOP_LOSS @ %.3f | trigger %.2f%% | exit %.2f%% | slip %.2f%% | held %ss",
+                trade["strategy_name"],
+                trade["market_slug"],
+                bid,
+                decision.stop_loss_trigger_pnl or exit_pnl,
+                exit_pnl,
+                slippage,
+                holding_time,
+            )
+        else:
+            logger.info(
+                "Early Reversion v3 %s | %s | %s @ %.3f | PnL %.2f%% | held %ss",
+                trade["strategy_name"],
+                trade["market_slug"],
+                decision.reason,
+                bid,
+                exit_pnl,
+                holding_time,
+            )
+
+    close_early_reversion_position(
+        conn,
+        strategy_version="v3",
+        trade=trade,
+        token_id=token_id,
+        bid=bid,
+        exit_reason=decision.reason,
+        size_usdc=EARLY_REVERSION_POSITION_SIZE_USDC,
+        close_trade=_finalize,
+    )
 
 
 def _manage_open_trade(
@@ -137,6 +155,7 @@ def _manage_open_trade(
     *,
     bid: float,
     now_ts: int,
+    market: Btc5mMarket,
 ) -> None:
     entry_price = float(trade["entry_price"])
     entry_ts = int(trade["entry_ts"])
@@ -151,7 +170,14 @@ def _manage_open_trade(
     )
 
     if decision:
-        _close_trade(conn, trade, bid=bid, decision=decision, now_ts=now_ts)
+        _close_trade(
+            conn,
+            trade,
+            bid=bid,
+            decision=decision,
+            now_ts=now_ts,
+            token_id=_token_id_for_side(market, trade["side"]),
+        )
         return
 
     update_early_reversion_v3_trade_tracking(
@@ -176,16 +202,31 @@ def _try_open_signals(
         if ask is None or ask > signal.entry_threshold:
             continue
 
-        insert_early_reversion_v3_trade(
+        token_id = market.yes_token_id if signal.side == "YES" else market.no_token_id
+        opened = attempt_entry_open(
             conn,
-            market_slug=market.slug,
-            window_start_ts=market.window_start_ts,
-            end_ts=market.end_ts,
-            side=signal.side,
-            strategy_name=signal.strategy_name,
-            entry_price=ask,
-            entry_ts=now_ts,
+            EntryOrder(
+                strategy_version="v3",
+                strategy_name=signal.strategy_name,
+                market_slug=market.slug,
+                side=signal.side,
+                token_id=token_id,
+                price=ask,
+                size_usdc=EARLY_REVERSION_POSITION_SIZE_USDC,
+            ),
+            insert_trade=lambda: insert_early_reversion_v3_trade(
+                conn,
+                market_slug=market.slug,
+                window_start_ts=market.window_start_ts,
+                end_ts=market.end_ts,
+                side=signal.side,
+                strategy_name=signal.strategy_name,
+                entry_price=ask,
+                entry_ts=now_ts,
+            ),
         )
+        if not opened:
+            continue
         logger.info(
             "Early Reversion v3 %s | %s | BUY %s @ %.3f",
             signal.strategy_name,
@@ -223,7 +264,14 @@ def _close_expired_trades(
             seconds_in_trade=seconds_in_trade,
         ) or ExitDecision(reason="TIME_STOP")
 
-        _close_trade(conn, trade, bid=float(bid), decision=decision, now_ts=now_ts)
+        _close_trade(
+            conn,
+            trade,
+            bid=float(bid),
+            decision=decision,
+            now_ts=now_ts,
+            token_id=_token_id_for_side(market, trade["side"]),
+        )
 
 
 def close_due_early_reversion_v3_trades(conn: sqlite3.Connection, now_ts: int) -> int:
@@ -253,7 +301,13 @@ def close_due_early_reversion_v3_trades(conn: sqlite3.Connection, now_ts: int) -
             seconds_in_trade=seconds_in_trade,
         ) or ExitDecision(reason="TIME_STOP")
 
-        _close_trade(conn, trade, bid=float(bid), decision=decision, now_ts=now_ts)
+        _close_trade(
+            conn,
+            trade,
+            bid=float(bid),
+            decision=decision,
+            now_ts=now_ts,
+        )
 
     return len(due)
 
@@ -273,6 +327,6 @@ def process_early_reversion_v3(
         bid, _ = _side_prices(quotes, trade["side"])
         if bid is None:
             continue
-        _manage_open_trade(conn, trade, bid=bid, now_ts=now_ts)
+        _manage_open_trade(conn, trade, bid=bid, now_ts=now_ts, market=market)
 
     _close_expired_trades(conn, market, quotes, now_ts)

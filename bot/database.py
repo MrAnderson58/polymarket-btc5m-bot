@@ -661,3 +661,241 @@ def close_early_reversion_v3_trade(
             trade_id,
         ),
     )
+
+
+def has_early_reversion_v25_trade(
+    conn: sqlite3.Connection,
+    market_slug: str,
+    strategy_name: str,
+) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1 FROM early_reversion_v25_trades
+        WHERE market_slug = ? AND strategy_name = ?
+        LIMIT 1
+        """,
+        (market_slug, strategy_name),
+    ).fetchone()
+    return row is not None
+
+
+def insert_early_reversion_v25_trade(
+    conn: sqlite3.Connection,
+    *,
+    market_slug: str,
+    window_start_ts: int,
+    end_ts: int,
+    side: str,
+    strategy_name: str,
+    entry_price: float,
+    entry_ts: int,
+) -> int:
+    cursor = conn.execute(
+        """
+        INSERT INTO early_reversion_v25_trades (
+            market_slug, window_start_ts, end_ts, side, strategy_name,
+            entry_price, entry_ts, max_price_seen
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            market_slug,
+            window_start_ts,
+            end_ts,
+            side,
+            strategy_name,
+            entry_price,
+            entry_ts,
+            entry_price,
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
+def get_open_early_reversion_v25_trades(
+    conn: sqlite3.Connection,
+    market_slug: str | None = None,
+) -> list[sqlite3.Row]:
+    if market_slug:
+        return conn.execute(
+            """
+            SELECT * FROM early_reversion_v25_trades
+            WHERE status = 'open' AND market_slug = ?
+            ORDER BY entry_ts ASC
+            """,
+            (market_slug,),
+        ).fetchall()
+    return conn.execute(
+        """
+        SELECT * FROM early_reversion_v25_trades
+        WHERE status = 'open'
+        ORDER BY end_ts ASC, entry_ts ASC
+        """
+    ).fetchall()
+
+
+def update_early_reversion_v25_trade_tracking(
+    conn: sqlite3.Connection,
+    trade_id: int,
+    *,
+    max_price_seen: float,
+    last_bid: float,
+) -> None:
+    conn.execute(
+        """
+        UPDATE early_reversion_v25_trades
+        SET max_price_seen = ?, last_bid = ?
+        WHERE id = ?
+        """,
+        (max_price_seen, last_bid, trade_id),
+    )
+
+
+def close_early_reversion_v25_trade(
+    conn: sqlite3.Connection,
+    trade_id: int,
+    *,
+    exit_price: float,
+    exit_reason: str,
+    pnl_percent: float,
+    pnl_usdc: float,
+    holding_time_seconds: float,
+) -> None:
+    conn.execute(
+        """
+        UPDATE early_reversion_v25_trades
+        SET status = 'closed',
+            exit_price = ?,
+            exit_reason = ?,
+            pnl_percent = ?,
+            pnl_usdc = ?,
+            holding_time_seconds = ?,
+            closed_at = datetime('now')
+        WHERE id = ?
+        """,
+        (
+            exit_price,
+            exit_reason,
+            pnl_percent,
+            pnl_usdc,
+            holding_time_seconds,
+            trade_id,
+        ),
+    )
+
+
+def insert_order_intent(
+    conn: sqlite3.Connection,
+    *,
+    idempotency_key: str,
+    trading_mode: str,
+    strategy_version: str,
+    strategy_name: str,
+    market_slug: str,
+    side: str,
+    token_id: str,
+    price: float,
+    size_usdc: float,
+    shares: float,
+    status: str,
+) -> int:
+    cursor = conn.execute(
+        """
+        INSERT INTO order_intents (
+            idempotency_key, trading_mode, strategy_version, strategy_name,
+            market_slug, side, token_id, price, size_usdc, shares, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            idempotency_key,
+            trading_mode,
+            strategy_version,
+            strategy_name,
+            market_slug,
+            side,
+            token_id,
+            price,
+            size_usdc,
+            shares,
+            status,
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
+def has_order_intent(conn: sqlite3.Connection, idempotency_key: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM order_intents WHERE idempotency_key = ? LIMIT 1",
+        (idempotency_key,),
+    ).fetchone()
+    return row is not None
+
+
+def get_order_intent(conn: sqlite3.Connection, idempotency_key: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM order_intents WHERE idempotency_key = ?",
+        (idempotency_key,),
+    ).fetchone()
+
+
+def update_order_intent_status(
+    conn: sqlite3.Connection,
+    idempotency_key: str,
+    *,
+    status: str,
+    clob_order_id: str | None = None,
+    error_message: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE order_intents
+        SET status = ?,
+            clob_order_id = COALESCE(?, clob_order_id),
+            error_message = COALESCE(?, error_message),
+            updated_at = datetime('now')
+        WHERE idempotency_key = ?
+        """,
+        (status, clob_order_id, error_message, idempotency_key),
+    )
+
+
+def count_all_open_positions(conn: sqlite3.Connection) -> int:
+    total = 0
+    total += conn.execute(
+        "SELECT COUNT(*) AS c FROM virtual_trades WHERE status = 'open'"
+    ).fetchone()["c"]
+    for table in (
+        "early_reversion_trades",
+        "early_reversion_v2_trades",
+        "early_reversion_v25_trades",
+        "early_reversion_v3_trades",
+    ):
+        total += conn.execute(
+            f"SELECT COUNT(*) AS c FROM {table} WHERE status = 'open'"
+        ).fetchone()["c"]
+    return int(total)
+
+
+def daily_realized_pnl_usdc(conn: sqlite3.Connection) -> float:
+    total = 0.0
+    for table, ts_col in (
+        ("virtual_trades", "settled_at"),
+        ("early_reversion_trades", "closed_at"),
+        ("early_reversion_v2_trades", "closed_at"),
+        ("early_reversion_v25_trades", "closed_at"),
+        ("early_reversion_v3_trades", "closed_at"),
+    ):
+        if table == "virtual_trades":
+            status_filter = "status = 'settled'"
+        else:
+            status_filter = "status = 'closed'"
+        row = conn.execute(
+            f"""
+            SELECT COALESCE(SUM(pnl_usdc), 0) AS pnl
+            FROM {table}
+            WHERE {status_filter}
+              AND {ts_col} IS NOT NULL
+              AND date({ts_col}) = date('now')
+            """
+        ).fetchone()
+        total += float(row["pnl"])
+    return total
