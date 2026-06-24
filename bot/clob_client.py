@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from py_clob_client.client import ClobClient
+from py_clob_client_v2 import ClobClient
 
 from bot.config import (
     CHAIN_ID,
@@ -33,15 +33,15 @@ def get_authenticated_clob_client(*, force_new: bool = False) -> ClobClient:
 
     kwargs: dict = {
         "host": CLOB_HOST,
-        "key": POLY_PRIVATE_KEY,
         "chain_id": CHAIN_ID,
+        "key": POLY_PRIVATE_KEY,
         "signature_type": POLY_SIGNATURE_TYPE,
     }
     if POLY_PROXY_WALLET:
         kwargs["funder"] = POLY_PROXY_WALLET
 
     client = ClobClient(**kwargs)
-    client.set_api_creds(client.create_or_derive_api_creds())
+    client.set_api_creds(client.create_or_derive_api_key())
     _client = client
     return client
 

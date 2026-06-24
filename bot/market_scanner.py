@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import requests
-from py_clob_client.client import ClobClient
+from py_clob_client_v2 import ClobClient
 
 from bot.config import (
     BTC_5M_SLUG_PREFIX,

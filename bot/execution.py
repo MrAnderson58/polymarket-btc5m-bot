@@ -4,28 +4,42 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from py_clob_client.clob_types import OrderArgs, OrderType
-from py_clob_client.order_builder.constants import BUY, SELL
+from py_clob_client_v2 import OrderArgs, OrderType
+from py_clob_client_v2.order_builder.constants import BUY, SELL
 
 from bot.clob_client import get_authenticated_clob_client
 from bot.config import (
+    CHAIN_ID,
+    POLY_PROXY_WALLET,
+    POLY_SIGNATURE_TYPE,
     TRADING_MODE,
+    WINDOW_SECONDS,
     is_live_exit_enabled,
     is_live_trading_enabled,
     is_paper_mode,
 )
 from bot.database import (
+    clear_order_intent_error,
     get_order_intent,
+    has_early_reversion_v25_trade,
+    has_early_reversion_v2_trade,
+    has_early_reversion_v3_trade,
     has_order_intent,
+    insert_early_reversion_v25_trade,
+    insert_early_reversion_v2_trade,
+    insert_early_reversion_v3_trade,
     insert_order_intent,
     update_order_intent_status,
 )
 from bot.risk import check_can_open_position
 
 logger = logging.getLogger(__name__)
+
+UNRECORDED_TRADE_PREFIX = "unrecorded_trade:"
 
 
 @dataclass(frozen=True)
@@ -120,7 +134,20 @@ def _submit_live_buy(order: EntryOrder) -> tuple[bool, str | None, str | None]:
         size=shares,
         side=BUY,
     )
-    response = client.create_and_post_order(order_args, OrderType.GTC)
+    logger.info(
+        "Live buy pre-submit | token_id=%s price=%.6f shares=%.6f "
+        "client_chain_id=%s client_signature_type=%s "
+        "config_chain_id=%s config_signature_type=%s config_proxy_wallet=%s",
+        order.token_id,
+        order.price,
+        shares,
+        client.chain_id,
+        client.builder.signature_type,
+        CHAIN_ID,
+        POLY_SIGNATURE_TYPE,
+        POLY_PROXY_WALLET,
+    )
+    response = client.create_and_post_order(order_args, order_type=OrderType.GTC)
     order_id = None
     if isinstance(response, dict):
         order_id = response.get("orderID") or response.get("id")
@@ -135,11 +162,109 @@ def _submit_live_sell(order: ExitOrder) -> tuple[bool, str | None, str | None]:
         size=order.shares,
         side=SELL,
     )
-    response = client.create_and_post_order(order_args, OrderType.GTC)
+    response = client.create_and_post_order(order_args, order_type=OrderType.GTC)
     order_id = None
     if isinstance(response, dict):
         order_id = response.get("orderID") or response.get("id")
     return True, str(order_id) if order_id else None, None
+
+
+def _window_times_from_slug(market_slug: str) -> tuple[int, int]:
+    window_start = int(market_slug.rsplit("-", 1)[-1])
+    return window_start, window_start + WINDOW_SECONDS
+
+
+def _trade_exists_for_intent(conn: sqlite3.Connection, intent: sqlite3.Row) -> bool:
+    version = intent["strategy_version"]
+    market_slug = intent["market_slug"]
+    strategy_name = intent["strategy_name"]
+    if version == "v2":
+        return has_early_reversion_v2_trade(conn, market_slug, strategy_name)
+    if version == "v2.5":
+        return has_early_reversion_v25_trade(conn, market_slug, strategy_name)
+    if version == "v3":
+        return has_early_reversion_v3_trade(conn, market_slug, strategy_name)
+    return False
+
+
+def _mark_entry_unrecorded(
+    conn: sqlite3.Connection,
+    idempotency_key: str,
+    exc: Exception,
+) -> None:
+    update_order_intent_status(
+        conn,
+        idempotency_key,
+        status="submitted",
+        error_message=f"{UNRECORDED_TRADE_PREFIX}{exc}",
+    )
+
+
+def _clear_entry_unrecorded(conn: sqlite3.Connection, idempotency_key: str) -> None:
+    clear_order_intent_error(conn, idempotency_key)
+
+
+def _insert_trade_from_intent(conn: sqlite3.Connection, intent: sqlite3.Row) -> int:
+    window_start, end_ts = _window_times_from_slug(intent["market_slug"])
+    entry_ts = int(time.time())
+    common = {
+        "conn": conn,
+        "market_slug": intent["market_slug"],
+        "window_start_ts": window_start,
+        "end_ts": end_ts,
+        "side": intent["side"],
+        "strategy_name": intent["strategy_name"],
+        "entry_price": float(intent["price"]),
+        "entry_ts": entry_ts,
+    }
+    version = intent["strategy_version"]
+    if version == "v2":
+        return insert_early_reversion_v2_trade(**common)
+    if version == "v2.5":
+        return insert_early_reversion_v25_trade(**common)
+    if version == "v3":
+        return insert_early_reversion_v3_trade(**common)
+    raise ValueError(f"unsupported strategy_version for recovery: {version}")
+
+
+def reconcile_unrecorded_entry_intents(conn: sqlite3.Connection) -> int:
+    """Backfill SQLite trades for live CLOB entries that were submitted but not recorded."""
+    rows = conn.execute(
+        """
+        SELECT * FROM order_intents
+        WHERE status = 'submitted'
+          AND idempotency_key LIKE '%:entry'
+          AND error_message LIKE ?
+        ORDER BY id ASC
+        """,
+        (f"{UNRECORDED_TRADE_PREFIX}%",),
+    ).fetchall()
+
+    recovered = 0
+    for intent in rows:
+        key = intent["idempotency_key"]
+        if _trade_exists_for_intent(conn, intent):
+            _clear_entry_unrecorded(conn, key)
+            recovered += 1
+            logger.info("Entry intent already has trade record: %s", key)
+            continue
+        try:
+            trade_id = _insert_trade_from_intent(conn, intent)
+            _clear_entry_unrecorded(conn, key)
+            recovered += 1
+            logger.critical(
+                "Recovered unrecorded live entry | %s | trade_id=%s | clob_order_id=%s",
+                key,
+                trade_id,
+                intent["clob_order_id"],
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to recover unrecorded live entry %s: %s",
+                key,
+                exc,
+            )
+    return recovered
 
 
 def attempt_entry_open(
@@ -232,41 +357,6 @@ def attempt_entry_open(
     if is_live_trading_enabled():
         try:
             ok, clob_order_id, error = _submit_live_buy(order)
-            if not ok:
-                update_order_intent_status(
-                    conn,
-                    idempotency_key,
-                    status="failed",
-                    error_message=error or "unknown error",
-                )
-                logger.error(
-                    "Live entry failed for %s: %s",
-                    order.strategy_name,
-                    error,
-                )
-                return False
-            update_order_intent_status(
-                conn,
-                idempotency_key,
-                status="submitted",
-                clob_order_id=clob_order_id,
-            )
-            logger.info(
-                "Live entry submitted | %s %s @ %.4f | order_id=%s",
-                order.strategy_name,
-                order.side,
-                order.price,
-                clob_order_id or "unknown",
-            )
-            try:
-                insert_trade()
-                return True
-            except sqlite3.IntegrityError:
-                logger.warning(
-                    "Live entry submitted but paper record exists: %s",
-                    idempotency_key,
-                )
-                return False
         except Exception as exc:
             update_order_intent_status(
                 conn,
@@ -275,9 +365,71 @@ def attempt_entry_open(
                 error_message=str(exc),
             )
             logger.exception(
-                "Live entry exception for %s %s",
+                "Live entry CLOB exception for %s %s",
                 order.strategy_name,
                 order.market_slug,
+            )
+            return False
+
+        if not ok:
+            update_order_intent_status(
+                conn,
+                idempotency_key,
+                status="failed",
+                error_message=error or "unknown error",
+            )
+            logger.error(
+                "Live entry failed for %s: %s",
+                order.strategy_name,
+                error,
+            )
+            return False
+
+        update_order_intent_status(
+            conn,
+            idempotency_key,
+            status="submitted",
+            clob_order_id=clob_order_id,
+        )
+        logger.info(
+            "Live entry submitted | %s %s @ %.4f | order_id=%s",
+            order.strategy_name,
+            order.side,
+            order.price,
+            clob_order_id or "unknown",
+        )
+
+        try:
+            insert_trade()
+            return True
+        except sqlite3.IntegrityError:
+            if _trade_exists_for_intent(
+                conn,
+                get_order_intent(conn, idempotency_key),
+            ):
+                logger.warning(
+                    "Live entry submitted; trade record already exists: %s",
+                    idempotency_key,
+                )
+                return True
+            _mark_entry_unrecorded(
+                conn,
+                idempotency_key,
+                sqlite3.IntegrityError("trade insert integrity error"),
+            )
+            logger.critical(
+                "ORPHAN LIVE ENTRY | CLOB order submitted but trade insert failed | %s | order_id=%s",
+                idempotency_key,
+                clob_order_id,
+            )
+            return False
+        except Exception as exc:
+            _mark_entry_unrecorded(conn, idempotency_key, exc)
+            logger.critical(
+                "ORPHAN LIVE ENTRY | CLOB order submitted but trade insert failed | %s | order_id=%s | %s",
+                idempotency_key,
+                clob_order_id,
+                exc,
             )
             return False
 
