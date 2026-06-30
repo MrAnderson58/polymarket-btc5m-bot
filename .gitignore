@@ -28,5 +28,3 @@ __pycache__/
 
 # Generated reports
 reports/**/*.zip
-reports/**/*.json
-reports/**/*.md
