@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from bot.config import BASE_DIR, DATABASE_PATH
+from bot.er_trailing_stop import trailing_enabled_at_entry
 
 
 def _schema_path() -> Path:
@@ -21,6 +22,79 @@ _MIGRATIONS = (
     "ALTER TABLE early_reversion_trades ADD COLUMN pnl_usdc REAL",
     "ALTER TABLE early_reversion_trades ADD COLUMN holding_time_seconds REAL",
 )
+
+_ER_TRAILING_COLUMNS = (
+    ("trailing_enabled", "INTEGER NOT NULL DEFAULT 0"),
+    ("trailing_active", "INTEGER NOT NULL DEFAULT 0"),
+    ("trailing_stop_price", "REAL"),
+    ("trailing_activation_price", "REAL"),
+    ("highest_price", "REAL"),
+    ("max_profit_pct", "REAL"),
+    ("realized_profit_pct", "REAL"),
+    ("profit_left_on_table_pct", "REAL"),
+)
+
+_ER_TRADE_TABLES = (
+    "early_reversion_v2_trades",
+    "early_reversion_v25_trades",
+    "early_reversion_v3_trades",
+)
+
+_ER_REJECTION_COLUMNS = (
+    ("window_ok", "INTEGER NOT NULL DEFAULT 0"),
+    ("price_ok", "INTEGER NOT NULL DEFAULT 0"),
+    ("window_and_price_ok", "INTEGER NOT NULL DEFAULT 0"),
+    ("already_open_ok", "INTEGER NOT NULL DEFAULT 0"),
+    ("risk_ok", "INTEGER NOT NULL DEFAULT 0"),
+    ("entry_attempt", "INTEGER NOT NULL DEFAULT 0"),
+    ("entry_success", "INTEGER NOT NULL DEFAULT 0"),
+    ("blocked_by_window", "INTEGER NOT NULL DEFAULT 0"),
+    ("blocked_by_price", "INTEGER NOT NULL DEFAULT 0"),
+    ("blocked_by_already_open", "INTEGER NOT NULL DEFAULT 0"),
+    ("blocked_by_risk", "INTEGER NOT NULL DEFAULT 0"),
+    ("blocked_max_open_positions", "INTEGER NOT NULL DEFAULT 0"),
+    ("blocked_daily_loss", "INTEGER NOT NULL DEFAULT 0"),
+    ("blocked_duplicate_entry", "INTEGER NOT NULL DEFAULT 0"),
+    ("blocked_existing_position", "INTEGER NOT NULL DEFAULT 0"),
+    ("blocked_live_mode", "INTEGER NOT NULL DEFAULT 0"),
+    ("blocked_other", "INTEGER NOT NULL DEFAULT 0"),
+    ("blocked_unknown", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+_ER_EXIT_REASON_CHECK_OLD = (
+    "exit_reason IN ('TRAILING_STOP', 'STOP_LOSS', 'TIME_STOP')"
+)
+_ER_EXIT_REASON_CHECK_NEW = (
+    "exit_reason IN ('TRAILING_STOP', 'STOP_LOSS', 'TIME_STOP', 'RECOVERY_NO_POSITION')"
+)
+
+
+def _migrate_er_exit_reason_recovery(conn: sqlite3.Connection) -> None:
+    """Allow RECOVERY_NO_POSITION when reconciling stuck exits after failed live sell."""
+    for table in _ER_TRADE_TABLES:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+        if row is None:
+            continue
+        create_sql = row["sql"]
+        if _ER_EXIT_REASON_CHECK_OLD not in create_sql:
+            continue
+        new_sql = create_sql.replace(_ER_EXIT_REASON_CHECK_OLD, _ER_EXIT_REASON_CHECK_NEW)
+        temp_table = f"{table}_exit_reason_migration"
+        conn.execute(f"ALTER TABLE {table} RENAME TO {temp_table}")
+        conn.execute(new_sql)
+        conn.execute(f"INSERT INTO {table} SELECT * FROM {temp_table}")
+        conn.execute(f"DROP TABLE {temp_table}")
+        for index_row in conn.execute(
+            """
+            SELECT name, sql FROM sqlite_master
+            WHERE type='index' AND tbl_name=? AND sql IS NOT NULL
+            """,
+            (table,),
+        ).fetchall():
+            conn.execute(index_row["sql"])
 
 
 def _apply_migrations(conn: sqlite3.Connection) -> None:
@@ -40,6 +114,162 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
         if column not in existing:
             conn.execute(sql)
             existing.add(column)
+
+    for table in _ER_TRADE_TABLES:
+        existing = {
+            row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for column, definition in _ER_TRAILING_COLUMNS:
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+                existing.add(column)
+
+    rejection_existing = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(er_strategy_counters)").fetchall()
+    }
+    for column, definition in _ER_REJECTION_COLUMNS:
+        if column not in rejection_existing:
+            conn.execute(
+                f"ALTER TABLE er_strategy_counters ADD COLUMN {column} {definition}"
+            )
+            rejection_existing.add(column)
+
+    _migrate_er_exit_reason_recovery(conn)
+    _ensure_order_fill_audit_table(conn)
+    _ensure_er_health_events_table(conn)
+    _ensure_no_c_filter_live_counters_table(conn)
+    _ensure_trade_features_table(conn)
+
+
+def _ensure_trade_features_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS trade_features (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_id INTEGER NOT NULL,
+            source_table TEXT NOT NULL DEFAULT 'early_reversion_v2_trades',
+            market_slug TEXT NOT NULL,
+            strategy_name TEXT NOT NULL,
+            side TEXT NOT NULL,
+            entry_ts INTEGER NOT NULL,
+            entry_price REAL NOT NULL,
+            exit_price REAL,
+            pnl REAL,
+            pnl_usdc REAL,
+            btc_move_5s REAL,
+            btc_move_10s REAL,
+            btc_move_15s REAL,
+            btc_move_20s REAL,
+            btc_move_30s REAL,
+            btc_move_45s REAL,
+            btc_move_60s REAL,
+            btc_move_90s REAL,
+            seconds_open REAL,
+            spread REAL,
+            ask REAL,
+            bid REAL,
+            distance_to_strike REAL,
+            volatility_15s REAL,
+            volatility_30s REAL,
+            volatility_60s REAL,
+            stop_loss_pct REAL,
+            trailing_activation REAL,
+            trailing_distance REAL,
+            holding_time REAL,
+            mfe REAL,
+            mae REAL,
+            is_win INTEGER NOT NULL DEFAULT 0,
+            is_loss INTEGER NOT NULL DEFAULT 0,
+            is_stop INTEGER NOT NULL DEFAULT 0,
+            is_time_stop INTEGER NOT NULL DEFAULT 0,
+            is_trailing INTEGER NOT NULL DEFAULT 0,
+            exit_reason TEXT,
+            built_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (trade_id, source_table)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_trade_features_strategy
+        ON trade_features (strategy_name, entry_ts)
+        """
+    )
+
+
+def _ensure_no_c_filter_live_counters_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS no_c_filter_live_counters (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            normal_entries INTEGER NOT NULL DEFAULT 0,
+            strict_entries INTEGER NOT NULL DEFAULT 0,
+            skipped_strict_price INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+
+
+def _ensure_er_health_events_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS er_health_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            event_ts INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_er_health_events_type_ts
+            ON er_health_events (event_type, event_ts)
+        """
+    )
+
+
+def _ensure_order_fill_audit_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS order_fill_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            clob_order_id TEXT,
+            clob_side TEXT NOT NULL,
+            token_id TEXT NOT NULL,
+            submitted_price REAL NOT NULL,
+            submitted_shares REAL NOT NULL,
+            submitted_notional REAL NOT NULL,
+            fill_price REAL,
+            fill_shares REAL,
+            fill_notional REAL,
+            average_fill_price REAL,
+            fees REAL,
+            price_difference REAL,
+            slippage REAL,
+            fill_status TEXT NOT NULL DEFAULT 'pending',
+            last_logged_fill_shares REAL NOT NULL DEFAULT 0,
+            raw_order_json TEXT,
+            raw_trades_json TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_order_fill_audit_clob_order_id
+            ON order_fill_audit (clob_order_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_order_fill_audit_fill_status
+            ON order_fill_audit (fill_status)
+        """
+    )
 
 
 def backfill_early_reversion_trades(conn: sqlite3.Connection) -> int:
@@ -451,8 +681,8 @@ def insert_early_reversion_v2_trade(
         """
         INSERT INTO early_reversion_v2_trades (
             market_slug, window_start_ts, end_ts, side, strategy_name,
-            entry_price, entry_ts, max_price_seen
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            entry_price, entry_ts, max_price_seen, trailing_enabled
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             market_slug,
@@ -463,6 +693,7 @@ def insert_early_reversion_v2_trade(
             entry_price,
             entry_ts,
             entry_price,
+            int(trailing_enabled_at_entry()),
         ),
     )
     return int(cursor.lastrowid)
@@ -496,14 +727,34 @@ def update_early_reversion_v2_trade_tracking(
     *,
     max_price_seen: float,
     last_bid: float,
+    trailing_active: bool = False,
+    trailing_stop_price: float | None = None,
+    trailing_activation_price: float | None = None,
+    highest_price: float | None = None,
+    max_profit_pct: float | None = None,
 ) -> None:
     conn.execute(
         """
         UPDATE early_reversion_v2_trades
-        SET max_price_seen = ?, last_bid = ?
+        SET max_price_seen = ?,
+            last_bid = ?,
+            trailing_active = ?,
+            trailing_stop_price = ?,
+            trailing_activation_price = COALESCE(?, trailing_activation_price),
+            highest_price = ?,
+            max_profit_pct = COALESCE(?, max_profit_pct)
         WHERE id = ?
         """,
-        (max_price_seen, last_bid, trade_id),
+        (
+            max_price_seen,
+            last_bid,
+            int(trailing_active),
+            trailing_stop_price,
+            trailing_activation_price,
+            highest_price,
+            max_profit_pct,
+            trade_id,
+        ),
     )
 
 
@@ -516,6 +767,11 @@ def close_early_reversion_v2_trade(
     pnl_percent: float,
     pnl_usdc: float,
     holding_time_seconds: float,
+    trailing_activation_price: float | None = None,
+    highest_price: float | None = None,
+    max_profit_pct: float | None = None,
+    realized_profit_pct: float | None = None,
+    profit_left_on_table_pct: float | None = None,
 ) -> None:
     conn.execute(
         """
@@ -526,6 +782,11 @@ def close_early_reversion_v2_trade(
             pnl_percent = ?,
             pnl_usdc = ?,
             holding_time_seconds = ?,
+            trailing_activation_price = COALESCE(?, trailing_activation_price),
+            highest_price = COALESCE(?, highest_price),
+            max_profit_pct = COALESCE(?, max_profit_pct),
+            realized_profit_pct = COALESCE(?, realized_profit_pct),
+            profit_left_on_table_pct = COALESCE(?, profit_left_on_table_pct),
             closed_at = datetime('now')
         WHERE id = ?
         """,
@@ -535,6 +796,167 @@ def close_early_reversion_v2_trade(
             pnl_percent,
             pnl_usdc,
             holding_time_seconds,
+            trailing_activation_price,
+            highest_price,
+            max_profit_pct,
+            realized_profit_pct,
+            profit_left_on_table_pct,
+            trade_id,
+        ),
+    )
+
+
+def has_yes_c_shadow_trade(
+    conn: sqlite3.Connection,
+    market_slug: str,
+    strategy_name: str = "YES_C",
+) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1 FROM yes_c_shadow_trades
+        WHERE market_slug = ? AND strategy_name = ?
+        LIMIT 1
+        """,
+        (market_slug, strategy_name),
+    ).fetchone()
+    return row is not None
+
+
+def insert_yes_c_shadow_trade(
+    conn: sqlite3.Connection,
+    *,
+    market_slug: str,
+    window_start_ts: int,
+    end_ts: int,
+    side: str,
+    strategy_name: str,
+    entry_price: float,
+    entry_ts: int,
+) -> int:
+    cursor = conn.execute(
+        """
+        INSERT INTO yes_c_shadow_trades (
+            market_slug, window_start_ts, end_ts, side, strategy_name,
+            entry_price, entry_ts, max_price_seen, trailing_enabled
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            market_slug,
+            window_start_ts,
+            end_ts,
+            side,
+            strategy_name,
+            entry_price,
+            entry_ts,
+            entry_price,
+            int(trailing_enabled_at_entry()),
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
+def get_open_yes_c_shadow_trades(
+    conn: sqlite3.Connection,
+    market_slug: str | None = None,
+) -> list[sqlite3.Row]:
+    if market_slug:
+        return conn.execute(
+            """
+            SELECT * FROM yes_c_shadow_trades
+            WHERE status = 'open' AND market_slug = ?
+            ORDER BY entry_ts ASC
+            """,
+            (market_slug,),
+        ).fetchall()
+    return conn.execute(
+        """
+        SELECT * FROM yes_c_shadow_trades
+        WHERE status = 'open'
+        ORDER BY end_ts ASC, entry_ts ASC
+        """
+    ).fetchall()
+
+
+def update_yes_c_shadow_trade_tracking(
+    conn: sqlite3.Connection,
+    trade_id: int,
+    *,
+    max_price_seen: float,
+    last_bid: float,
+    trailing_active: bool = False,
+    trailing_stop_price: float | None = None,
+    trailing_activation_price: float | None = None,
+    highest_price: float | None = None,
+    max_profit_pct: float | None = None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE yes_c_shadow_trades
+        SET max_price_seen = ?,
+            last_bid = ?,
+            trailing_active = ?,
+            trailing_stop_price = ?,
+            trailing_activation_price = COALESCE(?, trailing_activation_price),
+            highest_price = ?,
+            max_profit_pct = COALESCE(?, max_profit_pct)
+        WHERE id = ?
+        """,
+        (
+            max_price_seen,
+            last_bid,
+            int(trailing_active),
+            trailing_stop_price,
+            trailing_activation_price,
+            highest_price,
+            max_profit_pct,
+            trade_id,
+        ),
+    )
+
+
+def close_yes_c_shadow_trade(
+    conn: sqlite3.Connection,
+    trade_id: int,
+    *,
+    exit_price: float,
+    exit_reason: str,
+    pnl_percent: float,
+    pnl_usdc: float,
+    holding_time_seconds: float,
+    trailing_activation_price: float | None = None,
+    highest_price: float | None = None,
+    max_profit_pct: float | None = None,
+    realized_profit_pct: float | None = None,
+    profit_left_on_table_pct: float | None = None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE yes_c_shadow_trades
+        SET status = 'closed',
+            exit_price = ?,
+            exit_reason = ?,
+            pnl_percent = ?,
+            pnl_usdc = ?,
+            holding_time_seconds = ?,
+            trailing_activation_price = COALESCE(?, trailing_activation_price),
+            highest_price = COALESCE(?, highest_price),
+            max_profit_pct = COALESCE(?, max_profit_pct),
+            realized_profit_pct = COALESCE(?, realized_profit_pct),
+            profit_left_on_table_pct = COALESCE(?, profit_left_on_table_pct),
+            closed_at = datetime('now')
+        WHERE id = ?
+        """,
+        (
+            exit_price,
+            exit_reason,
+            pnl_percent,
+            pnl_usdc,
+            holding_time_seconds,
+            trailing_activation_price,
+            highest_price,
+            max_profit_pct,
+            realized_profit_pct,
+            profit_left_on_table_pct,
             trade_id,
         ),
     )
@@ -571,8 +993,8 @@ def insert_early_reversion_v3_trade(
         """
         INSERT INTO early_reversion_v3_trades (
             market_slug, window_start_ts, end_ts, side, strategy_name,
-            entry_price, entry_ts, max_price_seen
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            entry_price, entry_ts, max_price_seen, trailing_enabled
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             market_slug,
@@ -583,6 +1005,7 @@ def insert_early_reversion_v3_trade(
             entry_price,
             entry_ts,
             entry_price,
+            int(trailing_enabled_at_entry()),
         ),
     )
     return int(cursor.lastrowid)
@@ -616,14 +1039,34 @@ def update_early_reversion_v3_trade_tracking(
     *,
     max_price_seen: float,
     last_bid: float,
+    trailing_active: bool = False,
+    trailing_stop_price: float | None = None,
+    trailing_activation_price: float | None = None,
+    highest_price: float | None = None,
+    max_profit_pct: float | None = None,
 ) -> None:
     conn.execute(
         """
         UPDATE early_reversion_v3_trades
-        SET max_price_seen = ?, last_bid = ?
+        SET max_price_seen = ?,
+            last_bid = ?,
+            trailing_active = ?,
+            trailing_stop_price = ?,
+            trailing_activation_price = COALESCE(?, trailing_activation_price),
+            highest_price = ?,
+            max_profit_pct = COALESCE(?, max_profit_pct)
         WHERE id = ?
         """,
-        (max_price_seen, last_bid, trade_id),
+        (
+            max_price_seen,
+            last_bid,
+            int(trailing_active),
+            trailing_stop_price,
+            trailing_activation_price,
+            highest_price,
+            max_profit_pct,
+            trade_id,
+        ),
     )
 
 
@@ -637,6 +1080,11 @@ def close_early_reversion_v3_trade(
     pnl_percent: float,
     pnl_usdc: float,
     holding_time_seconds: float,
+    trailing_activation_price: float | None = None,
+    highest_price: float | None = None,
+    max_profit_pct: float | None = None,
+    realized_profit_pct: float | None = None,
+    profit_left_on_table_pct: float | None = None,
 ) -> None:
     conn.execute(
         """
@@ -648,6 +1096,11 @@ def close_early_reversion_v3_trade(
             pnl_percent = ?,
             pnl_usdc = ?,
             holding_time_seconds = ?,
+            trailing_activation_price = COALESCE(?, trailing_activation_price),
+            highest_price = COALESCE(?, highest_price),
+            max_profit_pct = COALESCE(?, max_profit_pct),
+            realized_profit_pct = COALESCE(?, realized_profit_pct),
+            profit_left_on_table_pct = COALESCE(?, profit_left_on_table_pct),
             closed_at = datetime('now')
         WHERE id = ?
         """,
@@ -658,6 +1111,11 @@ def close_early_reversion_v3_trade(
             pnl_percent,
             pnl_usdc,
             holding_time_seconds,
+            trailing_activation_price,
+            highest_price,
+            max_profit_pct,
+            realized_profit_pct,
+            profit_left_on_table_pct,
             trade_id,
         ),
     )
@@ -694,8 +1152,8 @@ def insert_early_reversion_v25_trade(
         """
         INSERT INTO early_reversion_v25_trades (
             market_slug, window_start_ts, end_ts, side, strategy_name,
-            entry_price, entry_ts, max_price_seen
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            entry_price, entry_ts, max_price_seen, trailing_enabled
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             market_slug,
@@ -706,6 +1164,7 @@ def insert_early_reversion_v25_trade(
             entry_price,
             entry_ts,
             entry_price,
+            int(trailing_enabled_at_entry()),
         ),
     )
     return int(cursor.lastrowid)
@@ -739,14 +1198,34 @@ def update_early_reversion_v25_trade_tracking(
     *,
     max_price_seen: float,
     last_bid: float,
+    trailing_active: bool = False,
+    trailing_stop_price: float | None = None,
+    trailing_activation_price: float | None = None,
+    highest_price: float | None = None,
+    max_profit_pct: float | None = None,
 ) -> None:
     conn.execute(
         """
         UPDATE early_reversion_v25_trades
-        SET max_price_seen = ?, last_bid = ?
+        SET max_price_seen = ?,
+            last_bid = ?,
+            trailing_active = ?,
+            trailing_stop_price = ?,
+            trailing_activation_price = COALESCE(?, trailing_activation_price),
+            highest_price = ?,
+            max_profit_pct = COALESCE(?, max_profit_pct)
         WHERE id = ?
         """,
-        (max_price_seen, last_bid, trade_id),
+        (
+            max_price_seen,
+            last_bid,
+            int(trailing_active),
+            trailing_stop_price,
+            trailing_activation_price,
+            highest_price,
+            max_profit_pct,
+            trade_id,
+        ),
     )
 
 
@@ -759,6 +1238,11 @@ def close_early_reversion_v25_trade(
     pnl_percent: float,
     pnl_usdc: float,
     holding_time_seconds: float,
+    trailing_activation_price: float | None = None,
+    highest_price: float | None = None,
+    max_profit_pct: float | None = None,
+    realized_profit_pct: float | None = None,
+    profit_left_on_table_pct: float | None = None,
 ) -> None:
     conn.execute(
         """
@@ -769,6 +1253,11 @@ def close_early_reversion_v25_trade(
             pnl_percent = ?,
             pnl_usdc = ?,
             holding_time_seconds = ?,
+            trailing_activation_price = COALESCE(?, trailing_activation_price),
+            highest_price = COALESCE(?, highest_price),
+            max_profit_pct = COALESCE(?, max_profit_pct),
+            realized_profit_pct = COALESCE(?, realized_profit_pct),
+            profit_left_on_table_pct = COALESCE(?, profit_left_on_table_pct),
             closed_at = datetime('now')
         WHERE id = ?
         """,
@@ -778,6 +1267,11 @@ def close_early_reversion_v25_trade(
             pnl_percent,
             pnl_usdc,
             holding_time_seconds,
+            trailing_activation_price,
+            highest_price,
+            max_profit_pct,
+            realized_profit_pct,
+            profit_left_on_table_pct,
             trade_id,
         ),
     )
@@ -855,6 +1349,336 @@ def update_order_intent_status(
         WHERE idempotency_key = ?
         """,
         (status, clob_order_id, error_message, idempotency_key),
+    )
+
+
+def clear_order_intent_error(conn: sqlite3.Connection, idempotency_key: str) -> None:
+    conn.execute(
+        """
+        UPDATE order_intents
+        SET error_message = NULL,
+            updated_at = datetime('now')
+        WHERE idempotency_key = ?
+        """,
+        (idempotency_key,),
+    )
+
+
+def delete_order_intent(conn: sqlite3.Connection, idempotency_key: str) -> None:
+    conn.execute(
+        "DELETE FROM order_intents WHERE idempotency_key = ?",
+        (idempotency_key,),
+    )
+
+
+def upsert_order_fill_submitted(
+    conn: sqlite3.Connection,
+    *,
+    idempotency_key: str,
+    clob_order_id: str,
+    clob_side: str,
+    token_id: str,
+    submitted_price: float,
+    submitted_shares: float,
+    submitted_notional: float,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO order_fill_audit (
+            idempotency_key,
+            clob_order_id,
+            clob_side,
+            token_id,
+            submitted_price,
+            submitted_shares,
+            submitted_notional
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(idempotency_key) DO UPDATE SET
+            clob_order_id = COALESCE(excluded.clob_order_id, order_fill_audit.clob_order_id),
+            clob_side = excluded.clob_side,
+            token_id = excluded.token_id,
+            submitted_price = excluded.submitted_price,
+            submitted_shares = excluded.submitted_shares,
+            submitted_notional = excluded.submitted_notional,
+            updated_at = datetime('now')
+        """,
+        (
+            idempotency_key,
+            clob_order_id,
+            clob_side,
+            token_id,
+            submitted_price,
+            submitted_shares,
+            submitted_notional,
+        ),
+    )
+
+
+def update_order_fill_audit(
+    conn: sqlite3.Connection,
+    idempotency_key: str,
+    *,
+    fill_price: float | None,
+    fill_shares: float | None,
+    fill_notional: float | None,
+    average_fill_price: float | None,
+    fees: float | None,
+    price_difference: float | None,
+    slippage: float | None,
+    fill_status: str,
+    last_logged_fill_shares: float | None = None,
+    raw_order_json: str | None = None,
+    raw_trades_json: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE order_fill_audit
+        SET fill_price = ?,
+            fill_shares = ?,
+            fill_notional = ?,
+            average_fill_price = ?,
+            fees = ?,
+            price_difference = ?,
+            slippage = ?,
+            fill_status = ?,
+            last_logged_fill_shares = COALESCE(?, last_logged_fill_shares),
+            raw_order_json = COALESCE(?, raw_order_json),
+            raw_trades_json = COALESCE(?, raw_trades_json),
+            updated_at = datetime('now')
+        WHERE idempotency_key = ?
+        """,
+        (
+            fill_price,
+            fill_shares,
+            fill_notional,
+            average_fill_price,
+            fees,
+            price_difference,
+            slippage,
+            fill_status,
+            last_logged_fill_shares,
+            raw_order_json,
+            raw_trades_json,
+            idempotency_key,
+        ),
+    )
+
+
+def get_order_fill_audit(
+    conn: sqlite3.Connection,
+    idempotency_key: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM order_fill_audit WHERE idempotency_key = ?",
+        (idempotency_key,),
+    ).fetchone()
+
+
+def fetch_submitted_orders_pending_fill_audit(
+    conn: sqlite3.Connection,
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT o.*
+        FROM order_intents o
+        LEFT JOIN order_fill_audit f ON f.idempotency_key = o.idempotency_key
+        WHERE o.status = 'submitted'
+          AND o.clob_order_id IS NOT NULL
+          AND o.clob_order_id != ''
+          AND (f.fill_status IS NULL OR f.fill_status IN ('pending', 'partial'))
+        ORDER BY o.updated_at ASC
+        """
+    ).fetchall()
+
+
+def insert_v4_shadow_observation(
+    conn: sqlite3.Connection,
+    *,
+    market_slug: str,
+    window_start_ts: int,
+    timestamp: int,
+    seconds_from_start: int,
+    seconds_left: int,
+    btc_price: float,
+    strike: float | None,
+    delta: float | None,
+    yes_bid: float | None,
+    yes_ask: float | None,
+    no_bid: float | None,
+    no_ask: float | None,
+    trend_score: float | None,
+    trend_side: str | None,
+    spread: float | None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO v4_shadow_observations (
+            market_slug, window_start_ts, timestamp, seconds_from_start,
+            seconds_left, btc_price, strike, delta,
+            yes_bid, yes_ask, no_bid, no_ask,
+            trend_score, trend_side, spread
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            market_slug,
+            window_start_ts,
+            timestamp,
+            seconds_from_start,
+            seconds_left,
+            btc_price,
+            strike,
+            delta,
+            yes_bid,
+            yes_ask,
+            no_bid,
+            no_ask,
+            trend_score,
+            trend_side,
+            spread,
+        ),
+    )
+
+
+def has_v4_shadow_trade(conn: sqlite3.Connection, market_slug: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1 FROM v4_shadow_trades
+        WHERE market_slug = ?
+        LIMIT 1
+        """,
+        (market_slug,),
+    ).fetchone()
+    return row is not None
+
+
+def get_open_v4_shadow_trade(
+    conn: sqlite3.Connection,
+    *,
+    market_slug: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT * FROM v4_shadow_trades
+        WHERE market_slug = ? AND status = 'open'
+        LIMIT 1
+        """,
+        (market_slug,),
+    ).fetchone()
+
+
+def insert_v4_shadow_trade(
+    conn: sqlite3.Connection,
+    *,
+    market_slug: str,
+    window_start_ts: int,
+    end_ts: int,
+    side: str,
+    entry_price: float,
+    entry_ts: int,
+    entry_score: float,
+    entry_probability: float,
+    entry_reason: str,
+) -> int:
+    cursor = conn.execute(
+        """
+        INSERT INTO v4_shadow_trades (
+            market_slug, window_start_ts, end_ts, side,
+            entry_price, entry_ts, entry_score, entry_probability,
+            entry_reason, max_price_seen
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            market_slug,
+            window_start_ts,
+            end_ts,
+            side,
+            entry_price,
+            entry_ts,
+            entry_score,
+            entry_probability,
+            entry_reason,
+            entry_price,
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
+def update_v4_shadow_trade_tracking(
+    conn: sqlite3.Connection,
+    trade_id: int,
+    *,
+    max_price_seen: float,
+    last_bid: float,
+    trailing_active: bool = False,
+    trailing_stop_price: float | None = None,
+    trailing_activation_price: float | None = None,
+    highest_price: float | None = None,
+    max_profit_pct: float | None = None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE v4_shadow_trades
+        SET max_price_seen = ?,
+            last_bid = ?,
+            trailing_active = ?,
+            trailing_stop_price = ?,
+            trailing_activation_price = COALESCE(?, trailing_activation_price),
+            highest_price = ?,
+            max_profit_pct = COALESCE(?, max_profit_pct)
+        WHERE id = ?
+        """,
+        (
+            max_price_seen,
+            last_bid,
+            int(trailing_active),
+            trailing_stop_price,
+            trailing_activation_price,
+            highest_price,
+            max_profit_pct,
+            trade_id,
+        ),
+    )
+
+
+def close_v4_shadow_trade(
+    conn: sqlite3.Connection,
+    trade_id: int,
+    *,
+    exit_price: float,
+    exit_reason: str,
+    holding_time_seconds: float,
+    trailing_activation_price: float | None = None,
+    highest_price: float | None = None,
+    max_profit_pct: float | None = None,
+    realized_profit_pct: float | None = None,
+    profit_left_on_table_pct: float | None = None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE v4_shadow_trades
+        SET status = 'closed',
+            exit_price = ?,
+            exit_reason = ?,
+            holding_time_seconds = ?,
+            trailing_activation_price = COALESCE(?, trailing_activation_price),
+            highest_price = COALESCE(?, highest_price),
+            max_profit_pct = COALESCE(?, max_profit_pct),
+            realized_profit_pct = COALESCE(?, realized_profit_pct),
+            profit_left_on_table_pct = COALESCE(?, profit_left_on_table_pct),
+            closed_at = datetime('now')
+        WHERE id = ?
+        """,
+        (
+            exit_price,
+            exit_reason,
+            holding_time_seconds,
+            trailing_activation_price,
+            highest_price,
+            max_profit_pct,
+            realized_profit_pct,
+            profit_left_on_table_pct,
+            trade_id,
+        ),
     )
 
 

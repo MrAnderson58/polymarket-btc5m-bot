@@ -7,6 +7,8 @@ import sqlite3
 import time
 
 from bot.database import connect, init_db
+from bot.execution import reconcile_unrecorded_entry_intents
+from bot.exit_recovery import reconcile_stuck_exits
 from bot.early_reversion import close_due_early_reversion_trades
 from bot.early_reversion_v2 import close_due_early_reversion_v2_trades
 from bot.early_reversion_v25 import close_due_early_reversion_v25_trades
@@ -56,6 +58,12 @@ def recover_open_trades(conn: sqlite3.Connection, now_ts: int | None = None) -> 
         now_ts = int(time.time())
 
     open_count = count_open_trades(conn)
+    unrecorded = reconcile_unrecorded_entry_intents(conn)
+    if unrecorded:
+        logger.critical(
+            "Recovered %s unrecorded live entry intent(s) into SQLite",
+            unrecorded,
+        )
     if open_count:
         expired_closed = close_expired_open_trades(conn, now_ts)
         if expired_closed:
@@ -64,6 +72,12 @@ def recover_open_trades(conn: sqlite3.Connection, now_ts: int | None = None) -> 
                 expired_closed,
                 count_open_trades(conn),
             )
+    stuck_exits = reconcile_stuck_exits(conn, now_ts)
+    if stuck_exits:
+        logger.warning(
+            "Startup exit recovery reconciled %s stuck open position(s)",
+            stuck_exits,
+        )
     return open_count
 
 

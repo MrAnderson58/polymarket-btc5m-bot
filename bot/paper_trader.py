@@ -104,6 +104,13 @@ def record_virtual_trade(
     def _insert() -> int:
         return insert_virtual_trade(conn, trade)
 
+    logger.info(
+        "ENTRY CREATED | strategy=%s side=%s price=%s size_usdc=%s",
+        f"LATE_{side}",
+        side,
+        entry_ask,
+        TRADE_SIZE_USDC,
+    )
     opened = attempt_entry_open(
         conn,
         EntryOrder(

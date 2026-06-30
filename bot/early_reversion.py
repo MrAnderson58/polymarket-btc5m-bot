@@ -11,6 +11,8 @@ from bot.config import (
     EARLY_REVERSION_POSITION_SIZE_USDC,
     EARLY_REVERSION_WINDOW_SEC,
     ENABLED_STRATEGIES,
+    ER_ENTRY_PRICE_OFFSET,
+    effective_entry_threshold,
 )
 from bot.database import (
     close_early_reversion_trade,
@@ -46,6 +48,21 @@ SIGNALS: tuple[EarlyReversionSignal, ...] = (
 ACTIVE_SIGNALS: tuple[EarlyReversionSignal, ...] = tuple(
     signal for signal in SIGNALS if signal.strategy_name in ENABLED_STRATEGIES
 )
+
+
+def log_er_entry_threshold_config() -> None:
+    seen_thresholds: set[float] = set()
+    for signal in ACTIVE_SIGNALS:
+        if signal.entry_threshold in seen_thresholds:
+            continue
+        seen_thresholds.add(signal.entry_threshold)
+        effective = effective_entry_threshold(signal.entry_threshold)
+        logger.info(
+            "Entry threshold: %.2f\nOffset: %+.2f\nEffective threshold: %.2f",
+            signal.entry_threshold,
+            ER_ENTRY_PRICE_OFFSET,
+            effective,
+        )
 
 
 def _seconds_since_open(market: Btc5mMarket) -> float:
@@ -190,7 +207,8 @@ def _try_open_signals(
             continue
 
         bid, ask = _side_prices(quotes, signal.side)
-        if ask is None or ask > signal.entry_threshold:
+        threshold = effective_entry_threshold(signal.entry_threshold)
+        if ask is None or ask > threshold:
             continue
 
         token_id = market.yes_token_id if signal.side == "YES" else market.no_token_id

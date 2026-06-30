@@ -3,5 +3,9 @@ __pycache__/
 *.py[cod]
 *.db
 data/
+reports/*.md
+reports/*.json
+reports/*.zip
+optimizer_reports/
 .venv/
 venv/

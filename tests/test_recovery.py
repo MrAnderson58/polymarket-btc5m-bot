@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 import time
 import unittest
@@ -39,8 +40,26 @@ class RecoveryTestCase(unittest.TestCase):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.db_path = Path(self._tmpdir.name) / "test.db"
         init_db(self.db_path)
+        self._env_patch = mock.patch.dict(
+            os.environ,
+            {
+                "TRADING_MODE": "paper",
+                "LIVE_EXIT_ENABLED": "false",
+            },
+            clear=False,
+        )
+        self._env_patch.start()
+        import importlib
+        import bot.config as config
+        import bot.execution as execution
+        import bot.early_reversion_v2 as er_v2
+
+        importlib.reload(config)
+        importlib.reload(execution)
+        importlib.reload(er_v2)
 
     def tearDown(self) -> None:
+        self._env_patch.stop()
         self._tmpdir.cleanup()
 
     def _insert_open_v2_trade(

@@ -12,6 +12,7 @@ CHAIN_ID = int(os.getenv("CHAIN_ID", "137"))
 GAMMA_API = os.getenv("GAMMA_API", "https://gamma-api.polymarket.com")
 BINANCE_API = os.getenv("BINANCE_API", "https://api.binance.com")
 BTC_SYMBOL = os.getenv("BTC_SYMBOL", "BTCUSDT")
+BTC_PRICE_CACHE_TTL_SEC = float(os.getenv("BTC_PRICE_CACHE_TTL_SEC", "2.0"))
 
 POLL_INTERVAL_SEC = float(os.getenv("POLL_INTERVAL_SEC", "2"))
 STRATEGY_WINDOW_SEC = int(os.getenv("STRATEGY_WINDOW_SEC", "45"))
@@ -24,10 +25,10 @@ BTC_5M_SLUG_PREFIX = "btc-updown-5m"
 WINDOW_SECONDS = 300
 EARLY_REVERSION_WINDOW_SEC = int(os.getenv("EARLY_REVERSION_WINDOW_SEC", "30"))
 EARLY_REVERSION_POSITION_SIZE_USDC = float(
-    os.getenv("EARLY_REVERSION_POSITION_SIZE_USDC", "1.0")
+    os.getenv("EARLY_REVERSION_POSITION_SIZE_USDC", "2.10")
 )
 
-_DEFAULT_ENABLED_STRATEGIES = "YES_B,YES_C,NO_C"
+_DEFAULT_ENABLED_STRATEGIES = "NO_C"
 
 
 def _parse_enabled_strategies(
@@ -55,12 +56,53 @@ def format_enabled_strategies(strategies: frozenset[str]) -> str:
     return ",".join(combined) if combined else "(none)"
 
 
+def _parse_bool(env_key: str, *, default: bool = False) -> bool:
+    raw = os.getenv(env_key)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 ENABLED_STRATEGIES = _parse_enabled_strategies("ENABLED_STRATEGIES", inherit_from=None)
 ENABLED_STRATEGIES_V2 = _parse_enabled_strategies("ENABLED_STRATEGIES_V2")
 ENABLED_STRATEGIES_V25 = _parse_enabled_strategies("ENABLED_STRATEGIES_V25")
 ENABLED_STRATEGIES_V3 = _parse_enabled_strategies("ENABLED_STRATEGIES_V3")
 
+ENABLE_V1 = _parse_bool("ENABLE_V1", default=False)
+ENABLE_V2 = _parse_bool("ENABLE_V2", default=True)
+ENABLE_V25 = _parse_bool("ENABLE_V25", default=False)
+ENABLE_V3 = _parse_bool("ENABLE_V3", default=False)
+ENABLE_V4_SHADOW = _parse_bool("ENABLE_V4_SHADOW", default=False)
+ENABLE_YES_C_SHADOW = _parse_bool("ENABLE_YES_C_SHADOW", default=True)
+ENABLE_NO_C_FILTER_SHADOW = _parse_bool("ENABLE_NO_C_FILTER_SHADOW", default=True)
+ENABLE_LATE_WINDOW = _parse_bool("ENABLE_LATE_WINDOW", default=False)
+ENABLE_TRAILING_STOP = _parse_bool("ENABLE_TRAILING_STOP", default=True)
+
+_EXIT_MODE_RAW = os.getenv("EXIT_MODE", "trailing").strip().lower()
+if _EXIT_MODE_RAW not in {"fixed", "trailing"}:
+    raise ValueError(
+        f"Invalid EXIT_MODE={_EXIT_MODE_RAW!r}; expected 'fixed' or 'trailing'"
+    )
+EXIT_MODE = _EXIT_MODE_RAW
+
+TRAILING_ACTIVATION_PROFIT = float(
+    os.getenv(
+        "TRAILING_ACTIVATION_PROFIT",
+        os.getenv("TRAIL_ACTIVATION_DELTA", "0.03"),
+    )
+)
+TRAILING_OFFSET = float(
+    os.getenv(
+        "TRAILING_OFFSET",
+        os.getenv("TRAIL_STOP_DELTA", "0.01"),
+    )
+)
+# Backward-compatible aliases
+TRAIL_ACTIVATION_DELTA = TRAILING_ACTIVATION_PROFIT
+TRAIL_STOP_DELTA = TRAILING_OFFSET
+
 ER_V2_ENTRY_WINDOW_SEC = int(os.getenv("ER_V2_ENTRY_WINDOW_SEC", "30"))
+ER_ENTRY_PRICE_OFFSET = float(os.getenv("ER_ENTRY_PRICE_OFFSET", "0"))
 ER_V2_GRACE_PERIOD_SEC = int(os.getenv("ER_V2_GRACE_PERIOD_SEC", "30"))
 ER_V2_TRAILING_STOP_PCT = float(os.getenv("ER_V2_TRAILING_STOP_PCT", "5"))
 ER_V2_STOP_LOSS_PCT = float(os.getenv("ER_V2_STOP_LOSS_PCT", "-10"))
@@ -74,6 +116,14 @@ ER_V3_TRAILING_GRACE_SEC = int(os.getenv("ER_V3_TRAILING_GRACE_SEC", "30"))
 ER_V3_TRAILING_STOP_PCT = float(os.getenv("ER_V3_TRAILING_STOP_PCT", "5"))
 ER_V3_STOP_LOSS_PCT = float(os.getenv("ER_V3_STOP_LOSS_PCT", "-10"))
 ER_V3_TIME_STOP_SEC = int(os.getenv("ER_V3_TIME_STOP_SEC", "90"))
+
+ER_SUMMARY_INTERVAL_SEC = float(os.getenv("ER_SUMMARY_INTERVAL_SEC", "300"))
+
+V4_POLL_INTERVAL_SEC = float(os.getenv("V4_POLL_INTERVAL_SEC", "1"))
+V4_OBSERVE_SECONDS = int(os.getenv("V4_OBSERVE_SECONDS", "120"))
+V4_MIN_PROBABILITY = float(os.getenv("V4_MIN_PROBABILITY", "0.70"))
+V4_MIN_SCORE = float(os.getenv("V4_MIN_SCORE", "8"))
+V4_PULLBACK = float(os.getenv("V4_PULLBACK", "0.02"))
 
 _TRADING_MODE_RAW = os.getenv("TRADING_MODE", "paper").strip().lower()
 VALID_TRADING_MODES = frozenset({"paper", "dry_run", "live"})
@@ -112,3 +162,7 @@ def is_paper_mode() -> bool:
 
 def is_live_exit_enabled() -> bool:
     return LIVE_EXIT_ENABLED
+
+
+def effective_entry_threshold(entry_threshold: float) -> float:
+    return entry_threshold + ER_ENTRY_PRICE_OFFSET

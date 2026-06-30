@@ -242,6 +242,52 @@ class LiveExitTestCase(unittest.TestCase):
             count = conn.execute("SELECT COUNT(*) AS c FROM order_intents WHERE idempotency_key LIKE '%:exit'").fetchone()["c"]
         self.assertEqual(count, 0)
 
+    def test_pending_exit_intent_logs_duplicate_once(self) -> None:
+        exit_key = "v2:NO_C:btc-updown-5m-test:NO:exit"
+        exit_order = ExitOrder(
+            strategy_version="v2",
+            strategy_name="NO_C",
+            market_slug="btc-updown-5m-test",
+            side="NO",
+            token_id="token-no",
+            price=0.35,
+            shares=2.5,
+            exit_reason="STOP_LOSS",
+        )
+        with connect(self.db_path) as conn:
+            self._seed_open_trade(conn)
+            insert_order_intent(
+                conn,
+                idempotency_key=exit_key,
+                trading_mode="live",
+                strategy_version="v2",
+                strategy_name="NO_C",
+                market_slug="btc-updown-5m-test",
+                side="NO",
+                token_id="token-no",
+                price=0.35,
+                size_usdc=0.875,
+                shares=2.5,
+                status="pending",
+            )
+            conn.commit()
+            self.execution._logged_exit_idempotency_skips.clear()
+
+            with self.assertLogs("bot.execution", level="INFO") as captured:
+                self.assertFalse(
+                    self.execution.attempt_exit_close(conn, exit_order, close_trade=lambda: None)
+                )
+                self.assertFalse(
+                    self.execution.attempt_exit_close(conn, exit_order, close_trade=lambda: None)
+                )
+
+        duplicate_lines = [
+            line
+            for line in captured.output
+            if "Duplicate exit skipped (idempotency)" in line
+        ]
+        self.assertEqual(len(duplicate_lines), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
