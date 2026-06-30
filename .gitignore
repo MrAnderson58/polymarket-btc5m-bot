@@ -9,3 +9,24 @@ reports/*.zip
 optimizer_reports/
 .venv/
 venv/
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# SQLite
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+
+# Generated reports
+reports/**/*.zip
+reports/**/*.json
+reports/**/*.md
