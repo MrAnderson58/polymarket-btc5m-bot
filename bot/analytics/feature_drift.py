@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import sqlite3
 from typing import Any
 
 from bot.report.analytics import ENTRY_PRICES, _metrics, trade_pnl
 
 
 def build_feature_drift(
-    conn: sqlite3.Connection,
-    closed: list[sqlite3.Row],
+    closed: list[Any],
     report: dict[str, Any],
 ) -> dict[str, Any]:
-    del conn
     if len(closed) < 40:
         return {"alerts": [], "status": "insufficient_data"}
 

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import sqlite3
 from typing import Any
 
+from bot.analytics.intelligence_context import IntelligenceContext
 from bot.er_btc_direction_stats import _exit_ts
-from bot.report.analytics import SETTLEMENT_BID, _metrics, _pnl_pct, fetch_bid_series, trade_pnl
+from bot.report.analytics import SETTLEMENT_BID, _metrics, _pnl_pct, trade_pnl
 
 RECOVERY_WINDOWS = (5, 10, 20, 30, 45, 60, 90, 120)
 HOLD_SIM_SEC = (15, 30, 45, 90)
@@ -24,8 +24,9 @@ def _max_bid_after(
 
 
 def build_recovery_analyzer(
-    conn: sqlite3.Connection,
-    closed: list[sqlite3.Row],
+    closed: list[Any],
+    *,
+    ctx: IntelligenceContext,
 ) -> dict[str, Any]:
     stops = [t for t in closed if t["exit_reason"] == "STOP_LOSS"]
     trade_rows: list[dict[str, Any]] = []
@@ -35,10 +36,9 @@ def build_recovery_analyzer(
         entry = float(trade["entry_price"])
         exit_ts = _exit_ts(trade)
         end_ts = int(trade["end_ts"])
-        series = fetch_bid_series(
-            conn,
-            market_slug=trade["market_slug"],
-            side=trade["side"],
+        series = ctx.cache.bid_series(
+            market_slug=str(trade["market_slug"]),
+            side=str(trade["side"]),
             start_ts=exit_ts,
             end_ts=end_ts,
         )

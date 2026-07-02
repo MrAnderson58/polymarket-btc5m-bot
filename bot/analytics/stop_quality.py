@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from typing import Any
 
 from bot.config import ER_V2_STOP_LOSS_PCT
@@ -27,11 +26,7 @@ def _cause(excess_loss: float, holding_sec: float) -> str:
     return "Within tolerance"
 
 
-def build_stop_quality(
-    conn: sqlite3.Connection,
-    closed: list[sqlite3.Row],
-) -> dict[str, Any]:
-    del conn
+def build_stop_quality(closed: list[Any]) -> dict[str, Any]:
     stop_pct = abs(ER_V2_STOP_LOSS_PCT)
     stops = [t for t in closed if t["exit_reason"] == "STOP_LOSS"]
     items: list[dict[str, Any]] = []

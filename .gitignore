@@ -7,6 +7,15 @@ reports/*.md
 reports/*.json
 reports/*.zip
 optimizer_reports/
+ai_agent_reports/
+ai_journal/
+trading_brain_reports/
+scientist_reports/
+strategy_review_reports/
+optimizer_cache/
+strategy_review_cache/
+intelligence_cache/
+data/ai_agent_state.json
 .venv/
 venv/
 # macOS

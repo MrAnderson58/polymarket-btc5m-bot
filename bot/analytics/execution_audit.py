@@ -2,54 +2,19 @@
 
 from __future__ import annotations
 
-import sqlite3
 from typing import Any
 
+from bot.analytics.intelligence_context import IntelligenceContext
 from bot.config import ER_V2_STOP_LOSS_PCT
 from bot.er_btc_direction_stats import _exit_ts
-from bot.report.analytics import _pnl_pct, fetch_bid_series, trade_pnl
+from bot.report.analytics import _pnl_pct, trade_pnl
 
 
-def _fill_slippage(conn: sqlite3.Connection, market_slug: str) -> float | None:
-    row = conn.execute(
-        """
-        SELECT slippage FROM order_fill_audit
-        WHERE idempotency_key LIKE ?
-          AND fill_status IN ('filled', 'partial')
-        ORDER BY id DESC LIMIT 1
-        """,
-        (f"%{market_slug}%",),
-    ).fetchone()
-    return float(row["slippage"]) if row and row["slippage"] is not None else None
-
-
-def _liquidity_ok(conn: sqlite3.Connection, trade: sqlite3.Row) -> bool:
-    prefix = "yes" if trade["side"] == "YES" else "no"
-    row = conn.execute(
-        f"""
-        SELECT {prefix}_bid AS bid, {prefix}_ask AS ask
-        FROM market_checks
-        WHERE market_slug = ?
-        ORDER BY abs(cast(strftime('%s', checked_at) AS integer) - ?) ASC
-        LIMIT 1
-        """,
-        (trade["market_slug"], int(trade["entry_ts"])),
-    ).fetchone()
-    if row is None or row["bid"] is None or row["ask"] is None:
-        return False
-    spread = float(row["ask"]) - float(row["bid"])
-    return spread <= 0.025
-
-
-def _best_alt_exit(
-    conn: sqlite3.Connection,
-    trade: sqlite3.Row,
-) -> tuple[float | None, float | None]:
+def _best_alt_exit(trade: Any, ctx: IntelligenceContext) -> tuple[float | None, float | None]:
     entry = float(trade["entry_price"])
-    series = fetch_bid_series(
-        conn,
-        market_slug=trade["market_slug"],
-        side=trade["side"],
+    series = ctx.cache.bid_series(
+        market_slug=str(trade["market_slug"]),
+        side=str(trade["side"]),
         start_ts=int(trade["entry_ts"]),
         end_ts=_exit_ts(trade),
     )
@@ -59,9 +24,24 @@ def _best_alt_exit(
     return best_bid, _pnl_pct(entry, best_bid)
 
 
+def _liquidity_ok(trade: Any, ctx: IntelligenceContext) -> bool:
+    bid, ask, _dist, _sec = ctx.cache.quote_at_entry(
+        market_slug=str(trade["market_slug"]),
+        side=str(trade["side"]),
+        entry_ts=int(trade["entry_ts"]),
+    )
+    if bid is None or ask is None:
+        feat = ctx.feature_by_trade_id.get(int(trade["id"]))
+        if feat and feat.get("spread") is not None:
+            return float(feat["spread"]) <= 0.025
+        return False
+    return float(ask) - float(bid) <= 0.025
+
+
 def build_execution_audit(
-    conn: sqlite3.Connection,
-    closed: list[sqlite3.Row],
+    closed: list[Any],
+    *,
+    ctx: IntelligenceContext,
 ) -> dict[str, Any]:
     stop_pct = ER_V2_STOP_LOSS_PCT
     trades_out: list[dict[str, Any]] = []
@@ -80,8 +60,9 @@ def build_execution_audit(
         stop_should = reason == "STOP_LOSS" or (
             reason != "TRAILING_STOP" and exit_price <= expected_stop_price + 1e-6
         )
-        slippage = _fill_slippage(conn, trade["market_slug"])
-        best_bid, best_pnl = _best_alt_exit(conn, trade)
+        slug = str(trade["market_slug"])
+        slippage = ctx.slippage_by_slug.get(slug)
+        best_bid, best_pnl = _best_alt_exit(trade, ctx)
 
         exec_component = 0.0
         if reason == "STOP_LOSS" and actual_pnl < expected_stop_pnl - 0.5:
@@ -110,7 +91,7 @@ def build_execution_audit(
                 "slippage_pct": round(slippage, 3) if slippage is not None else None,
                 "execution_loss_pct": round(exec_component, 2),
                 "best_possible_pnl_pct": round(best_pnl, 2) if best_pnl is not None else None,
-                "liquidity_ok": _liquidity_ok(conn, trade),
+                "liquidity_ok": _liquidity_ok(trade, ctx),
             }
         )
 

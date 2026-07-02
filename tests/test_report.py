@@ -8,6 +8,7 @@ import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 from bot.database import (
     close_early_reversion_v2_trade,
@@ -79,10 +80,44 @@ class ReportSmokeTestCase(unittest.TestCase):
         )
 
     def test_build_report_and_write_files(self) -> None:
-        with connect(self.db_path) as conn:
-            self._seed_closed_trade(conn)
-            conn.commit()
-            report = build_report(conn)
+        from bot.optimizer.cache import save_optimizer_cache
+        from bot.strategy_review.cache import save_strategy_review_cache
+
+        cache_dir = Path(self._tmpdir.name) / "optimizer_cache"
+        review_dir = Path(self._tmpdir.name) / "strategy_review_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        review_dir.mkdir(parents=True, exist_ok=True)
+
+        default_opt = {
+            "meta": {"generated_at": "test"},
+            "parameter_optimizer": {
+                "current": {"entry": 0.40, "stop_pct": -10, "trailing_activation": 0.03},
+                "optimal": {"entry": 0.39, "stop_pct": -15, "trailing_activation": 0.03},
+                "expected_improvement_pct": 5.0,
+                "entry_significance": [],
+            },
+            "walk_forward": {"rows": [], "trend": "insufficient_data"},
+            "heatmaps": {},
+            "sensitivity_analysis": {"parameters": []},
+        }
+        with mock.patch("bot.optimizer.cache.CACHE_DIR", cache_dir):
+            with mock.patch("bot.optimizer.cache.RESULTS_PATH", cache_dir / "optimizer_results.json"):
+                with mock.patch("bot.strategy_review.cache.CACHE_DIR", review_dir):
+                    with mock.patch(
+                        "bot.strategy_review.cache.RESULTS_PATH",
+                        review_dir / "strategy_review_results.json",
+                    ):
+                        save_optimizer_cache(default_opt)
+                        save_strategy_review_cache(
+                            {
+                                "version": "1.0",
+                                "final_verdict": {"decision": "KEEP CURRENT SETTINGS"},
+                            }
+                        )
+                        with connect(self.db_path) as conn:
+                            self._seed_closed_trade(conn)
+                            conn.commit()
+                            report = build_report(conn, read_only=True)
 
         self.assertIn("configuration", report)
         self.assertIn("recommendations", report)
@@ -93,6 +128,10 @@ class ReportSmokeTestCase(unittest.TestCase):
         self.assertIn("AI Trading Analytics Report v4", md)
         self.assertIn("EXECUTION AUDIT", md)
         self.assertIn("AI RESEARCH NOTEBOOK", md)
+        self.assertIn("AI INTELLIGENCE", md)
+        self.assertIn("TRADING BRAIN", md)
+        self.assertIn("AI SCIENTIST", md)
+        self.assertIn("STRATEGY REVIEW", md)
         self.assertIn("PARAMETER STABILITY SCORE", md)
         self.assertIn("SAFE TO CHANGE", md)
         self.assertIn("AI DECISION ENGINE", md)
@@ -104,6 +143,11 @@ class ReportSmokeTestCase(unittest.TestCase):
         self.assertIn("ai_decision", report)
         self.assertIn("execution_audit", report)
         self.assertIn("research_notebook", report)
+        self.assertIn("ai_agent", report)
+        self.assertIn("intelligence", report["ai_agent"])
+        self.assertIn("trading_brain", report)
+        self.assertIn("scientist", report)
+        self.assertIn("strategy_review", report)
         self.assertIn("safe_to_change", report)
         self.assertIn("final_action_plan", report)
 
@@ -111,6 +155,38 @@ class ReportSmokeTestCase(unittest.TestCase):
         md_path, json_path = write_report_files(report, reports_dir=out_dir)
         self.assertTrue(md_path.exists())
         self.assertTrue(json_path.exists())
+
+    def test_report_without_optimizer_cache(self) -> None:
+        from bot.strategy_review.cache import save_strategy_review_cache
+
+        review_dir = Path(self._tmpdir.name) / "strategy_review_cache"
+        review_dir.mkdir(parents=True, exist_ok=True)
+        cache_dir = Path(self._tmpdir.name) / "optimizer_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        with mock.patch("bot.optimizer.cache.CACHE_DIR", cache_dir):
+            with mock.patch("bot.optimizer.cache.RESULTS_PATH", cache_dir / "missing.json"):
+                with mock.patch("bot.strategy_review.cache.CACHE_DIR", review_dir):
+                    with mock.patch(
+                        "bot.strategy_review.cache.RESULTS_PATH",
+                        review_dir / "strategy_review_results.json",
+                    ):
+                        save_strategy_review_cache(
+                            {
+                                "version": "1.0",
+                                "final_verdict": {"decision": "KEEP CURRENT SETTINGS"},
+                            }
+                        )
+                        with connect(self.db_path) as conn:
+                            self._seed_closed_trade(conn)
+                            conn.commit()
+                            report = build_report(conn, read_only=True)
+
+        self.assertFalse(report.get("optimizer_cache_available", True))
+        self.assertIn("optimizer_cache_note", report)
+        md = render_markdown(report)
+        self.assertIn("Optimizer cache unavailable", md)
+        self.assertIn("python -m bot.daily", md)
 
 
 if __name__ == "__main__":

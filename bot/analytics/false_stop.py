@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-import sqlite3
 import statistics
 from typing import Any
 
+from bot.analytics.intelligence_context import IntelligenceContext
 from bot.er_btc_direction_stats import _exit_ts
-from bot.report.analytics import SETTLEMENT_BID, fetch_bid_series
+from bot.report.analytics import SETTLEMENT_BID
 
 
 def build_false_stop_detector(
-    conn: sqlite3.Connection,
-    closed: list[sqlite3.Row],
+    closed: list[Any],
+    *,
+    ctx: IntelligenceContext,
 ) -> dict[str, Any]:
     stops = [t for t in closed if t["exit_reason"] == "STOP_LOSS"]
     false_stops: list[dict[str, Any]] = []
@@ -27,10 +28,9 @@ def build_false_stop_detector(
         entry = float(trade["entry_price"])
         exit_ts = _exit_ts(trade)
         holding = float(trade["holding_time_seconds"] or 0)
-        series = fetch_bid_series(
-            conn,
-            market_slug=trade["market_slug"],
-            side=trade["side"],
+        series = ctx.cache.bid_series(
+            market_slug=str(trade["market_slug"]),
+            side=str(trade["side"]),
             start_ts=exit_ts,
             end_ts=exit_ts + 120,
         )

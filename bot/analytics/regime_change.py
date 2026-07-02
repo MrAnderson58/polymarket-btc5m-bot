@@ -2,29 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
 import statistics
 from typing import Any
 
-from bot.er_btc_direction_stats import _nearest_btc_price
 from bot.report.analytics import trade_pnl
 
 
-def _trade_features(conn: sqlite3.Connection, trade: sqlite3.Row) -> tuple[float, float, float] | None:
-    entry_ts = int(trade["entry_ts"])
-    slug = trade["market_slug"]
-    btc = _nearest_btc_price(conn, market_slug=slug, target_ts=entry_ts)
-    if btc is None:
-        return None
-    entry = float(trade["entry_price"])
-    hold = float(trade["holding_time_seconds"] or 0)
-    return entry, hold, btc
-
-
-def build_regime_change_detector(
-    conn: sqlite3.Connection,
-    closed: list[sqlite3.Row],
-) -> dict[str, Any]:
+def build_regime_change_detector(closed: list[Any]) -> dict[str, Any]:
     if len(closed) < 400:
         return {
             "changed": False,
@@ -35,12 +19,11 @@ def build_regime_change_detector(
     recent = closed[-300:]
     baseline = closed[-1300:-300] if len(closed) >= 1300 else closed[:-300]
 
-    def _means(trades: list[sqlite3.Row]) -> dict[str, float]:
-        feats = [_trade_features(conn, t) for t in trades]
-        feats = [f for f in feats if f is not None]
-        if not feats:
+    def _means(trades: list[Any]) -> dict[str, float]:
+        if not trades:
             return {}
-        entries, holds, _ = zip(*feats)
+        entries = [float(t["entry_price"]) for t in trades]
+        holds = [float(t["holding_time_seconds"] or 0) for t in trades]
         pnls = [trade_pnl(t) for t in trades]
         return {
             "avg_entry": statistics.mean(entries),
@@ -51,7 +34,7 @@ def build_regime_change_detector(
     base_m = _means(baseline)
     rec_m = _means(recent)
     if not base_m or not rec_m:
-        return {"changed": False, "level": "LOW", "message": "Insufficient market check data"}
+        return {"changed": False, "level": "LOW", "message": "Insufficient trade data"}
 
     shifts = []
     for key in ("avg_entry", "avg_hold", "avg_pnl"):

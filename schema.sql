@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS market_checks (
 
 CREATE INDEX IF NOT EXISTS idx_market_checks_slug ON market_checks (market_slug);
 CREATE INDEX IF NOT EXISTS idx_market_checks_checked_at ON market_checks (checked_at);
+CREATE INDEX IF NOT EXISTS idx_market_checks_slug_checked_at ON market_checks (market_slug, checked_at);
 
 CREATE TABLE IF NOT EXISTS no_c_filter_shadow_counters (
     lookback_sec INTEGER NOT NULL,
@@ -157,6 +158,12 @@ CREATE INDEX IF NOT EXISTS idx_early_reversion_v2_trades_status
     ON early_reversion_v2_trades (status);
 CREATE INDEX IF NOT EXISTS idx_early_reversion_v2_trades_market_slug
     ON early_reversion_v2_trades (market_slug);
+CREATE INDEX IF NOT EXISTS idx_er_v2_entry_ts
+    ON early_reversion_v2_trades (entry_ts);
+CREATE INDEX IF NOT EXISTS idx_er_v2_entry_price
+    ON early_reversion_v2_trades (entry_price);
+CREATE INDEX IF NOT EXISTS idx_er_v2_status_entry_ts
+    ON early_reversion_v2_trades (status, entry_ts);
 
 CREATE TABLE IF NOT EXISTS yes_c_shadow_trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -494,3 +501,173 @@ CREATE TABLE IF NOT EXISTS trade_features (
 
 CREATE INDEX IF NOT EXISTS idx_trade_features_strategy
     ON trade_features (strategy_name, entry_ts);
+CREATE INDEX IF NOT EXISTS idx_trade_features_trade
+    ON trade_features (trade_id, source_table);
+
+CREATE TABLE IF NOT EXISTS ai_features (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id INTEGER NOT NULL,
+    source_table TEXT NOT NULL DEFAULT 'early_reversion_v2_trades',
+    market_slug TEXT NOT NULL,
+    strategy_name TEXT NOT NULL,
+    side TEXT NOT NULL,
+    entry_ts INTEGER NOT NULL,
+    entry_price REAL NOT NULL,
+    exit_price REAL,
+    -- market parameters
+    seconds_open REAL,
+    spread REAL,
+    ask REAL,
+    bid REAL,
+    distance_to_strike REAL,
+    btc_move_5s REAL,
+    btc_move_10s REAL,
+    btc_move_15s REAL,
+    btc_move_20s REAL,
+    btc_move_30s REAL,
+    btc_move_45s REAL,
+    btc_move_60s REAL,
+    btc_move_90s REAL,
+    volatility_15s REAL,
+    volatility_30s REAL,
+    volatility_60s REAL,
+    regime_label TEXT,
+    -- strategy parameters
+    stop_loss_pct REAL,
+    trailing_activation REAL,
+    trailing_distance REAL,
+    time_stop_sec REAL,
+    entry_threshold REAL,
+    position_size_usdc REAL,
+    -- computed features
+    mfe REAL,
+    mae REAL,
+    holding_time REAL,
+    features_json TEXT,
+    -- agent output (observe-only; does not affect trading)
+    ai_score REAL NOT NULL,
+    decision TEXT NOT NULL,
+    observe_mode INTEGER NOT NULL DEFAULT 1,
+    -- outcome
+    outcome TEXT,
+    pnl REAL,
+    pnl_usdc REAL,
+    exit_reason TEXT,
+    recorded_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (trade_id, source_table)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_features_decision
+    ON ai_features (decision, entry_ts);
+CREATE INDEX IF NOT EXISTS idx_ai_features_score
+    ON ai_features (ai_score);
+
+CREATE TABLE IF NOT EXISTS ai_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id INTEGER NOT NULL,
+    source_table TEXT NOT NULL DEFAULT 'early_reversion_v2_trades',
+    score REAL NOT NULL,
+    confidence REAL NOT NULL,
+    decision TEXT NOT NULL,
+    similar_count INTEGER NOT NULL DEFAULT 0,
+    historical_pf REAL,
+    historical_wr REAL,
+    avg_pnl REAL,
+    counterfactual_result TEXT,
+    explanation_json TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (trade_id, source_table)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_decisions_decision
+    ON ai_decisions (decision, created_at);
+
+CREATE TABLE IF NOT EXISTS brain_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    ref_key TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (category, ref_key)
+);
+
+CREATE TABLE IF NOT EXISTS brain_knowledge (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    feature TEXT NOT NULL,
+    condition_text TEXT NOT NULL,
+    outcome_metric TEXT NOT NULL,
+    effect_value REAL NOT NULL,
+    causal_direction TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    sample_n INTEGER NOT NULL,
+    built_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_brain_knowledge_feature
+    ON brain_knowledge (feature, confidence DESC);
+
+CREATE TABLE IF NOT EXISTS brain_trade_context (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id INTEGER NOT NULL,
+    source_table TEXT NOT NULL DEFAULT 'early_reversion_v2_trades',
+    decision_context_json TEXT NOT NULL,
+    explainability_json TEXT NOT NULL,
+    similar_stats_json TEXT,
+    knowledge_refs_json TEXT,
+    built_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (trade_id, source_table)
+);
+
+CREATE TABLE IF NOT EXISTS brain_learning_state (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS scientist_hypotheses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    source TEXT NOT NULL,
+    sample_n INTEGER NOT NULL,
+    confidence REAL NOT NULL,
+    expected_improvement REAL,
+    expected_pf REAL,
+    expected_wr REAL,
+    hypothesis_type TEXT NOT NULL,
+    params_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS scientist_experiments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hypothesis_id INTEGER NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'WAITING',
+    priority TEXT NOT NULL DEFAULT 'LOW',
+    confidence REAL NOT NULL,
+    expected_pf REAL,
+    expected_wr REAL,
+    risk_level TEXT,
+    validation_json TEXT,
+    ranking_score REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (hypothesis_id) REFERENCES scientist_hypotheses(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_scientist_experiments_status
+    ON scientist_experiments (status, ranking_score DESC);
+
+CREATE TABLE IF NOT EXISTS scientist_patterns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern_type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    feature TEXT,
+    effect_json TEXT NOT NULL,
+    sample_n INTEGER NOT NULL,
+    confidence REAL NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (pattern_type, description)
+);

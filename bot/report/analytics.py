@@ -5,7 +5,10 @@ from __future__ import annotations
 import sqlite3
 import statistics
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from bot.perf.market_cache import MarketDataCache
 
 from bot.config import (
     POLL_INTERVAL_SEC,
@@ -14,7 +17,6 @@ from bot.config import (
 from bot.er_btc_direction_stats import (
     BTC_FLAT_THRESHOLD_USD,
     _exit_ts,
-    _nearest_btc_price,
 )
 from bot.er_stats import (
     STRATEGY_NAMES,
@@ -27,9 +29,7 @@ from bot.no_c_btc_filter import (
     BTC_MOVE_STRICT_USD,
     NO_C_NORMAL_THRESHOLD,
     NO_C_STRICT_THRESHOLD,
-    compute_btc_move_30s,
 )
-from bot.no_c_filter_shadow import _btc_price_at
 
 V2_TABLE = "early_reversion_v2_trades"
 ENTRY_PRICES = [round(x * 0.01, 2) for x in range(34, 41)]
@@ -288,17 +288,21 @@ def build_trailing_simulation(
 
 
 def build_btc_filter_analysis(
-    conn: sqlite3.Connection,
     closed: list[sqlite3.Row],
+    *,
+    cache: MarketDataCache,
+    feature_by_trade_id: dict[int, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     no_c = [t for t in closed if t["strategy_name"] == "NO_C"]
     bucket_pnls: dict[str, list[float]] = {b[0]: [] for b in BTC_BUCKETS}
     for trade in no_c:
-        entry_ts = int(trade["entry_ts"])
-        current_btc = _btc_price_at(conn, entry_ts)
-        if current_btc is None:
-            continue
-        move = compute_btc_move_30s(conn, current_btc=current_btc, now_ts=entry_ts)
+        move = None
+        if feature_by_trade_id is not None:
+            feat = feature_by_trade_id.get(int(trade["id"]))
+            if feat and feat.get("btc_move_30s") is not None:
+                move = float(feat["btc_move_30s"])
+        if move is None:
+            move = cache.btc_move_at(int(trade["entry_ts"]), 30)
         if move is None:
             continue
         bucket_pnls[_btc_bucket(move)].append(trade_pnl(trade))
@@ -332,32 +336,16 @@ def build_holding_time_analysis(closed: list[sqlite3.Row]) -> dict[str, Any]:
 
 
 def build_mae_mfe(
-    conn: sqlite3.Connection,
     closed: list[sqlite3.Row],
+    *,
+    cache: MarketDataCache,
 ) -> dict[str, Any]:
     maes: list[float] = []
     mfes: list[float] = []
     for trade in closed:
-        entry = float(trade["entry_price"])
-        exit_ts = _exit_ts(trade)
-        series = fetch_bid_series(
-            conn,
-            market_slug=trade["market_slug"],
-            side=trade["side"],
-            start_ts=int(trade["entry_ts"]),
-            end_ts=exit_ts,
-        )
-        if series:
-            bids = [b for _, b in series]
-            mfe = (max(bids) - entry) / entry * 100
-            mae = (min(bids) - entry) / entry * 100
-        else:
-            peak = trade["max_price_seen"]
-            if peak is not None:
-                mfe = (float(peak) - entry) / entry * 100
-                mae = trade_pnl(trade)
-            else:
-                continue
+        mfe, mae = cache.mfe_mae(trade)
+        if mfe is None or mae is None:
+            continue
         mfes.append(mfe)
         maes.append(mae)
 
@@ -376,8 +364,9 @@ def build_mae_mfe(
 
 
 def build_market_regime(
-    conn: sqlite3.Connection,
     closed: list[sqlite3.Row],
+    *,
+    cache: MarketDataCache,
 ) -> dict[str, Any]:
     regimes: dict[str, list[float]] = {
         "Trend Up": [],
@@ -389,9 +378,9 @@ def build_market_regime(
     for trade in closed:
         entry_ts = int(trade["entry_ts"])
         exit_ts = _exit_ts(trade)
-        slug = trade["market_slug"]
-        btc_entry = _nearest_btc_price(conn, market_slug=slug, target_ts=entry_ts)
-        btc_exit = _nearest_btc_price(conn, market_slug=slug, target_ts=exit_ts)
+        slug = str(trade["market_slug"])
+        btc_entry = cache.slug_btc_price_at(slug, entry_ts)
+        btc_exit = cache.slug_btc_price_at(slug, exit_ts)
         if btc_entry is None or btc_exit is None:
             continue
         move = btc_exit - btc_entry

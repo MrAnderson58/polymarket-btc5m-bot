@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from bot.config import BASE_DIR
+from bot.strategy_review.render import render_strategy_review_section
 
 
 def _json_default(value: Any) -> Any:
@@ -70,6 +71,16 @@ def render_markdown(report: dict[str, Any]) -> str:
         "> Trading Intelligence Engine — read-only. Trading logic is not modified.",
         "",
     ]
+
+    cache_note = report.get("optimizer_cache_note") or report.get("meta", {}).get(
+        "optimizer_cache_note"
+    )
+    if cache_note:
+        lines += ["---", "", cache_note, "", "---", ""]
+
+    intel_note = report.get("intelligence_cache_note")
+    if intel_note and intel_note != cache_note:
+        lines += ["---", "", intel_note, "", "---", ""]
 
     cfg = report["configuration"]
     lines += _h2("1. BOT CONFIGURATION")
@@ -245,12 +256,22 @@ def render_markdown(report: dict[str, Any]) -> str:
 
     lines += _h2("18. WALK FORWARD")
     wf = report["walk_forward"]
-    for row in wf["rows"]:
-        lines.append(
-            f"- **{row['label']}**: WR {row['win_rate']:.0%}, Avg {row['avg_pnl']:+.2f}%, "
-            f"PF {row['profit_factor']:.2f}, Net {row['net_profit']:+.1f}%"
+    for row in wf.get("rows", []):
+        label = row.get("label") or (
+            f"Train {row.get('train_size', '?')} → Test {row.get('test_size', '?')}"
         )
-    lines.append(f"\n**Trend:** {wf['trend']}")
+        if row.get("win_rate") is not None:
+            lines.append(
+                f"- **{label}**: WR {row['win_rate']:.0%}, Avg {row.get('avg_pnl', 0):+.2f}%, "
+                f"PF {row.get('profit_factor', 0):.2f}, Net {row.get('net_profit', 0):+.1f}%"
+            )
+        else:
+            lines.append(
+                f"- **{label}**: Test Avg {row.get('test_avg_pnl', row.get('avg_pnl', 0)):+.2f}%, "
+                f"Test PF {row.get('test_pf', row.get('profit_factor', 0)):.2f}, "
+                f"Generalizes: {'yes' if row.get('generalizes') else 'no'}"
+            )
+    lines.append(f"\n**Trend:** {wf.get('trend', 'insufficient_data')}")
 
     lines += _h2("19. AI RECOMMENDATIONS")
     for rec in report["recommendations"]:
@@ -456,6 +477,158 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"{i}. {f['finding']} (confidence {f['confidence_pct']:.0f}%)")
         if f.get("hypothesis"):
             lines.append(f"   → Hypothesis: {f['hypothesis']}")
+
+    lines += _h2("41. AI AGENT (observe-only)")
+    agent = report.get("ai_agent", {})
+    lines.append(f"_{agent.get('disclaimer', '')}_")
+    lines.append(f"Mode: **{agent.get('meta', {}).get('mode', 'observe_only')}** | "
+                 f"Signals: {agent.get('meta', {}).get('signals_recorded', 0)}")
+    lines.append("\n**AI Score distribution**")
+    for b in agent.get("score_distribution", []):
+        bar = "█" * min(20, b["count"])
+        lines.append(f"- {b['bucket']}: {bar} ({b['count']})")
+    dec = agent.get("decisions", {})
+    lines.append(
+        f"\n**Decisions (shadow):** ALLOW {dec.get('ALLOW', 0)} | "
+        f"SKIP {dec.get('SKIP', 0)} | SHADOW {dec.get('SHADOW', 0)}"
+    )
+    dq = agent.get("decision_quality", {})
+    for key in ("allow", "skip", "shadow"):
+        s = dq.get(key, {})
+        if s.get("trades"):
+            lines.append(
+                f"- {key.upper()}: {s['trades']} trades, WR {s['win_rate']:.0%}, "
+                f"Avg {s['avg_pnl']:+.2f}%"
+            )
+    if dq.get("counterfactual_edge_pct"):
+        lines.append(
+            f"- Counterfactual SKIP edge vs ALLOW: {dq['counterfactual_edge_pct']:+.2f}% avg"
+        )
+    lines.append("\n**Patterns**")
+    for p in agent.get("patterns", [])[:5]:
+        lines.append(
+            f"- {p['pattern']} (n={p['trades']}, conf {p['confidence_pct']:.0f}%)"
+        )
+    lines.append("\n**Shadow experiment recommendations**")
+    for rec in agent.get("shadow_recommendations", []):
+        lines.append(f"- {rec}")
+    lines.append("\n**ML models (prepared, inactive in v1)**")
+    for m in agent.get("models", []):
+        status = "active" if m.get("active_in_v1") else "standby"
+        avail = "yes" if m.get("available") else "no"
+        lines.append(f"- {m['name']}: {status} (installed: {avail})")
+
+    intel = agent.get("intelligence", {})
+    lines += _h2("42. AI INTELLIGENCE")
+    lines.append(
+        f"- Average AI Score: **{intel.get('average_ai_score', 0)}** | "
+        f"Average Confidence: **{intel.get('average_confidence', 0)}%**"
+    )
+    lines.append("\n**Top Reasons**")
+    for r in intel.get("top_reasons", [])[:5]:
+        lines.append(f"- {r['reason']} ({r['count']}x)")
+    tsp = intel.get("top_similar_pattern")
+    if tsp:
+        lines.append(
+            f"\n**Top Similar Pattern:** trade #{tsp.get('trade_id')} "
+            f"(n={tsp.get('similar_count')}, PF {tsp.get('historical_pf')})"
+        )
+    cm = intel.get("counterfactual_matrix", {})
+    matrix = cm.get("matrix", {})
+    lines.append(
+        f"\n**Counterfactual Matrix:** TP {matrix.get('TP', 0)} | "
+        f"FP {matrix.get('FP', 0)} | TN {matrix.get('TN', 0)} | FN {matrix.get('FN', 0)}"
+    )
+    lines.append(
+        f"- False Allow: **{intel.get('false_allow_pct', 0):.0%}** | "
+        f"False Skip: **{intel.get('false_skip_pct', 0):.0%}**"
+    )
+    if intel.get("best_regime"):
+        lines.append(
+            f"- Best regime: **{intel['best_regime']}** | "
+            f"Worst: **{intel.get('worst_regime', 'n/a')}**"
+        )
+    trend = intel.get("learning_trend", {})
+    if trend:
+        lines.append(
+            f"\n**AI Learning Trend:** avg score {trend.get('avg_score', 0)} | "
+            f"avg confidence {trend.get('avg_confidence', 0)}"
+        )
+    lines.append(f"- Today's new trades: {intel.get('today_new_trades', 0)}")
+
+    brain = report.get("trading_brain", {})
+    lines += _h2("43. TRADING BRAIN (observe-only)")
+    lines.append(f"_{brain.get('disclaimer', '')}_")
+    lines.append(
+        f"Version **{brain.get('version', '?')}** | Mode: **{brain.get('mode', 'observe_only')}**"
+    )
+    lr = brain.get("last_run", {})
+    if lr:
+        lines.append(
+            f"- Trades processed: {lr.get('trades_processed', 0)} | "
+            f"Contexts: {lr.get('contexts_built', 0)} | "
+            f"Knowledge links: {lr.get('knowledge_links', 0)}"
+        )
+        lines.append(f"- New since last run: {lr.get('new_trades_since_last', 0)}")
+    mem = brain.get("memory_sync_counts") or brain.get("memory_entries") or {}
+    if mem:
+        parts = [f"{k}={v}" for k, v in sorted(mem.items())]
+        lines.append(f"- Memory: {', '.join(parts)}")
+    lines.append(f"- Trade contexts stored: {brain.get('contexts_stored', 0)}")
+    lines.append("\n**Top causal knowledge**")
+    for link in brain.get("top_knowledge", [])[:5]:
+        lines.append(
+            f"- {link['condition']}: {link['direction']} "
+            f"{link['effect']:+.1f}% (conf {link['confidence']:.0f}%, n={link['sample_n']})"
+        )
+    sample = brain.get("latest_explainability_sample", {})
+    if sample.get("trade_id"):
+        lines.append(f"\n**Latest explainability sample** (trade #{sample['trade_id']})")
+        for r in sample.get("supportive", []):
+            lines.append(f"- + {r}")
+        for r in sample.get("opposing", []):
+            lines.append(f"- − {r}")
+
+    sci = report.get("scientist", {})
+    lines += _h2("44. AI SCIENTIST (observe-only)")
+    lines.append(f"_{sci.get('disclaimer', '')}_")
+    lines.append(
+        f"Version **{sci.get('version', '?')}** | Mode: **{sci.get('mode', 'observe_only')}**"
+    )
+    summ = sci.get("summary", {})
+    if summ:
+        lines.append(
+            f"- Patterns: {summ.get('patterns_found', 0)} | "
+            f"New hypotheses: {summ.get('new_hypotheses', 0)} | "
+            f"Passed: {summ.get('passed', 0)} | "
+            f"Failed/rejected: {summ.get('failed', 0)}"
+        )
+    lines.append("\n**New hypotheses**")
+    for h in sci.get("new_hypotheses", [])[:5]:
+        lines.append(f"- {h.get('description', '')[:100]}")
+    lines.append("\n**Top experiments**")
+    for exp in sci.get("top_experiments", [])[:5]:
+        lines.append(
+            f"- [{exp.get('status')}] {exp.get('title')} — "
+            f"conf {float(exp.get('confidence', 0)):.0f}%, "
+            f"priority {exp.get('priority')}, risk {exp.get('risk_level')}"
+        )
+    best = sci.get("best_next_step", {})
+    lines.append("\n**Best next step**")
+    if best.get("blocked"):
+        lines.append(f"- BLOCKED: {best.get('reason', '')}")
+    else:
+        lines.append(f"- **{best.get('recommendation')}** (+{best.get('expected_pf_pct', 0):.0f}% PF)")
+        lines.append(
+            f"  Confidence {best.get('confidence_pct', 0):.0f}% | "
+            f"Risk {best.get('risk')} | Priority {best.get('priority')}"
+        )
+        if best.get("reasons"):
+            lines.append(f"  - {' | '.join(best['reasons'])}")
+
+    sr = report.get("strategy_review", {})
+    lines += _h2("45. STRATEGY REVIEW (observe-only)")
+    lines.extend(render_strategy_review_section(sr))
 
     lines += _h2("APPENDIX: Parameter Optimizer")
     opt = report.get("parameter_optimizer", {})

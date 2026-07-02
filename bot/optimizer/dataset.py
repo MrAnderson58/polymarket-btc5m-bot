@@ -89,62 +89,27 @@ def _mfe_mae(
     return (max(bids) - entry) / entry * 100, (min(bids) - entry) / entry * 100
 
 
-def build_feature_row(conn: sqlite3.Connection, trade: sqlite3.Row) -> dict[str, Any]:
-    entry_ts = int(trade["entry_ts"])
-    exit_reason = trade["exit_reason"] or ""
-    pnl = trade_pnl(trade)
-    mfe, mae = _mfe_mae(conn, trade)
-    bid, ask, dist_strike, sec_rem = _quote_at_entry(
-        conn,
-        market_slug=trade["market_slug"],
-        side=trade["side"],
-        entry_ts=entry_ts,
-    )
-    spread = (ask - bid) if bid is not None and ask is not None else None
-    window_start = int(trade["window_start_ts"])
-    return {
-        "trade_id": int(trade["id"]),
-        "source_table": SOURCE_TABLE,
-        "market_slug": trade["market_slug"],
-        "strategy_name": trade["strategy_name"],
-        "side": trade["side"],
-        "entry_ts": entry_ts,
-        "entry_price": float(trade["entry_price"]),
-        "exit_price": float(trade["exit_price"]) if trade["exit_price"] is not None else None,
-        "pnl": pnl,
-        "pnl_usdc": float(trade["pnl_usdc"]) if trade["pnl_usdc"] is not None else None,
-        "btc_move_5s": _btc_move_at(conn, entry_ts=entry_ts, lookback=5),
-        "btc_move_10s": _btc_move_at(conn, entry_ts=entry_ts, lookback=10),
-        "btc_move_15s": _btc_move_at(conn, entry_ts=entry_ts, lookback=15),
-        "btc_move_20s": _btc_move_at(conn, entry_ts=entry_ts, lookback=20),
-        "btc_move_30s": _btc_move_at(conn, entry_ts=entry_ts, lookback=30),
-        "btc_move_45s": _btc_move_at(conn, entry_ts=entry_ts, lookback=45),
-        "btc_move_60s": _btc_move_at(conn, entry_ts=entry_ts, lookback=60),
-        "btc_move_90s": _btc_move_at(conn, entry_ts=entry_ts, lookback=90),
-        "seconds_open": float(entry_ts - window_start),
-        "spread": spread,
-        "ask": ask,
-        "bid": bid,
-        "distance_to_strike": dist_strike,
-        "volatility_15s": _btc_volatility(conn, entry_ts=entry_ts, window=15),
-        "volatility_30s": _btc_volatility(conn, entry_ts=entry_ts, window=30),
-        "volatility_60s": _btc_volatility(conn, entry_ts=entry_ts, window=60),
-        "stop_loss_pct": ER_V2_STOP_LOSS_PCT,
-        "trailing_activation": TRAILING_ACTIVATION_PROFIT,
-        "trailing_distance": TRAILING_OFFSET,
-        "holding_time": float(trade["holding_time_seconds"] or 0),
-        "mfe": mfe,
-        "mae": mae,
-        "is_win": int(pnl > 0),
-        "is_loss": int(pnl <= 0),
-        "is_stop": int(exit_reason == "STOP_LOSS"),
-        "is_time_stop": int(exit_reason == "TIME_STOP"),
-        "is_trailing": int(exit_reason == "TRAILING_STOP"),
-        "exit_reason": exit_reason,
-    }
+def build_feature_row(
+    conn: sqlite3.Connection,
+    trade: sqlite3.Row,
+    *,
+    cache: Any | None = None,
+) -> dict[str, Any]:
+    if cache is not None:
+        from bot.perf.feature_store import build_feature_row_cached
+
+        return build_feature_row_cached(trade, cache)
+    from bot.perf.market_cache import MarketDataCache
+    from bot.perf.feature_store import build_feature_row_cached
+
+    built = MarketDataCache.build(conn, [trade])
+    return build_feature_row_cached(trade, built)
 
 
 def rebuild_trade_features(conn: sqlite3.Connection) -> int:
+    from bot.perf.feature_store import build_feature_row_cached, _upsert_feature_row
+    from bot.perf.market_cache import MarketDataCache
+
     conn.execute("DELETE FROM trade_features WHERE source_table = ?", (SOURCE_TABLE,))
     trades = conn.execute(
         f"""
@@ -153,18 +118,12 @@ def rebuild_trade_features(conn: sqlite3.Connection) -> int:
         ORDER BY entry_ts ASC
         """
     ).fetchall()
+    if not trades:
+        return 0
+    cache = MarketDataCache.build(conn, trades)
     count = 0
     for trade in trades:
-        row = build_feature_row(conn, trade)
-        cols = list(row.keys())
-        placeholders = ", ".join("?" for _ in cols)
-        conn.execute(
-            f"""
-            INSERT OR REPLACE INTO trade_features ({", ".join(cols)})
-            VALUES ({placeholders})
-            """,
-            tuple(row[c] for c in cols),
-        )
+        _upsert_feature_row(conn, build_feature_row_cached(trade, cache))
         count += 1
     return count
 

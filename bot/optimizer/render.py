@@ -77,7 +77,14 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- {rule.get('rule_text', rule)}")
 
     lines.append("\n## WALK FORWARD")
-    for wf in report.get("walk_forward", []):
+    wf_data = report.get("walk_forward", [])
+    if isinstance(wf_data, dict):
+        wf_rows = wf_data.get("rows", [])
+    else:
+        wf_rows = wf_data
+    for wf in wf_rows:
+        if not isinstance(wf, dict):
+            continue
         ok = "OK" if wf.get("generalizes") else "FAIL"
         lines.append(
             f"- Train {wf['train_size']} → Test {wf['test_size']}: "

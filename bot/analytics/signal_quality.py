@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import sqlite3
 from typing import Any
 
-from bot.no_c_btc_filter import compute_btc_move_30s
-from bot.no_c_filter_shadow import _btc_price_at
+from bot.analytics.intelligence_context import IntelligenceContext
 from bot.report.analytics import ENTRY_PRICES, trade_pnl
 
 
 def _score_trade(
-    conn: sqlite3.Connection,
-    trade: sqlite3.Row,
+    trade: Any,
     entry_pf_map: dict[float, float],
+    ctx: IntelligenceContext,
 ) -> int:
     score = 50.0
     entry = round(float(trade["entry_price"]), 2)
@@ -27,30 +25,34 @@ def _score_trade(
         score -= 20
 
     entry_ts = int(trade["entry_ts"])
-    current = _btc_price_at(conn, entry_ts)
-    if current is not None:
-        move = compute_btc_move_30s(conn, current_btc=current, now_ts=entry_ts)
-        if move is not None:
-            if trade["side"] == "NO" and move < 0:
-                score += 15
-            elif trade["side"] == "YES" and move > 0:
-                score += 15
-            elif abs(move) > 20:
-                score -= 10
+    feat = ctx.feature_by_trade_id.get(int(trade["id"]))
+    move = None
+    if feat and feat.get("btc_move_30s") is not None:
+        move = float(feat["btc_move_30s"])
+    else:
+        move = ctx.cache.btc_move_at(entry_ts, 30)
 
-    prefix = "yes" if trade["side"] == "YES" else "no"
-    row = conn.execute(
-        f"""
-        SELECT {prefix}_bid AS bid, {prefix}_ask AS ask
-        FROM market_checks
-        WHERE market_slug = ?
-        ORDER BY abs(cast(strftime('%s', checked_at) AS integer) - ?) ASC
-        LIMIT 1
-        """,
-        (trade["market_slug"], entry_ts),
-    ).fetchone()
-    if row and row["bid"] is not None and row["ask"] is not None:
-        spread = float(row["ask"]) - float(row["bid"])
+    if move is not None:
+        if trade["side"] == "NO" and move < 0:
+            score += 15
+        elif trade["side"] == "YES" and move > 0:
+            score += 15
+        elif abs(move) > 20:
+            score -= 10
+
+    spread = None
+    if feat and feat.get("spread") is not None:
+        spread = float(feat["spread"])
+    else:
+        bid, ask, _dist, _sec = ctx.cache.quote_at_entry(
+            market_slug=str(trade["market_slug"]),
+            side=str(trade["side"]),
+            entry_ts=entry_ts,
+        )
+        if bid is not None and ask is not None:
+            spread = float(ask) - float(bid)
+
+    if spread is not None:
         if spread <= 0.015:
             score += 10
         elif spread > 0.03:
@@ -60,9 +62,10 @@ def _score_trade(
 
 
 def build_signal_quality(
-    conn: sqlite3.Connection,
-    closed: list[sqlite3.Row],
+    closed: list[Any],
     report: dict[str, Any],
+    *,
+    ctx: IntelligenceContext,
 ) -> dict[str, Any]:
     entry_rows = report.get("entry_price_analysis", {}).get("rows", [])
     entry_pf_map = {r["entry_price"]: r["profit_factor"] for r in entry_rows if r["trades"] >= 3}
@@ -70,7 +73,7 @@ def build_signal_quality(
     scored: list[dict[str, Any]] = []
     for trade in closed[-80:]:
         pnl = trade_pnl(trade)
-        score = _score_trade(conn, trade, entry_pf_map)
+        score = _score_trade(trade, entry_pf_map, ctx)
         scored.append(
             {
                 "trade_id": int(trade["id"]),
