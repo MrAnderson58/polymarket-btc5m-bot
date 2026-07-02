@@ -147,6 +147,17 @@ LIVE_EXIT_ENABLED = os.getenv("LIVE_EXIT_ENABLED", "false").strip().lower() in {
     "on",
 }
 
+LIVE_ENABLED = _parse_bool("LIVE_ENABLED", default=True)
+LIVE_MODE = os.getenv("LIVE_MODE", "micro").strip().lower()
+PORTFOLIO_STARTING_BALANCE_USDC = float(os.getenv("PORTFOLIO_STARTING_BALANCE_USDC", "100.0"))
+PORTFOLIO_DAILY_LOSS_LIMIT_USDC = float(os.getenv("PORTFOLIO_DAILY_LOSS_LIMIT_USDC", "5.0"))
+CONSECUTIVE_STOPS_DAILY_PAUSE = int(os.getenv("CONSECUTIVE_STOPS_DAILY_PAUSE", "5"))
+CIRCUIT_BREAKER_STOPS = int(os.getenv("CIRCUIT_BREAKER_STOPS", "3"))
+CIRCUIT_BREAKER_PAUSE_SEC = int(os.getenv("CIRCUIT_BREAKER_PAUSE_SEC", str(30 * 60)))
+
+if LIVE_MODE == "micro":
+    EARLY_REVERSION_POSITION_SIZE_USDC = min(EARLY_REVERSION_POSITION_SIZE_USDC, 1.0)
+
 
 def is_live_trading_enabled() -> bool:
     return TRADING_MODE == "live"

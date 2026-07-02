@@ -341,6 +341,11 @@ def build_report(
         with perf.step("AI Agent"):
             report["ai_agent"] = load_ai_agent_section(conn)
 
+        with perf.step("Evolution"):
+            from bot.evolution.builder import build_evolution
+
+            report["evolution"] = build_evolution(conn)
+
         report["meta"]["report_mode"] = "read_only"
         report["meta"]["compute_note"] = (
             "Heavy compute (optimizer/replay/brain/scientist) runs via python -m bot.daily"

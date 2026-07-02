@@ -100,4 +100,13 @@ def run_daily_pipeline(
 
     summary["perf"] = perf.as_dict()
     perf.print_report()
+
+    with perf.step("Evolution"):
+        from bot.evolution.builder import build_evolution
+        from bot.evolution.render import render_evolution_block
+
+        evolution = build_evolution(conn)
+        print("\n" + render_evolution_block(evolution))
+        summary["evolution"] = evolution
+
     return summary

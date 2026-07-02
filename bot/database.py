@@ -144,7 +144,38 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     _ensure_ai_decisions_table(conn)
     _ensure_trading_brain_tables(conn)
     _ensure_scientist_tables(conn)
+    _ensure_portfolio_tables(conn)
     _ensure_perf_indexes(conn)
+
+
+def _ensure_portfolio_tables(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS portfolio_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            payload_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS live_journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_id INTEGER,
+            market_slug TEXT,
+            phase TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_live_journal_trade
+        ON live_journal (trade_id, phase)
+        """
+    )
 
 
 def _ensure_perf_indexes(conn: sqlite3.Connection) -> None:

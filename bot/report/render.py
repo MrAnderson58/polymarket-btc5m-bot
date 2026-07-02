@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from bot.config import BASE_DIR
+from bot.evolution.render import render_evolution_section
 from bot.strategy_review.render import render_strategy_review_section
 
 
@@ -629,6 +630,10 @@ def render_markdown(report: dict[str, Any]) -> str:
     sr = report.get("strategy_review", {})
     lines += _h2("45. STRATEGY REVIEW (observe-only)")
     lines.extend(render_strategy_review_section(sr))
+
+    evo = report.get("evolution", {})
+    lines += _h2("46. EVOLUTION (observe-only)")
+    lines.extend(render_evolution_section(evo))
 
     lines += _h2("APPENDIX: Parameter Optimizer")
     opt = report.get("parameter_optimizer", {})
