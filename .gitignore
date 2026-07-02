@@ -3,9 +3,10 @@ __pycache__/
 *.py[cod]
 *.db
 data/
-reports/*.md
-reports/*.json
-reports/*.zip
+reports/**/*.md
+reports/**/*.json
+reports/**/*.zip
+reports/**/ai_notes.md
 optimizer_reports/
 ai_agent_reports/
 ai_journal/
@@ -34,6 +35,3 @@ __pycache__/
 
 # Logs
 *.log
-
-# Generated reports
-reports/**/*.zip
