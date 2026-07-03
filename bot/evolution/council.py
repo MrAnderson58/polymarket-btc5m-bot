@@ -315,20 +315,14 @@ def _vote_from_ai_agent(ai: dict[str, Any]) -> Vote:
             reason=f"SKIP ({skip}) > ALLOW ({allow}) — conservative",
         )
 
-    patterns = ai.get("patterns") or {}
-    top_signal = patterns.get("top_improvement_signal") or {}
-    param = top_signal.get("parameter")
-    if param:
-        param = _normalize_param(str(param))
-        value = top_signal.get("value")
-        if value is not None:
-            value = float(value)
+    signal = _extract_signal_from_patterns(ai.get("patterns"))
+    if signal:
         return Vote(
             source="AI Agent",
-            parameter=param,
-            value=value,
-            confidence=float(top_signal.get("confidence", 0)),
-            reason=f"ALLOW={allow} SKIP={skip}; pattern: {param}",
+            parameter=signal["parameter"],
+            value=signal.get("value"),
+            confidence=float(signal.get("confidence", 0)),
+            reason=f"ALLOW={allow} SKIP={skip}; {signal['reason']}",
         )
 
     return Vote(
@@ -337,6 +331,62 @@ def _vote_from_ai_agent(ai: dict[str, Any]) -> Vote:
         confidence=0.0,
         reason=f"ALLOW={allow} SKIP={skip} — no specific parameter signal",
     )
+
+
+def _extract_signal_from_patterns(patterns: Any) -> dict[str, Any] | None:
+    """Extract actionable parameter signal from AI Agent patterns.
+
+    patterns is a list[dict] from discover_patterns(), each with keys:
+      pattern (str), trades (int), win_rate (float), avg_pnl (float), confidence_pct (float)
+
+    Priority: entry patterns with concrete value > regime patterns > BTC patterns.
+    """
+    if not isinstance(patterns, list) or not patterns:
+        return None
+
+    import re
+
+    best: dict[str, Any] | None = None
+    best_priority = -1
+
+    for p in patterns:
+        if not isinstance(p, dict):
+            continue
+        text = str(p.get("pattern", ""))
+        confidence = float(p.get("confidence_pct", 0))
+
+        if "Entry" in text and "strong" in text:
+            match = re.search(r"Entry\s+(\d+\.\d+)", text)
+            if match:
+                candidate = {
+                    "parameter": "entry",
+                    "value": float(match.group(1)),
+                    "confidence": confidence,
+                    "reason": text,
+                }
+                if best_priority < 2 or confidence > best.get("confidence", 0):
+                    best = candidate
+                    best_priority = 2
+
+        elif "Regime" in text and "underperforms" in text and best_priority < 1:
+            best = {
+                "parameter": "entry",
+                "value": None,
+                "confidence": confidence,
+                "reason": text,
+            }
+            best_priority = 1
+
+        elif "BTC" in text and "weak" in text and best_priority < 0:
+            best = {
+                "parameter": "entry",
+                "value": None,
+                "confidence": confidence,
+                "reason": text,
+            }
+            best_priority = 0
+
+    return best
 
 
 # ---------------------------------------------------------------------------

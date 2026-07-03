@@ -374,7 +374,7 @@ class CouncilTestCase(unittest.TestCase):
             },
             "ai_agent": {
                 "decisions": {"ALLOW": 15, "SKIP": 5},
-                "patterns": {"top_improvement_signal": {"parameter": "entry", "value": 0.39, "confidence": 75}},
+                "patterns": [{"pattern": "Entry 0.39 strong edge", "trades": 20, "win_rate": 65.0, "avg_pnl": 2.1, "confidence_pct": 75}],
             },
             "live_sample": {"current_since_change": trades_since, "total_trades": 742},
         }
@@ -753,6 +753,54 @@ class CouncilSurgeonInterfaceTestCase(unittest.TestCase):
         self.assertIn("RECOMMENDATION:", block)
         self.assertIn("entry", block)
         self.assertNotIn("AttributeError", block)
+
+    def test_ai_agent_patterns_list_does_not_crash(self) -> None:
+        """Regression: patterns from discover_patterns() is a list, not dict."""
+        from bot.evolution.council import convene_council
+
+        sources = self._sources()
+        sources["ai_agent"] = {
+            "decisions": {"ALLOW": 15, "SKIP": 5},
+            "patterns": [
+                {"pattern": "Entry 0.39 strong edge", "trades": 25, "win_rate": 68.0, "avg_pnl": 3.1, "confidence_pct": 80},
+                {"pattern": "Regime Strong Uptrend underperforms", "trades": 12, "win_rate": 41.7, "avg_pnl": -2.3, "confidence_pct": 72},
+            ],
+        }
+        result = convene_council(sources, surgeon=None)
+        ai_vote = next(v for v in result.votes if v.source == "AI Agent")
+        self.assertEqual(ai_vote.parameter, "entry")
+        self.assertEqual(ai_vote.value, 0.39)
+        self.assertEqual(ai_vote.confidence, 80.0)
+
+    def test_ai_agent_empty_patterns_list(self) -> None:
+        """AI Agent with empty patterns returns KEEP."""
+        from bot.evolution.council import convene_council
+
+        sources = self._sources()
+        sources["ai_agent"] = {"decisions": {"ALLOW": 10, "SKIP": 5}, "patterns": []}
+        result = convene_council(sources, surgeon=None)
+        ai_vote = next(v for v in result.votes if v.source == "AI Agent")
+        self.assertTrue(ai_vote.is_keep)
+
+    def test_ai_agent_patterns_none(self) -> None:
+        """AI Agent with patterns=None returns KEEP."""
+        from bot.evolution.council import convene_council
+
+        sources = self._sources()
+        sources["ai_agent"] = {"decisions": {"ALLOW": 10, "SKIP": 5}, "patterns": None}
+        result = convene_council(sources, surgeon=None)
+        ai_vote = next(v for v in result.votes if v.source == "AI Agent")
+        self.assertTrue(ai_vote.is_keep)
+
+    def test_ai_agent_patterns_string_defensive(self) -> None:
+        """AI Agent with patterns as a string (invalid) returns KEEP without crash."""
+        from bot.evolution.council import convene_council
+
+        sources = self._sources()
+        sources["ai_agent"] = {"decisions": {"ALLOW": 10, "SKIP": 5}, "patterns": "some invalid string"}
+        result = convene_council(sources, surgeon=None)
+        ai_vote = next(v for v in result.votes if v.source == "AI Agent")
+        self.assertTrue(ai_vote.is_keep)
 
 
 class EvolutionHistoryTestCase(unittest.TestCase):
