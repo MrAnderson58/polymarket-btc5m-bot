@@ -101,12 +101,65 @@ def run_daily_pipeline(
     summary["perf"] = perf.as_dict()
     perf.print_report()
 
-    with perf.step("Evolution"):
-        from bot.evolution.builder import build_evolution
-        from bot.evolution.render import render_evolution_block
+    with perf.step("Strategy Surgeon"):
+        from bot.evolution.surgeon import render_surgeon_block, run_surgeon
 
-        evolution = build_evolution(conn)
+        surgeon = run_surgeon(conn)
+        print("\n" + render_surgeon_block(surgeon))
+        summary["surgeon"] = surgeon
+
+    with perf.step("Decision Council"):
+        from bot.evolution.builder import build_evolution
+        from bot.evolution.render import render_council_block, render_evolution_block
+        from bot.evolution.shadow import save_shadow_state
+
+        evolution = build_evolution(conn, surgeon=surgeon)
+        print("\n" + render_council_block(evolution))
         print("\n" + render_evolution_block(evolution))
         summary["evolution"] = evolution
+        summary["shadow_state"] = save_shadow_state(conn)
+        conn.commit()
+
+    with perf.step("Regime Shadow"):
+        from bot.evolution.regime_shadow import (
+            DEFAULT_FILTER_REGIMES,
+            create_regime_shadow,
+            get_running_regime_shadow,
+            regime_shadow_state,
+            render_regime_shadow_block,
+            sync_regime_shadow,
+        )
+
+        if get_running_regime_shadow(conn) is None:
+            create_regime_shadow(
+                conn,
+                filter_name="BTC Uptrend Filter",
+                regimes=DEFAULT_FILTER_REGIMES,
+            )
+            conn.commit()
+        sync_regime_shadow(conn)
+        conn.commit()
+        rs_state = regime_shadow_state(conn)
+        block = render_regime_shadow_block(rs_state)
+        if block:
+            print("\n" + block)
+        summary["regime_shadow"] = rs_state
+
+    with perf.step("Evolution History"):
+        from bot.evolution.history import (
+            load_history,
+            render_history_block,
+            save_history_file,
+            sync_history_from_shadows,
+        )
+
+        sync_history_from_shadows(conn)
+        conn.commit()
+        history = load_history(conn)
+        block = render_history_block(history)
+        if block:
+            print("\n" + block)
+        save_history_file(conn)
+        summary["evolution_history"] = history
 
     return summary

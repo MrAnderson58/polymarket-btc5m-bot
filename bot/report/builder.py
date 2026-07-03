@@ -341,10 +341,23 @@ def build_report(
         with perf.step("AI Agent"):
             report["ai_agent"] = load_ai_agent_section(conn)
 
+        with perf.step("Strategy Surgeon"):
+            from bot.evolution.surgeon import run_surgeon
+
+            report["surgeon"] = run_surgeon(conn)
+
         with perf.step("Evolution"):
             from bot.evolution.builder import build_evolution
+            from bot.evolution.history import load_history, sync_history_from_shadows
+            from bot.evolution.regime_shadow import regime_shadow_state, sync_regime_shadow
+            from bot.evolution.shadow import save_shadow_state
 
-            report["evolution"] = build_evolution(conn)
+            report["evolution"] = build_evolution(conn, surgeon=report["surgeon"])
+            save_shadow_state(conn)
+            sync_regime_shadow(conn)
+            report["regime_shadow"] = regime_shadow_state(conn)
+            sync_history_from_shadows(conn)
+            report["evolution_history"] = load_history(conn)
 
         report["meta"]["report_mode"] = "read_only"
         report["meta"]["compute_note"] = (

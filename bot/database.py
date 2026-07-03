@@ -145,6 +145,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     _ensure_trading_brain_tables(conn)
     _ensure_scientist_tables(conn)
     _ensure_portfolio_tables(conn)
+    _ensure_evolution_shadow_tables(conn)
     _ensure_perf_indexes(conn)
 
 
@@ -174,6 +175,122 @@ def _ensure_portfolio_tables(conn: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_live_journal_trade
         ON live_journal (trade_id, phase)
+        """
+    )
+
+
+def _ensure_evolution_shadow_tables(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evolution_shadow (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            parameter TEXT NOT NULL,
+            current_value REAL NOT NULL,
+            shadow_value REAL NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('RUNNING', 'COMPLETE')),
+            created_at TEXT NOT NULL,
+            completed_at TEXT,
+            sample_size INTEGER NOT NULL DEFAULT 0,
+            target_sample_size INTEGER NOT NULL DEFAULT 200,
+            shadow_pf REAL,
+            live_pf REAL,
+            shadow_wr REAL,
+            live_wr REAL,
+            shadow_dd REAL,
+            live_dd REAL,
+            verdict TEXT CHECK (verdict IN ('PROMOTE', 'REJECT') OR verdict IS NULL)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evolution_shadow_evaluations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shadow_id INTEGER NOT NULL,
+            trade_id INTEGER NOT NULL,
+            market_slug TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            entry_ts INTEGER NOT NULL,
+            shadow_decision TEXT NOT NULL CHECK (shadow_decision IN ('WOULD_ENTER', 'WOULD_SKIP')),
+            live_pnl REAL NOT NULL,
+            shadow_pnl REAL NOT NULL,
+            evaluated_at TEXT NOT NULL,
+            UNIQUE (shadow_id, trade_id),
+            FOREIGN KEY (shadow_id) REFERENCES evolution_shadow(id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_evolution_shadow_status
+        ON evolution_shadow (status, created_at DESC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_evolution_shadow_eval_shadow
+        ON evolution_shadow_evaluations (shadow_id, entry_ts ASC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evolution_regime_shadow (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filter_name TEXT NOT NULL,
+            regimes_json TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('RUNNING', 'COMPLETE')),
+            created_at TEXT NOT NULL,
+            completed_at TEXT,
+            sample_size INTEGER NOT NULL DEFAULT 0,
+            target_sample_size INTEGER NOT NULL DEFAULT 200,
+            skipped INTEGER NOT NULL DEFAULT 0,
+            saved_losses INTEGER NOT NULL DEFAULT 0,
+            missed_winners INTEGER NOT NULL DEFAULT 0,
+            saved_loss_pnl REAL NOT NULL DEFAULT 0.0,
+            missed_profit_pnl REAL NOT NULL DEFAULT 0.0,
+            net_pf_improvement_pct REAL,
+            verdict TEXT CHECK (verdict IN ('PROMOTE_FILTER', 'REJECT_FILTER') OR verdict IS NULL)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evolution_regime_shadow_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            regime_shadow_id INTEGER NOT NULL,
+            trade_id INTEGER NOT NULL,
+            regime_label TEXT NOT NULL,
+            in_filter INTEGER NOT NULL,
+            pnl_percent REAL NOT NULL,
+            outcome TEXT NOT NULL CHECK (outcome IN ('saved_loss', 'missed_profit', 'normal')),
+            evaluated_at TEXT NOT NULL,
+            UNIQUE (regime_shadow_id, trade_id),
+            FOREIGN KEY (regime_shadow_id) REFERENCES evolution_regime_shadow(id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_regime_shadow_status
+        ON evolution_regime_shadow (status, created_at DESC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evolution_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version INTEGER NOT NULL,
+            experiment_type TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            from_value TEXT,
+            to_value TEXT,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('RUNNING', 'PROMOTED', 'REJECTED')),
+            shadow_id INTEGER,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            metrics_json TEXT
+        )
         """
     )
 
@@ -489,6 +606,10 @@ def _ensure_trade_features_table(conn: sqlite3.Connection) -> None:
         ON trade_features (strategy_name, entry_ts)
         """
     )
+    try:
+        conn.execute("ALTER TABLE trade_features ADD COLUMN regime_label TEXT")
+    except sqlite3.OperationalError:
+        pass
 
 
 def _ensure_no_c_filter_live_counters_table(conn: sqlite3.Connection) -> None:

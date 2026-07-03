@@ -9,7 +9,14 @@ from pathlib import Path
 from typing import Any
 
 from bot.config import BASE_DIR
-from bot.evolution.render import render_evolution_section
+from bot.evolution.history import render_history_section
+from bot.evolution.regime_shadow import render_regime_shadow_section
+from bot.evolution.render import (
+    render_council_section,
+    render_evolution_section,
+    render_shadow_evolution_section,
+)
+from bot.evolution.surgeon import render_surgeon_section
 from bot.strategy_review.render import render_strategy_review_section
 
 
@@ -634,6 +641,24 @@ def render_markdown(report: dict[str, Any]) -> str:
     evo = report.get("evolution", {})
     lines += _h2("46. EVOLUTION (observe-only)")
     lines.extend(render_evolution_section(evo))
+
+    lines += _h2("47. SHADOW EVOLUTION")
+    lines.extend(render_shadow_evolution_section(evo))
+
+    surgeon = report.get("surgeon", {})
+    lines += _h2("48. STRATEGY SURGEON")
+    lines.extend(render_surgeon_section(surgeon))
+
+    lines += _h2("49. DECISION COUNCIL")
+    lines.extend(render_council_section(evo))
+
+    rs = report.get("regime_shadow")
+    lines += _h2("50. REGIME SHADOW")
+    lines.extend(render_regime_shadow_section(rs))
+
+    history = report.get("evolution_history", [])
+    lines += _h2("51. EVOLUTION HISTORY")
+    lines.extend(render_history_section(history))
 
     lines += _h2("APPENDIX: Parameter Optimizer")
     opt = report.get("parameter_optimizer", {})

@@ -1,9 +1,10 @@
-"""Render evolution status for daily CLI and report §46."""
+"""Render evolution status for daily CLI and report §46–§49."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from bot.evolution.constants import SHADOW_TARGET_SAMPLE
 from bot.evolution.state import EvolutionStatus
 
 
@@ -25,73 +26,106 @@ def _format_candidate(candidate: dict[str, Any]) -> str:
     param = candidate.get("parameter", "entry")
     from_v = candidate.get("from_value")
     to_v = candidate.get("to_value")
-    if param == "entry" and from_v is not None and to_v is not None:
+    if param in ("entry", "entry_threshold") and from_v is not None and to_v is not None:
         return f"Entry {float(from_v):.2f} → {float(to_v):.2f}"
     if from_v is not None and to_v is not None:
         return f"{param} {from_v} → {to_v}"
     return str(candidate.get("label", param))
 
 
+def _format_parameter_label(parameter: str) -> str:
+    if parameter in ("entry", "entry_threshold"):
+        return "Entry"
+    return parameter.replace("_", " ").title()
+
+
+def _separator() -> list[str]:
+    return ["----------------------------------", ""]
+
+
 def render_evolution_block(evolution: dict[str, Any]) -> str:
     status = evolution.get("status", EvolutionStatus.KEEP.value)
-    lines = [
-        "========================",
-        "",
+    shadow = evolution.get("shadow") or {}
+    lines = _separator() + [
         "EVOLUTION STATUS",
         "",
         _status_label(status),
         "",
     ]
 
-    if status == EvolutionStatus.READY_FOR_SHADOW.value:
+    if status in (
+        EvolutionStatus.SHADOW_PROMOTE.value,
+        EvolutionStatus.SHADOW_REJECT.value,
+    ):
+        lines.extend(["SHADOW COMPLETE", ""])
+        verdict = shadow.get("metrics", {}).get("verdict") or (
+            "PROMOTE" if status == EvolutionStatus.SHADOW_PROMOTE.value else "REJECT"
+        )
+        lines.extend([verdict, ""])
+        metrics = shadow.get("metrics") or {}
+        if metrics:
+            lines.extend(
+                [
+                    f"Live PF {metrics.get('live_pf', '?')} | Shadow PF {metrics.get('shadow_pf', '?')}",
+                    f"Live WR {metrics.get('live_wr', '?')}% | Shadow WR {metrics.get('shadow_wr', '?')}%",
+                    f"Live DD {metrics.get('live_dd', '?')} | Shadow DD {metrics.get('shadow_dd', '?')}",
+                    "",
+                ]
+            )
+    elif status == EvolutionStatus.SHADOW_RUNNING.value:
+        cand = shadow.get("candidate") or evolution.get("candidate") or {}
+        target = int(shadow.get("target_sample_size") or SHADOW_TARGET_SAMPLE)
+        sample = int(shadow.get("sample_size") or 0)
+        evidence = evolution.get("evidence") or {}
+        lines.extend(
+            [
+                "Experiment",
+                "",
+                _format_parameter_label(str(cand.get("parameter", "entry_threshold"))),
+                "",
+                _format_candidate(cand).replace("Entry ", ""),
+                "",
+                "Progress",
+                "",
+                f"{sample} / {target}",
+                "",
+            ]
+        )
+        pf = evidence.get("expected_pf_pct")
+        if pf is not None:
+            lines.extend(["Expected PF", "", f"+{float(pf):.0f}%", ""])
+    elif status == EvolutionStatus.READY_FOR_SHADOW.value:
         cand = evolution.get("candidate") or {}
         evidence = evolution.get("evidence") or {}
         lines.extend(
             [
-                "Candidate:",
+                "Experiment",
                 "",
-                _format_candidate(cand),
+                _format_parameter_label(str(cand.get("parameter", "entry"))),
                 "",
-                "Confidence:",
+                _format_candidate(cand).replace("Entry ", ""),
                 "",
-                f"{cand.get('confidence_pct', 0):.0f}%",
+                "Progress",
                 "",
-                "Evidence:",
-                "",
-                f"{evidence.get('trades', cand.get('evidence_trades', 0))} trades",
+                f"0 / {SHADOW_TARGET_SAMPLE}",
                 "",
             ]
         )
         pf = evidence.get("expected_pf_pct", cand.get("expected_pf_pct"))
         if pf is not None:
-            lines.extend(["Expected PF:", "", f"+{float(pf):.0f}%", ""])
-        dd = evidence.get("expected_dd_pct")
-        if dd is not None:
-            lines.extend(["Expected DD:", "", f"{float(dd):+.0f}%", ""])
-        lines.extend(
-            [
-                "Walk Forward:",
-                "",
-                str(evidence.get("walk_forward", cand.get("walk_forward", "?"))),
-                "",
-                "Overfit:",
-                "",
-                str(evidence.get("overfit", cand.get("overfit", "?"))),
-                "",
-            ]
-        )
+            lines.extend(["Expected PF", "", f"+{float(pf):.0f}%", ""])
         if evolution.get("reason"):
-            lines.extend(["Note:", "", evolution["reason"], ""])
+            lines.extend(["Note", "", evolution["reason"], ""])
     else:
         if evolution.get("reason"):
-            lines.extend(["Reason:", "", evolution["reason"], ""])
+            lines.extend(["Reason", "", evolution["reason"], ""])
         next_review = evolution.get("next_review_trades")
         if next_review is not None:
-            lines.extend(["Next review:", "", f"{next_review} trades", ""])
+            lines.extend(["Next review", "", f"{next_review} trades", ""])
         if status == EvolutionStatus.WATCH.value and evolution.get("watch_reasons"):
-            lines.extend(["Watch:", "", "; ".join(evolution["watch_reasons"]), ""])
+            lines.extend(["Watch", "", "; ".join(evolution["watch_reasons"]), ""])
 
-    lines.extend(["========================", ""])
+    lines.extend(_separator())
     return "\n".join(lines)
 
 
@@ -134,7 +168,125 @@ def render_evolution_section(evolution: dict[str, Any]) -> list[str]:
             lines.append(f"- {key}: {val}")
 
     lines.append("")
-    lines.append(
-        "_Phase 1: observe-only. No shadow experiments, no strategy changes._"
-    )
+    lines.append("_Observe-only. Shadow does not change live/paper execution._")
+    return lines
+
+
+def render_shadow_evolution_section(evolution: dict[str, Any]) -> list[str]:
+    shadow_report = evolution.get("shadow_report") or {}
+    shadow = evolution.get("shadow") or {}
+    exp = shadow_report.get("experiment") or shadow
+    if not exp:
+        return ["", "_No shadow experiment yet._", ""]
+
+    lines = [
+        "",
+        f"**Parameter:** {exp.get('parameter', '?')}",
+        f"**Current → Shadow:** {exp.get('current_value')} → {exp.get('shadow_value')}",
+        f"**Status:** {exp.get('status', shadow.get('status', '?'))}",
+    ]
+    if exp.get("status") == "RUNNING" or shadow.get("status") == "RUNNING":
+        target = int(exp.get("target_sample_size") or shadow.get("target_sample_size") or SHADOW_TARGET_SAMPLE)
+        sample = int(exp.get("sample_size") or shadow.get("sample_size") or 0)
+        lines.append(f"**Progress:** {sample} / {target} evaluable trades")
+    decisions = shadow_report.get("decisions") or {}
+    if decisions:
+        lines.append(
+            f"**Shadow decisions:** WOULD_ENTER {decisions.get('WOULD_ENTER', 0)} | "
+            f"WOULD_SKIP {decisions.get('WOULD_SKIP', 0)}"
+        )
+    metrics = shadow.get("metrics") or {}
+    if metrics.get("verdict"):
+        lines.extend(
+            [
+                "",
+                f"**Verdict:** {metrics['verdict']}",
+                f"**Live PF / Shadow PF:** {metrics.get('live_pf')} / {metrics.get('shadow_pf')}",
+                f"**Live WR / Shadow WR:** {metrics.get('live_wr')}% / {metrics.get('shadow_wr')}%",
+                f"**Live DD / Shadow DD:** {metrics.get('live_dd')} / {metrics.get('shadow_dd')}",
+            ]
+        )
+    lines.append("")
+    lines.append("_Counterfactual only — main strategy unchanged._")
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# Decision Council rendering
+# ---------------------------------------------------------------------------
+
+def render_council_block(evolution: dict[str, Any]) -> str:
+    """Render Decision Council block for daily CLI output."""
+    council = evolution.get("council")
+    if not council:
+        return ""
+
+    lines = _separator() + [
+        "DECISION COUNCIL",
+        "",
+    ]
+
+    votes = council.get("votes", [])
+    max_source_len = max((len(v["source"]) for v in votes), default=10)
+
+    for v in votes:
+        source_pad = v["source"].ljust(max_source_len)
+        lines.append(f"  {source_pad}  {v['label']}")
+
+    lines.append("")
+    lines.append(f"  {'Final'.ljust(max_source_len)}  {council.get('final_label', 'KEEP')}")
+    lines.append("")
+
+    confidence = council.get("confidence_pct", 0)
+    if confidence > 0:
+        lines.append(f"  Confidence  {confidence:.0f}%")
+        lines.append("")
+
+    reason = council.get("reason", "")
+    if reason:
+        lines.append(f"  Reason")
+        lines.append(f"  {reason}")
+        lines.append("")
+
+    status = council.get("status", EvolutionStatus.KEEP.value)
+    lines.append(f"  Decision: {_status_label(status)}")
+    lines.append("")
+    lines.extend(_separator())
+    return "\n".join(lines)
+
+
+def render_council_section(evolution: dict[str, Any]) -> list[str]:
+    """Render Decision Council section for the markdown report (§49)."""
+    council = evolution.get("council")
+    if not council:
+        return ["", "_Decision Council not available._", ""]
+
+    lines = [""]
+    votes = council.get("votes", [])
+
+    lines.append("| Source | Vote | Parameter | Value |")
+    lines.append("|--------|------|-----------|-------|")
+    for v in votes:
+        param_str = v.get("parameter") or "—"
+        value_str = f"{v['value']:.4g}" if v.get("value") is not None else "—"
+        lines.append(f"| {v['source']} | {v['label']} | {param_str} | {value_str} |")
+
+    lines.append("")
+    lines.append(f"**Final Decision:** {council.get('final_label', 'KEEP')}")
+    lines.append(f"**Status:** {_status_label(council.get('status', 'KEEP'))}")
+
+    confidence = council.get("confidence_pct", 0)
+    if confidence > 0:
+        lines.append(f"**Confidence:** {confidence:.0f}%")
+
+    reason = council.get("reason", "")
+    if reason:
+        lines.append(f"**Reason:** {reason}")
+
+    pf = council.get("expected_pf_pct", 0)
+    if pf:
+        lines.append(f"**Expected PF improvement:** +{pf:.0f}%")
+
+    lines.append("")
+    lines.append("_All recommendations go through Council. No source decides alone._")
     return lines

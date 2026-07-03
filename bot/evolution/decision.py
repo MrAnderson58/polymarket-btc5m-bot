@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from bot.strategy_review.constants import MIN_CONFIDENCE_PCT, MIN_TRADES_SINCE_CHANGE
-from bot.evolution.state import (
+from bot.evolution.constants import (
     EVOLUTION_VERSION,
+    MIN_CONFIDENCE_PCT,
+    MIN_TRADES_SINCE_CHANGE,
+)
+from bot.evolution.state import (
     EvolutionCandidate,
     EvolutionResult,
     EvolutionStatus,
-    load_shadow_phase_state,
 )
 
 
@@ -42,70 +44,11 @@ def _overfit_level(sources: dict[str, Any]) -> str:
 def _extract_candidate(
     sources: dict[str, Any],
 ) -> EvolutionCandidate | None:
-    review = sources.get("strategy_review", {})
-    verdict = review.get("final_verdict", {})
-    live = sources.get("live_sample", {})
-    optimizer = sources.get("optimizer", {})
-    param_opt = optimizer.get("parameter_optimizer", {})
+    """Find the single best parameter change using all 4 intelligence sources."""
+    from bot.evolution.auto_review import find_best_candidate
 
-    if verdict.get("change_parameter"):
-        param = str(verdict["change_parameter"])
-        change_text = verdict.get("change_text", "")
-        from_val, to_val = _parse_change_text(change_text, param, param_opt)
-        wf_label, _ = _walk_forward_label(optimizer.get("walk_forward"))
-        return {
-            "parameter": param,
-            "from_value": from_val,
-            "to_value": to_val,
-            "label": verdict.get("decision", f"CHANGE {param.upper()}"),
-            "confidence_pct": float(verdict.get("confidence_pct", 0)),
-            "evidence_trades": int(live.get("total_trades", 0)),
-            "expected_pf_pct": float(param_opt.get("expected_improvement_pct", 0)),
-            "expected_dd_pct": None,
-            "walk_forward": wf_label,
-            "overfit": _overfit_level(sources),
-        }
+    return find_best_candidate(sources)
 
-    cur = param_opt.get("current", {})
-    opt = param_opt.get("optimal", {})
-    cur_entry = cur.get("entry")
-    opt_entry = opt.get("entry")
-    if cur_entry is None or opt_entry is None:
-        return None
-    if abs(float(cur_entry) - float(opt_entry)) < 0.004:
-        return None
-
-    wf_label, _ = _walk_forward_label(optimizer.get("walk_forward"))
-    return {
-        "parameter": "entry",
-        "from_value": float(cur_entry),
-        "to_value": float(opt_entry),
-        "label": "CHANGE ENTRY",
-        "confidence_pct": float(verdict.get("confidence_pct", 0)),
-        "evidence_trades": int(live.get("total_trades", 0)),
-        "expected_pf_pct": float(param_opt.get("expected_improvement_pct", 0)),
-        "expected_dd_pct": None,
-        "walk_forward": wf_label,
-        "overfit": _overfit_level(sources),
-    }
-
-
-def _parse_change_text(
-    change_text: str,
-    param: str,
-    param_opt: dict[str, Any],
-) -> tuple[Any, Any]:
-    if "→" in change_text:
-        parts = [p.strip() for p in change_text.split("→", 1)]
-        if len(parts) == 2:
-            return parts[0], parts[1]
-    cur = param_opt.get("current", {})
-    opt = param_opt.get("optimal", {})
-    if param == "entry":
-        return cur.get("entry"), opt.get("entry")
-    if param == "stop_loss":
-        return cur.get("stop_pct"), opt.get("stop_pct")
-    return change_text, change_text
 
 
 def _shadow_status_from_state(shadow: dict[str, Any]) -> EvolutionStatus | None:
@@ -118,21 +61,33 @@ def _shadow_status_from_state(shadow: dict[str, Any]) -> EvolutionStatus | None:
     return mapping.get(raw)
 
 
-def decide_evolution(sources: dict[str, Any]) -> EvolutionResult:
-    shadow = load_shadow_phase_state()
-    if shadow:
-        shadow_status = _shadow_status_from_state(shadow)
-        if shadow_status is not None:
-            return {
-                "version": EVOLUTION_VERSION,
-                "status": shadow_status.value,
-                "reason": shadow.get("reason", "Shadow phase active"),
-                "next_review_trades": shadow.get("next_review_trades"),
-                "candidate": shadow.get("candidate"),
-                "evidence": shadow.get("evidence", {}),
-                "watch_reasons": [],
-                "sources_meta": _sources_meta(sources),
-            }
+def decide_evolution(
+    sources: dict[str, Any],
+    *,
+    ignore_running_shadow: bool = False,
+) -> EvolutionResult:
+    if not ignore_running_shadow:
+        shadow = sources.get("shadow_experiment")
+        if shadow:
+            shadow_status = _shadow_status_from_state(shadow)
+            if shadow_status is not None:
+                candidate = shadow.get("candidate") or sources.get("strategy_review", {}).get(
+                    "final_verdict"
+                )
+                evidence = _evidence_block(sources, candidate if isinstance(candidate, dict) else None)
+                if shadow.get("metrics"):
+                    evidence.update({k: v for k, v in shadow["metrics"].items() if v is not None})
+                return {
+                    "version": EVOLUTION_VERSION,
+                    "status": shadow_status.value,
+                    "reason": shadow.get("reason", "Shadow phase active"),
+                    "next_review_trades": shadow.get("next_review_trades"),
+                    "candidate": shadow.get("candidate"),
+                    "evidence": evidence,
+                    "watch_reasons": [],
+                    "sources_meta": _sources_meta(sources),
+                    "shadow": shadow,
+                }
 
     review = sources.get("strategy_review", {})
     verdict = review.get("final_verdict", {})
@@ -217,7 +172,7 @@ def decide_evolution(sources: dict[str, Any]) -> EvolutionResult:
             "version": EVOLUTION_VERSION,
             "status": EvolutionStatus.READY_FOR_SHADOW.value,
             "reason": (
-                "Все gates пройдены — кандидат готов к shadow-фазе (Phase 2). "
+                "Все gates пройдены — создаётся shadow-эксперимент. "
                 "Торговая логика не меняется."
             ),
             "next_review_trades": None,

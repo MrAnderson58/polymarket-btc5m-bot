@@ -156,6 +156,11 @@ def sync_trade_features_incremental(
 
     for trade in missing:
         _upsert_feature_row(conn, build_feature_row_cached(trade, cache))
+        from bot.evolution.shadow import evaluate_trade_for_shadow
+        from bot.evolution.shadow_db import get_running_shadow
+
+        if get_running_shadow(conn) is not None:
+            evaluate_trade_for_shadow(conn, trade)
     return len(missing), cache
 
 

@@ -1,9 +1,11 @@
-"""Evolution status types and optional shadow phase (Phase 1: read-only, no shadow)."""
+"""Evolution status types and shadow phase state."""
 
 from __future__ import annotations
 
 from enum import Enum
 from typing import Any, TypedDict
+
+from bot.evolution.constants import EVOLUTION_VERSION
 
 
 class EvolutionStatus(str, Enum):
@@ -13,9 +15,6 @@ class EvolutionStatus(str, Enum):
     SHADOW_RUNNING = "SHADOW_RUNNING"
     SHADOW_PROMOTE = "SHADOW_PROMOTE"
     SHADOW_REJECT = "SHADOW_REJECT"
-
-
-EVOLUTION_VERSION = "1.0"
 
 
 class EvolutionCandidate(TypedDict, total=False):
@@ -40,11 +39,12 @@ class EvolutionResult(TypedDict, total=False):
     evidence: dict[str, Any]
     watch_reasons: list[str]
     sources_meta: dict[str, Any]
+    shadow: dict[str, Any]
 
 
-def load_shadow_phase_state() -> dict[str, Any] | None:
-    """
-    Phase 1: shadow experiments are not created yet.
-    Reserved for Phase 2 — returns None (no file reads).
-    """
-    return None
+def load_shadow_phase_state(conn: Any | None = None) -> dict[str, Any] | None:
+    if conn is None:
+        return None
+    from bot.evolution.shadow import shadow_state_for_decision
+
+    return shadow_state_for_decision(conn)
