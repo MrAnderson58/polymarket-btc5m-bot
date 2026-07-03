@@ -161,7 +161,7 @@ def sync_regime_shadow(conn: sqlite3.Connection) -> dict[str, Any] | None:
     _update_counters(conn, shadow_id)
 
     running = get_running_regime_shadow(conn)
-    if running and int(running["sample_size"]) >= int(running["target_sample_size"]):
+    if running and int(running["sample_size"] or 0) >= int(running["target_sample_size"] or REGIME_SHADOW_TARGET):
         _finalize_regime_shadow(conn, shadow_id)
         return get_latest_regime_shadow(conn)
 
@@ -173,11 +173,11 @@ def _update_counters(conn: sqlite3.Connection, shadow_id: int) -> None:
         """
         SELECT
             COUNT(*) AS total,
-            SUM(CASE WHEN in_filter = 1 THEN 1 ELSE 0 END) AS skipped,
-            SUM(CASE WHEN outcome = 'saved_loss' THEN 1 ELSE 0 END) AS saved_losses,
-            SUM(CASE WHEN outcome = 'missed_profit' THEN 1 ELSE 0 END) AS missed_winners,
-            SUM(CASE WHEN outcome = 'saved_loss' THEN abs(pnl_percent) ELSE 0 END) AS saved_loss_pnl,
-            SUM(CASE WHEN outcome = 'missed_profit' THEN pnl_percent ELSE 0 END) AS missed_profit_pnl
+            COALESCE(SUM(CASE WHEN in_filter = 1 THEN 1 ELSE 0 END), 0) AS skipped,
+            COALESCE(SUM(CASE WHEN outcome = 'saved_loss' THEN 1 ELSE 0 END), 0) AS saved_losses,
+            COALESCE(SUM(CASE WHEN outcome = 'missed_profit' THEN 1 ELSE 0 END), 0) AS missed_winners,
+            COALESCE(SUM(CASE WHEN outcome = 'saved_loss' THEN abs(pnl_percent) ELSE 0 END), 0.0) AS saved_loss_pnl,
+            COALESCE(SUM(CASE WHEN outcome = 'missed_profit' THEN pnl_percent ELSE 0 END), 0.0) AS missed_profit_pnl
         FROM evolution_regime_shadow_trades
         WHERE regime_shadow_id = ?
         """,
@@ -196,12 +196,12 @@ def _update_counters(conn: sqlite3.Connection, shadow_id: int) -> None:
         WHERE id = ?
         """,
         (
-            int(stats["total"]),
-            int(stats["skipped"]),
-            int(stats["saved_losses"]),
-            int(stats["missed_winners"]),
-            float(stats["saved_loss_pnl"]),
-            float(stats["missed_profit_pnl"]),
+            int(stats["total"] or 0),
+            int(stats["skipped"] or 0),
+            int(stats["saved_losses"] or 0),
+            int(stats["missed_winners"] or 0),
+            float(stats["saved_loss_pnl"] or 0.0),
+            float(stats["missed_profit_pnl"] or 0.0),
             shadow_id,
         ),
     )
@@ -257,13 +257,13 @@ def regime_shadow_state(conn: sqlite3.Connection) -> dict[str, Any] | None:
         "filter_name": row["filter_name"],
         "regimes": json.loads(row["regimes_json"]),
         "status": row["status"],
-        "sample_size": int(row["sample_size"]),
-        "target_sample_size": int(row["target_sample_size"]),
-        "skipped": int(row["skipped"]),
-        "saved_losses": int(row["saved_losses"]),
-        "missed_winners": int(row["missed_winners"]),
-        "saved_loss_pnl": float(row["saved_loss_pnl"]),
-        "missed_profit_pnl": float(row["missed_profit_pnl"]),
+        "sample_size": int(row["sample_size"] or 0),
+        "target_sample_size": int(row["target_sample_size"] or REGIME_SHADOW_TARGET),
+        "skipped": int(row["skipped"] or 0),
+        "saved_losses": int(row["saved_losses"] or 0),
+        "missed_winners": int(row["missed_winners"] or 0),
+        "saved_loss_pnl": float(row["saved_loss_pnl"] or 0.0),
+        "missed_profit_pnl": float(row["missed_profit_pnl"] or 0.0),
         "net_pf_improvement_pct": row.get("net_pf_improvement_pct"),
         "verdict": row.get("verdict"),
         "started_at": row["created_at"],
