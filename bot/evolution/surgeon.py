@@ -267,7 +267,13 @@ def run_surgeon(conn: sqlite3.Connection) -> dict[str, Any]:
     if not trades:
         return {
             "sample_size": 0,
-            "recommendation": "Insufficient data — no closed trades.",
+            "recommendation": {
+                "parameter": None,
+                "value": None,
+                "decision": "KEEP",
+                "reason": "Insufficient data — no closed trades.",
+                "confidence": 0,
+            },
         }
 
     all_pnls = [_trade_pnl(t) for t in trades]
@@ -278,6 +284,8 @@ def run_surgeon(conn: sqlite3.Connection) -> dict[str, Any]:
     fresh_start = _fresh_start_recommendation(trades, impact)
     next_shadow = _next_shadow_recommendation(impact, loss_source, profit_source)
 
+    recommendation = _build_structured_recommendation(next_shadow, impact)
+
     return {
         "sample_size": len(trades),
         "metrics": metrics,
@@ -287,13 +295,77 @@ def run_surgeon(conn: sqlite3.Connection) -> dict[str, Any]:
         "q4_hurts_pf": impact.get("hurts_pf"),
         "q5_helps_pf": impact.get("helps_pf"),
         "q6_next_shadow": next_shadow,
-        "recommendation": next_shadow.get("action", fresh_start),
+        "recommendation": recommendation,
         "detail": {
             "baseline_pf": impact["baseline_pf"],
             "entry_pfs": impact["entry_pfs"],
             "exit_pfs": impact["exit_pfs"],
         },
     }
+
+
+def _build_structured_recommendation(
+    next_shadow: dict[str, Any],
+    impact: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a structured recommendation dict for Council consumption."""
+    param = next_shadow.get("parameter")
+    if param in (None, "none"):
+        return {
+            "parameter": None,
+            "value": None,
+            "decision": "KEEP",
+            "reason": next_shadow.get("reason", "No clear improvement"),
+            "confidence": 0,
+        }
+
+    from_value = next_shadow.get("from_value")
+    to_value = next_shadow.get("to_value")
+
+    # Normalize parameter names
+    param_map = {
+        "entry_threshold": "entry",
+        "stop_loss": "stop_loss",
+        "time_stop": "stop_loss",
+        "trailing_activation": "trailing_activation",
+        "trailing_distance": "trailing_distance",
+    }
+    normalized_param = param_map.get(param, param)
+
+    confidence = 0
+    baseline = impact.get("baseline_pf", 1.0)
+    if to_value is not None and baseline > 0:
+        entry_pfs = impact.get("entry_pfs", {})
+        if to_value in entry_pfs:
+            improvement = (entry_pfs[to_value] - baseline) / baseline
+            confidence = min(95, int(improvement * 200))
+
+    return {
+        "parameter": normalized_param,
+        "value": float(to_value) if to_value is not None else None,
+        "from_value": float(from_value) if from_value is not None else None,
+        "to_value": float(to_value) if to_value is not None else None,
+        "direction": "lower" if to_value is not None and from_value is not None and to_value < from_value else "higher",
+        "decision": "CHANGE",
+        "reason": next_shadow.get("reason", next_shadow.get("action", "")),
+        "confidence": max(confidence, 50),
+    }
+
+
+def _recommendation_text(rec: Any) -> str:
+    """Convert recommendation to human-readable string (handles both dict and str)."""
+    if isinstance(rec, str):
+        return rec
+    if isinstance(rec, dict):
+        if rec.get("decision") == "KEEP" or rec.get("parameter") is None:
+            return rec.get("reason", "KEEP")
+        param = rec.get("parameter", "?")
+        value = rec.get("value")
+        reason = rec.get("reason", "")
+        if value is not None:
+            return f"{param} → {value} ({reason})"
+        return reason or f"Change {param}"
+    return str(rec)
 
 
 def render_surgeon_block(surgeon: dict[str, Any]) -> str:
@@ -347,7 +419,7 @@ def render_surgeon_block(surgeon: dict[str, Any]) -> str:
     lines.append("")
 
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append(f"RECOMMENDATION: {surgeon['recommendation']}")
+    lines.append(f"RECOMMENDATION: {_recommendation_text(surgeon['recommendation'])}")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━")
     lines.append("")
     lines.append("==========================")
@@ -406,7 +478,7 @@ def render_surgeon_section(surgeon: dict[str, Any]) -> list[str]:
     lines.append(f"**6. Next shadow:** {shadow['action']}")
     lines.append(f"   _{shadow['reason']}_")
     lines.append("")
-    lines.append(f"**RECOMMENDATION:** {surgeon['recommendation']}")
+    lines.append(f"**RECOMMENDATION:** {_recommendation_text(surgeon['recommendation'])}")
     lines.append("")
     lines.append("_Strategy Surgeon: observe-only, never changes execution._")
     return lines

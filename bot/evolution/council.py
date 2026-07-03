@@ -239,24 +239,69 @@ def _vote_from_strategy_review(review: dict[str, Any]) -> Vote:
     )
 
 
-def _vote_from_surgeon(surgeon: dict[str, Any]) -> Vote:
-    recommendation = surgeon.get("recommendation") or {}
-    param = recommendation.get("parameter")
-    if not param:
+def _vote_from_surgeon(surgeon: Any) -> Vote:
+    if not isinstance(surgeon, dict):
         return Vote(source="Surgeon", reason="No recommendation")
 
+    recommendation = surgeon.get("recommendation")
+    if recommendation is None:
+        return Vote(source="Surgeon", reason="No recommendation")
+
+    if isinstance(recommendation, str):
+        recommendation = _parse_string_recommendation(recommendation)
+
+    if not isinstance(recommendation, dict):
+        return Vote(source="Surgeon", reason="Invalid recommendation format")
+
+    if recommendation.get("decision") == "KEEP" or recommendation.get("parameter") is None:
+        return Vote(source="Surgeon", reason=str(recommendation.get("reason", "KEEP"))[:80])
+
+    param = recommendation.get("parameter")
+    if not param:
+        return Vote(source="Surgeon", reason="No parameter")
+
     param = _normalize_param(str(param))
-    value = recommendation.get("to_value")
+    value = recommendation.get("to_value") or recommendation.get("value")
     if value is not None:
         value = float(value)
     direction = recommendation.get("direction")
+    confidence = float(recommendation.get("confidence", 0))
     return Vote(
         source="Surgeon",
         parameter=param,
         value=value,
         direction=direction,
+        confidence=confidence,
         reason=str(recommendation.get("reason", ""))[:80],
     )
+
+
+def _parse_string_recommendation(text: str) -> dict[str, Any]:
+    """Best-effort parse of a legacy string recommendation into a dict."""
+    text_lower = text.lower()
+    if "insufficient" in text_lower or "no clear" in text_lower or "keep" in text_lower:
+        return {"parameter": None, "value": None, "decision": "KEEP", "reason": text}
+
+    param = None
+    if "entry" in text_lower or "threshold" in text_lower:
+        param = "entry"
+    elif "stop" in text_lower:
+        param = "stop_loss"
+    elif "trail" in text_lower:
+        param = "trailing_activation"
+
+    import re
+    numbers = re.findall(r"(\d+\.\d+)", text)
+    value = float(numbers[-1]) if numbers else None
+
+    return {
+        "parameter": param,
+        "value": value,
+        "to_value": value,
+        "decision": "CHANGE" if param else "KEEP",
+        "reason": text,
+        "confidence": 50 if param else 0,
+    }
 
 
 def _vote_from_ai_agent(ai: dict[str, Any]) -> Vote:
@@ -298,13 +343,13 @@ def _vote_from_ai_agent(ai: dict[str, Any]) -> Vote:
 # Consensus logic
 # ---------------------------------------------------------------------------
 
-def _collect_votes(sources: dict[str, Any], surgeon: dict[str, Any] | None = None) -> list[Vote]:
+def _collect_votes(sources: dict[str, Any], surgeon: Any = None) -> list[Vote]:
     votes = [
         _vote_from_optimizer(sources.get("optimizer", {})),
         _vote_from_scientist(sources.get("scientist", {})),
         _vote_from_brain(sources.get("trading_brain", {})),
         _vote_from_strategy_review(sources.get("strategy_review", {})),
-        _vote_from_surgeon(surgeon or {}),
+        _vote_from_surgeon(surgeon if isinstance(surgeon, dict) else {}),
         _vote_from_ai_agent(sources.get("ai_agent", {})),
     ]
     return votes
@@ -438,7 +483,7 @@ def _build_reason(
 def convene_council(
     sources: dict[str, Any],
     *,
-    surgeon: dict[str, Any] | None = None,
+    surgeon: Any = None,
     shadow_state: dict[str, Any] | None = None,
 ) -> CouncilResult:
     """Convene the Decision Council. Returns ONE final decision.

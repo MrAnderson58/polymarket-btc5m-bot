@@ -628,6 +628,133 @@ class RegimeShadowTestCase(unittest.TestCase):
         self.assertEqual(exp1["id"], exp2["id"])
 
 
+class CouncilSurgeonInterfaceTestCase(unittest.TestCase):
+    """Regression tests for Council <-> Surgeon interface mismatch."""
+
+    def _sources(self) -> dict:
+        return {
+            "optimizer": {
+                "parameter_optimizer": {
+                    "current": {"entry": 0.40},
+                    "optimal": {"entry": 0.39},
+                    "expected_improvement_pct": 14.0,
+                },
+                "walk_forward": {"trend": "stable", "rows": [{"generalizes": True}]},
+                "overfit_detector": {"level": "LOW"},
+            },
+            "strategy_review": {"final_verdict": {}},
+            "scientist": {"best_next_step": {"blocked": True}},
+            "trading_brain": {},
+            "ai_agent": {"decisions": {"ALLOW": 10, "SKIP": 5}},
+            "live_sample": {"current_since_change": 400, "total_trades": 742},
+        }
+
+    def test_surgeon_string_recommendation_does_not_crash(self) -> None:
+        from bot.evolution.council import convene_council
+
+        surgeon = {"recommendation": "Lower entry to 0.39 for PF improvement"}
+        result = convene_council(self._sources(), surgeon=surgeon)
+        self.assertIsNotNone(result)
+        surgeon_vote = next(v for v in result.votes if v.source == "Surgeon")
+        self.assertEqual(surgeon_vote.parameter, "entry")
+        self.assertEqual(surgeon_vote.value, 0.39)
+
+    def test_surgeon_dict_recommendation_works(self) -> None:
+        from bot.evolution.council import convene_council
+
+        surgeon = {
+            "recommendation": {
+                "parameter": "entry",
+                "value": 0.36,
+                "to_value": 0.36,
+                "direction": "lower",
+                "decision": "CHANGE",
+                "reason": "PF weak at 0.40",
+                "confidence": 87,
+            }
+        }
+        result = convene_council(self._sources(), surgeon=surgeon)
+        surgeon_vote = next(v for v in result.votes if v.source == "Surgeon")
+        self.assertEqual(surgeon_vote.parameter, "entry")
+        self.assertEqual(surgeon_vote.value, 0.36)
+        self.assertEqual(surgeon_vote.confidence, 87)
+
+    def test_surgeon_keep_recommendation(self) -> None:
+        from bot.evolution.council import convene_council
+
+        surgeon = {
+            "recommendation": {
+                "parameter": None,
+                "value": None,
+                "decision": "KEEP",
+                "reason": "No clear improvement",
+                "confidence": 0,
+            }
+        }
+        result = convene_council(self._sources(), surgeon=surgeon)
+        surgeon_vote = next(v for v in result.votes if v.source == "Surgeon")
+        self.assertTrue(surgeon_vote.is_keep)
+        self.assertIn("No clear improvement", surgeon_vote.reason)
+
+    def test_surgeon_none_recommendation(self) -> None:
+        from bot.evolution.council import convene_council
+
+        surgeon = {"recommendation": None}
+        result = convene_council(self._sources(), surgeon=surgeon)
+        surgeon_vote = next(v for v in result.votes if v.source == "Surgeon")
+        self.assertTrue(surgeon_vote.is_keep)
+
+    def test_surgeon_invalid_recommendation_type(self) -> None:
+        from bot.evolution.council import convene_council
+
+        surgeon = {"recommendation": 42}
+        result = convene_council(self._sources(), surgeon=surgeon)
+        surgeon_vote = next(v for v in result.votes if v.source == "Surgeon")
+        self.assertTrue(surgeon_vote.is_keep)
+
+    def test_surgeon_empty_dict(self) -> None:
+        from bot.evolution.council import convene_council
+
+        surgeon = {}
+        result = convene_council(self._sources(), surgeon=surgeon)
+        surgeon_vote = next(v for v in result.votes if v.source == "Surgeon")
+        self.assertTrue(surgeon_vote.is_keep)
+
+    def test_surgeon_string_keep(self) -> None:
+        from bot.evolution.council import convene_council
+
+        surgeon = {"recommendation": "Insufficient data — no closed trades."}
+        result = convene_council(self._sources(), surgeon=surgeon)
+        surgeon_vote = next(v for v in result.votes if v.source == "Surgeon")
+        self.assertTrue(surgeon_vote.is_keep)
+
+    def test_render_works_with_structured_recommendation(self) -> None:
+        from bot.evolution.surgeon import render_surgeon_block
+
+        surgeon = {
+            "sample_size": 500,
+            "metrics": {"pf": 1.65, "wr": 58.0, "dd": 4.1},
+            "q1_fresh_start": "Focus entries at 0.37",
+            "q2_biggest_loss": {"exit_reason": "STOP_LOSS", "exit_reason_loss": 45.0, "worst_entry_price": 0.40, "worst_entry_pf": 0.91},
+            "q3_biggest_profit": {"exit_reason": "TRAILING_STOP", "exit_reason_profit": 120.0, "best_entry_price": 0.37, "best_entry_pf": 2.1},
+            "q4_hurts_pf": {"parameter": "entry_threshold", "value": 0.40, "pf": 0.91},
+            "q5_helps_pf": {"parameter": "entry_threshold", "value": 0.37, "pf": 2.1},
+            "q6_next_shadow": {"parameter": "entry_threshold", "action": "Lower entry", "reason": "PF improvement"},
+            "recommendation": {
+                "parameter": "entry",
+                "value": 0.37,
+                "decision": "CHANGE",
+                "reason": "PF improvement at lower entry",
+                "confidence": 87,
+            },
+            "detail": {"baseline_pf": 1.65, "entry_pfs": {}, "exit_pfs": {}},
+        }
+        block = render_surgeon_block(surgeon)
+        self.assertIn("RECOMMENDATION:", block)
+        self.assertIn("entry", block)
+        self.assertNotIn("AttributeError", block)
+
+
 class EvolutionHistoryTestCase(unittest.TestCase):
     """Tests for Evolution History timeline."""
 
