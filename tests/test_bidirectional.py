@@ -241,6 +241,27 @@ class SafetyTestCase(unittest.TestCase):
             )
 
 
+class ImportRegressionTestCase(unittest.TestCase):
+    """Ensure legacy strategy and bidirectional modules coexist."""
+
+    def test_legacy_strategy_import(self):
+        from bot.strategy import SignalSide, StrategySignal, evaluate
+        self.assertEqual(SignalSide.YES.value, "BUY_YES")
+        self.assertTrue(callable(evaluate))
+
+    def test_bidirectional_momentum_import(self):
+        from bot.strategy.bidirectional_momentum import EntryConfig, evaluate_direction
+        self.assertTrue(callable(evaluate_direction))
+
+    def test_bidirectional_shadow_import(self):
+        from bot.strategy.bidirectional_shadow import shadow_state, SHADOW_ENTRY_CONFIG
+        self.assertIsNotNone(SHADOW_ENTRY_CONFIG)
+
+    def test_bidirectional_observe_import(self):
+        from bot.strategy.bidirectional_observe import observe_market
+        self.assertTrue(callable(observe_market))
+
+
 class HealthCheckTestCase(unittest.TestCase):
     def test_health_check_runs(self):
         from bot.bidirectional_check import run_check
