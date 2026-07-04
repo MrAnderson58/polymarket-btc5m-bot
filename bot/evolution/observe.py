@@ -61,18 +61,20 @@ def _observe_parameter_shadow(conn: sqlite3.Connection) -> int:
 
 def _observe_regime_shadow(conn: sqlite3.Connection) -> int:
     from bot.evolution.regime_shadow import (
-        count_pending_regime_evaluations,
+        count_regime_shadow_trades,
         get_running_regime_shadow,
         sync_regime_shadow,
     )
 
-    if get_running_regime_shadow(conn) is None:
+    running = get_running_regime_shadow(conn)
+    if running is None:
         return 0
 
-    pending_before = count_pending_regime_evaluations(conn)
+    shadow_id = int(running["id"])
+    before = count_regime_shadow_trades(conn, shadow_id)
     sync_regime_shadow(conn)
-    pending_after = count_pending_regime_evaluations(conn)
-    n = max(0, pending_before - pending_after)
+    after = count_regime_shadow_trades(conn, shadow_id)
+    n = max(0, after - before)
     if n > 0:
         logger.info("EVOLUTION_OBSERVE | regime_shadow | evaluated %d new trade(s)", n)
     return n

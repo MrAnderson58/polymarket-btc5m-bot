@@ -1258,5 +1258,79 @@ class RuntimeObserveTestCase(unittest.TestCase):
             self.assertEqual(running["shadow_value"], 0.39)
 
 
+    def test_regime_shadow_requires_trade_features_backfill(self) -> None:
+        """Regime shadow must backfill trade_features for runtime-closed trades."""
+        from bot.evolution.observe import observe_closed_trades
+        from bot.evolution.regime_shadow import (
+            count_regime_shadow_trades,
+            create_regime_shadow,
+            regime_shadow_funnel,
+        )
+        from bot.evolution.shadow_db import create_shadow_experiment
+
+        with connect(self.db_path) as conn:
+            create_shadow_experiment(
+                conn, parameter="entry_threshold", current_value=0.40, shadow_value=0.36
+            )
+            create_regime_shadow(
+                conn,
+                filter_name="BTC Uptrend Filter",
+                regimes=("Strong Uptrend", "News Spike"),
+            )
+            conn.execute(
+                "UPDATE evolution_shadow SET created_at = '2026-07-04 00:00:00' WHERE id = 1"
+            )
+            conn.execute(
+                "UPDATE evolution_regime_shadow SET created_at = '2026-07-04 00:00:00' WHERE id = 1"
+            )
+            # Closed trade WITHOUT trade_features (simulates bot.main runtime close)
+            conn.execute(
+                """
+                INSERT INTO early_reversion_v2_trades (
+                    id, market_slug, window_start_ts, end_ts, side, strategy_name,
+                    status, entry_price, entry_ts, exit_price, exit_reason,
+                    pnl_percent, pnl_usdc, holding_time_seconds, created_at, closed_at
+                ) VALUES (99, 'btc-no-features', 1000, 1300, 'YES', 'NO_C', 'closed',
+                          0.38, 1100, 0.40, 'TRAILING_STOP', 5.0, 0.1, 30,
+                          datetime('now'), '2026-07-05 10:00:00')
+                """
+            )
+            conn.commit()
+
+            funnel_before = regime_shadow_funnel(conn, 1)
+            self.assertEqual(funnel_before["forward_trades"], 1)
+            self.assertEqual(funnel_before["missing_trade_features"], 1)
+            self.assertEqual(funnel_before["raw_evaluation_rows"], 0)
+
+            result = observe_closed_trades(conn)
+            conn.commit()
+
+            funnel_after = regime_shadow_funnel(conn, 1)
+            self.assertGreaterEqual(result["parameter"], 1)
+            self.assertGreaterEqual(result["regime"], 1)
+            self.assertEqual(funnel_after["missing_trade_features"], 0)
+            self.assertEqual(funnel_after["matching_feature_rows"], 1)
+            self.assertEqual(count_regime_shadow_trades(conn, 1), 1)
+
+    def test_regime_shadow_funnel_counts(self) -> None:
+        from bot.evolution.regime_shadow import create_regime_shadow, regime_shadow_funnel
+
+        with connect(self.db_path) as conn:
+            create_regime_shadow(
+                conn,
+                filter_name="BTC Uptrend Filter",
+                regimes=("Strong Uptrend", "News Spike"),
+            )
+            conn.execute(
+                "UPDATE evolution_regime_shadow SET created_at = '2026-07-04 00:00:00' WHERE id = 1"
+            )
+            self._seed_closed_trade(conn, trade_id=10)
+            conn.commit()
+            funnel = regime_shadow_funnel(conn, 1)
+            self.assertEqual(funnel["forward_trades"], 1)
+            self.assertEqual(funnel["matching_feature_rows"], 1)
+            self.assertEqual(funnel["non_null_regime_labels"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

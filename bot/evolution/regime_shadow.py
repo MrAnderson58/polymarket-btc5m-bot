@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_FILTER_REGIMES = ("Strong Uptrend", "News Spike")
 REGIME_SHADOW_TARGET = SHADOW_TARGET_SAMPLE
+SOURCE_TABLE = "early_reversion_v2_trades"
 
 
 def _utc_now() -> str:
@@ -108,7 +109,8 @@ def _fetch_unevaluated_trades(
         SELECT t.id AS trade_id, t.pnl_percent, t.entry_price, t.exit_price,
                t.entry_ts, t.closed_at, f.regime_label
         FROM early_reversion_v2_trades t
-        JOIN trade_features f ON f.trade_id = t.id
+        JOIN trade_features f
+          ON f.trade_id = t.id AND f.source_table = ?
         LEFT JOIN evolution_regime_shadow_trades e
             ON e.regime_shadow_id = ? AND e.trade_id = t.id
         JOIN evolution_regime_shadow s ON s.id = ?
@@ -118,9 +120,192 @@ def _fetch_unevaluated_trades(
           AND f.regime_label IS NOT NULL
         ORDER BY t.entry_ts ASC
         """,
-        (regime_shadow_id, regime_shadow_id),
+        (SOURCE_TABLE, regime_shadow_id, regime_shadow_id),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def _forward_trade_filter_sql() -> str:
+    return """
+        t.status = 'closed'
+        AND COALESCE(t.closed_at, datetime(t.entry_ts, 'unixepoch')) >= s.created_at
+    """
+
+
+def ensure_trade_features_for_regime_shadow(conn: sqlite3.Connection) -> int:
+    """Backfill trade_features for closed ER v2 trades missing feature rows.
+
+    Regime shadow requires regime_label from trade_features. Parameter shadow
+    does not — so runtime observe can advance parameter progress while regime
+    stays at zero until features exist.
+    """
+    n = 0
+    try:
+        from bot.perf.feature_store import sync_trade_features_incremental
+
+        synced, _ = sync_trade_features_incremental(conn)
+        n += synced
+    except ImportError:
+        pass
+
+    from bot.evolution.feature_backfill import backfill_missing_regime_features
+
+    n += backfill_missing_regime_features(conn)
+    if n > 0:
+        logger.info("REGIME_SHADOW | backfilled %d trade_features row(s)", n)
+    return n
+
+
+def regime_shadow_funnel(conn: sqlite3.Connection, regime_shadow_id: int) -> dict[str, int]:
+    """Read-only funnel counts for regime shadow eligibility."""
+    filter_regimes = list(DEFAULT_FILTER_REGIMES)
+    row = conn.execute(
+        "SELECT regimes_json FROM evolution_regime_shadow WHERE id = ?",
+        (regime_shadow_id,),
+    ).fetchone()
+    if row and row["regimes_json"]:
+        filter_regimes = json.loads(row["regimes_json"])
+
+    base = _forward_trade_filter_sql()
+    forward = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM early_reversion_v2_trades t
+        JOIN evolution_regime_shadow s ON s.id = ?
+        WHERE {base}
+        """,
+        (regime_shadow_id,),
+    ).fetchone()["n"]
+
+    matching_features = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM early_reversion_v2_trades t
+        JOIN trade_features f
+          ON f.trade_id = t.id AND f.source_table = ?
+        JOIN evolution_regime_shadow s ON s.id = ?
+        WHERE {base}
+        """,
+        (SOURCE_TABLE, regime_shadow_id),
+    ).fetchone()["n"]
+
+    non_null_regime = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM early_reversion_v2_trades t
+        JOIN trade_features f
+          ON f.trade_id = t.id AND f.source_table = ?
+        JOIN evolution_regime_shadow s ON s.id = ?
+        WHERE {base}
+          AND f.regime_label IS NOT NULL
+        """,
+        (SOURCE_TABLE, regime_shadow_id),
+    ).fetchone()["n"]
+
+    missing_features = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM early_reversion_v2_trades t
+        LEFT JOIN trade_features f
+          ON f.trade_id = t.id AND f.source_table = ?
+        JOIN evolution_regime_shadow s ON s.id = ?
+        WHERE {base}
+          AND f.trade_id IS NULL
+        """,
+        (SOURCE_TABLE, regime_shadow_id),
+    ).fetchone()["n"]
+
+    inserted = conn.execute(
+        "SELECT COUNT(*) AS n FROM evolution_regime_shadow_trades WHERE regime_shadow_id = ?",
+        (regime_shadow_id,),
+    ).fetchone()["n"]
+
+    # Count target-regime matches among forward trades with features
+    target_matches = 0
+    normalized_valid = 0
+    rows = conn.execute(
+        f"""
+        SELECT f.regime_label
+        FROM early_reversion_v2_trades t
+        JOIN trade_features f
+          ON f.trade_id = t.id AND f.source_table = ?
+        JOIN evolution_regime_shadow s ON s.id = ?
+        WHERE {base}
+          AND f.regime_label IS NOT NULL
+        """,
+        (SOURCE_TABLE, regime_shadow_id),
+    ).fetchall()
+    for r in rows:
+        norm = normalize_regime_label(r["regime_label"])
+        if norm:
+            normalized_valid += 1
+        if regime_in_filter(r["regime_label"], filter_regimes):
+            target_matches += 1
+
+    return {
+        "forward_trades": int(forward or 0),
+        "missing_trade_features": int(missing_features or 0),
+        "matching_feature_rows": int(matching_features or 0),
+        "non_null_regime_labels": int(non_null_regime or 0),
+        "normalized_valid": normalized_valid,
+        "target_regime_matches": target_matches,
+        "raw_evaluation_rows": int(inserted or 0),
+    }
+
+
+def list_forward_trade_diagnostics(
+    conn: sqlite3.Connection,
+    regime_shadow_id: int,
+) -> list[dict[str, Any]]:
+    """Per-trade diagnostic rows for forward eligible ER v2 trades."""
+    filter_regimes = list(DEFAULT_FILTER_REGIMES)
+    row = conn.execute(
+        "SELECT regimes_json FROM evolution_regime_shadow WHERE id = ?",
+        (regime_shadow_id,),
+    ).fetchone()
+    if row and row["regimes_json"]:
+        filter_regimes = json.loads(row["regimes_json"])
+
+    base = _forward_trade_filter_sql()
+    rows = conn.execute(
+        f"""
+        SELECT
+            t.id AS trade_id,
+            t.market_slug,
+            t.strategy_name,
+            t.side,
+            t.entry_ts,
+            t.closed_at,
+            f.trade_id AS feature_trade_id,
+            f.source_table AS feature_source,
+            f.regime_label
+        FROM early_reversion_v2_trades t
+        LEFT JOIN trade_features f
+          ON f.trade_id = t.id AND f.source_table = ?
+        JOIN evolution_regime_shadow s ON s.id = ?
+        WHERE {base}
+        ORDER BY t.id ASC
+        """,
+        (SOURCE_TABLE, regime_shadow_id),
+    ).fetchall()
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        regime = r["regime_label"]
+        norm = normalize_regime_label(regime) if regime else None
+        out.append({
+            "trade_id": r["trade_id"],
+            "market_slug": r["market_slug"],
+            "strategy_name": r["strategy_name"],
+            "side": r["side"],
+            "entry_ts": r["entry_ts"],
+            "closed_at": r["closed_at"],
+            "has_trade_features": r["feature_trade_id"] is not None,
+            "regime_label": regime,
+            "normalized_regime_label": norm,
+            "in_target_regime": regime_in_filter(regime, filter_regimes) if regime else False,
+        })
+    return out
 
 
 def evaluate_trade_for_regime_shadow(
@@ -159,6 +344,8 @@ def sync_regime_shadow(conn: sqlite3.Connection) -> dict[str, Any] | None:
     running = get_running_regime_shadow(conn)
     if running is None:
         return None
+
+    ensure_trade_features_for_regime_shadow(conn)
 
     shadow_id = int(running["id"])
     filter_regimes = json.loads(running["regimes_json"])

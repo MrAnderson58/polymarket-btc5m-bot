@@ -39,7 +39,6 @@ def _status() -> int:
         count_regime_shadow_trades,
         get_latest_regime_shadow,
         get_running_regime_shadow,
-        last_regime_shadow_eval_at,
     )
     from bot.evolution.shadow_db import (
         count_eligible_trades_after_shadow,
@@ -92,21 +91,79 @@ def _status() -> int:
         regime = get_running_regime_shadow(conn) or get_latest_regime_shadow(conn)
         print("=== REGIME SHADOW ===")
         if regime:
+            from bot.evolution.regime_shadow import (
+                last_regime_shadow_eval_at,
+                regime_shadow_funnel,
+            )
+
             rid = int(regime["id"])
             regimes = json.loads(regime["regimes_json"])
             raw_rows = count_regime_shadow_trades(conn, rid)
+            funnel = regime_shadow_funnel(conn, rid)
+            observe_row = observe_stats.get("bot.main") or {}
+
             print(f"  Status: {regime['status']}")
             print(f"  ID: {regime['id']}")
             print(f"  Filter: {regime['filter_name']}")
             print(f"  Regimes: {', '.join(regimes)}")
             print(f"  Progress: {regime.get('sample_size', 0)} / {regime.get('target_sample_size', 200)}")
+            print(f"  Forward ER v2 trades: {funnel['forward_trades']}")
+            print(f"  Missing trade_features: {funnel['missing_trade_features']}")
+            print(f"  Matching feature rows: {funnel['matching_feature_rows']}")
+            print(f"  Non-null regime labels: {funnel['non_null_regime_labels']}")
+            print(f"  Normalized valid: {funnel['normalized_valid']}")
+            print(f"  Target-regime matches: {funnel['target_regime_matches']}")
             print(f"  Raw evaluation rows: {raw_rows}")
             print(f"  Last evaluation: {last_regime_shadow_eval_at(conn, rid) or 'none'}")
+            print(f"  Last observe error: {observe_row.get('last_error') or 'none'}")
             print(f"  Created: {regime['created_at']}")
             print(f"  Created by: {regime.get('created_by') or 'unknown'}")
             print(f"  Creator decision: {regime.get('creator_decision') or 'unknown'}")
         else:
             print("  No regime shadow experiments.")
+    return 0
+
+
+def _diagnose_regime() -> int:
+    from bot.database import connect, init_db
+    from bot.evolution.regime_shadow import (
+        get_running_regime_shadow,
+        list_forward_trade_diagnostics,
+        regime_shadow_funnel,
+    )
+
+    init_db()
+    with connect() as conn:
+        running = get_running_regime_shadow(conn)
+        if not running:
+            print("No running regime shadow experiment.")
+            return 1
+
+        rid = int(running["id"])
+        funnel = regime_shadow_funnel(conn, rid)
+        print("=== REGIME SHADOW FUNNEL ===")
+        print(f"  forward ER v2 closed:        {funnel['forward_trades']}")
+        print(f"  missing trade_features:      {funnel['missing_trade_features']}")
+        print(f"  → matching feature rows:     {funnel['matching_feature_rows']}")
+        print(f"  → non-null regime_label:     {funnel['non_null_regime_labels']}")
+        print(f"  → normalized valid:          {funnel['normalized_valid']}")
+        print(f"  → target-regime matches:     {funnel['target_regime_matches']}")
+        print(f"  → inserted evaluations:      {funnel['raw_evaluation_rows']}")
+        print()
+        print("=== FORWARD TRADES ===")
+        print(
+            f"{'id':>5} {'slug':<26} {'strat':<6} {'side':<4} "
+            f"{'feat':<5} {'regime':<16} {'norm':<16} {'filter'}"
+        )
+        for t in list_forward_trade_diagnostics(conn, rid):
+            slug = (t["market_slug"] or "")[:26]
+            print(
+                f"{t['trade_id']:>5} {slug:<26} {t['strategy_name']:<6} {t['side']:<4} "
+                f"{'YES' if t['has_trade_features'] else 'NO':<5} "
+                f"{str(t['regime_label'] or '-'):<16} "
+                f"{str(t['normalized_regime_label'] or '-'):<16} "
+                f"{t['in_target_regime']}"
+            )
     return 0
 
 
@@ -188,6 +245,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("status", help="Show active experiments")
+    sub.add_parser("diagnose-regime", help="Read-only regime shadow funnel + per-trade detail")
 
     cancel = sub.add_parser("cancel-shadow", help="Cancel active shadow experiment")
     cancel.add_argument("--id", type=int, required=True)
@@ -203,6 +261,8 @@ def main() -> int:
 
     if args.command == "status":
         return _status()
+    elif args.command == "diagnose-regime":
+        return _diagnose_regime()
     elif args.command == "cancel-shadow":
         return _cancel_shadow(args)
     elif args.command == "create-shadow":
