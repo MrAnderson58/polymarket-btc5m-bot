@@ -66,6 +66,40 @@ def _ts() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+def _log_effective_thresholds() -> None:
+    from bot.config import ER_ENTRY_PRICE_OFFSET, effective_entry_threshold
+    from bot.no_c_btc_filter import NO_C_NORMAL_THRESHOLD, NO_C_STRICT_THRESHOLD
+
+    logger.info(
+        "NO_C thresholds:\n"
+        "  normal  base=%.2f  effective=%.2f\n"
+        "  strict  base=%.2f  effective=%.2f\n"
+        "  offset=%+.3f",
+        NO_C_NORMAL_THRESHOLD,
+        effective_entry_threshold(NO_C_NORMAL_THRESHOLD),
+        NO_C_STRICT_THRESHOLD,
+        effective_entry_threshold(NO_C_STRICT_THRESHOLD),
+        ER_ENTRY_PRICE_OFFSET,
+    )
+
+
+def _log_bidirectional_shadow_status() -> None:
+    try:
+        from bot.strategy.bidirectional_momentum import EntryConfig
+        cfg = EntryConfig()
+        logger.info(
+            "BIDIRECTIONAL SHADOW V1.1: ENABLED\n"
+            "  MODE: OBSERVE ONLY\n"
+            "  CONFIG: skip=%s | NO_avoid=%.2f-%.2f | conf>=%.2f | move>=%.0f$ | window=%d-%ds",
+            ",".join(cfg.skip_regimes),
+            cfg.no_avoid_zone_lo, cfg.no_avoid_zone_hi,
+            cfg.min_confidence, cfg.min_move_30s,
+            cfg.min_seconds_from_start, cfg.max_seconds_from_start,
+        )
+    except Exception:
+        logger.info("BIDIRECTIONAL SHADOW V1.1: DISABLED")
+
+
 def _log_new_window_check(market) -> None:
     global _last_logged_window
     if market.window_start_ts == _last_logged_window:
@@ -128,6 +162,8 @@ def run() -> None:
         format_enabled_strategies(ENABLED_STRATEGIES_V3),
     )
     log_er_entry_threshold_config()
+    _log_effective_thresholds()
+    _log_bidirectional_shadow_status()
     log_no_c_filter_live_config()
 
     last_full_cycle = 0.0
@@ -271,6 +307,13 @@ def _cycle() -> None:
                     "Exit recovery reconciled %s stuck open position(s)",
                     stuck_exits,
                 )
+            # Observe-only: record shadow evaluations for newly closed trades
+            try:
+                from bot.evolution.observe import observe_closed_trades
+                observe_closed_trades(conn)
+                conn.commit()
+            except Exception as exc:
+                logger.debug("evolution observe skipped: %s", exc)
         else:
             conn.commit()
 
@@ -347,6 +390,25 @@ def _cycle() -> None:
             )
         if ENABLE_YES_C_SHADOW:
             process_yes_c_shadow(conn, market, quotes)
+
+        # Bidirectional Momentum V1.1 — observe-only shadow
+        try:
+            from bot.strategy.bidirectional_observe import observe_market
+            observe_market(
+                conn,
+                market_slug=market.slug,
+                window_start_ts=market.window_start_ts,
+                btc_price=btc_price,
+                strike=strike,
+                yes_bid=quotes["yes_bid"] or 0,
+                yes_ask=quotes["yes_ask"] or 0,
+                no_bid=quotes["no_bid"] or 0,
+                no_ask=quotes["no_ask"] or 0,
+                seconds_from_start=int(300 - seconds_left),
+                seconds_left=int(seconds_left),
+            )
+        except Exception as exc:
+            logger.debug("bidirectional shadow skipped: %s", exc)
 
         conn.commit()
 

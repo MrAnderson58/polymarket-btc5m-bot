@@ -660,6 +660,11 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines += _h2("51. EVOLUTION HISTORY")
     lines.extend(render_history_section(history))
 
+    bidi = report.get("bidirectional_shadow")
+    if bidi:
+        lines += _h2("52. BIDIRECTIONAL MOMENTUM SHADOW")
+        lines.extend(_render_bidirectional_section(bidi))
+
     lines += _h2("APPENDIX: Parameter Optimizer")
     opt = report.get("parameter_optimizer", {})
     cur, best = opt.get("current", {}), opt.get("optimal", {})
@@ -690,6 +695,37 @@ def render_markdown(report: dict[str, Any]) -> str:
         "Review SAFE TO CHANGE and FINAL ACTION PLAN before any live changes."
     )
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _render_bidirectional_section(state: dict) -> list[str]:
+    lines = []
+    lines.append(f"Status: {state.get('status', 'UNKNOWN')}")
+    lines.append("")
+    lines.append(f"Observations: {state.get('observations', 0)}")
+    decisions = state.get("decisions", {})
+    lines.append(f"YES decisions: {decisions.get('YES', 0)}")
+    lines.append(f"NO decisions: {decisions.get('NO', 0)}")
+    lines.append(f"SKIP decisions: {decisions.get('SKIP', 0)}")
+    lines.append("")
+    lines.append(f"Open trades: {state.get('trades_open', 0)}")
+    lines.append(f"Closed trades: {state.get('trades_closed', 0)}")
+    lines.append("")
+    lines.append(f"YES PF: {state.get('yes_pf', 0):.3f}")
+    lines.append(f"NO PF: {state.get('no_pf', 0):.3f}")
+    lines.append(f"Total PF: {state.get('pf', 0):.3f}")
+    lines.append(f"WR: {state.get('wr', 0):.1f}%")
+    lines.append(f"DD: {state.get('max_dd', 0):.1f}%")
+    lines.append(f"Max consecutive losses: {state.get('max_consecutive_losses', 0)}")
+    lines.append("")
+    regime_stats = state.get("regime_stats", {})
+    if regime_stats:
+        lines.append("Regime breakdown:")
+        for regime, stats in sorted(regime_stats.items(), key=lambda x: -x[1]["n"]):
+            wr = stats["wins"] / stats["n"] * 100 if stats["n"] else 0
+            lines.append(f"  {regime}: n={stats['n']} WR={wr:.0f}% PnL={stats['pnl']:.1f}%")
+    lines.append("")
+    lines.append(f"Progress: {state.get('progress', '0 / 100')}")
+    return lines
 
 
 def write_report_files(

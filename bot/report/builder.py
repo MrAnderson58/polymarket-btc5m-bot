@@ -352,12 +352,15 @@ def build_report(
             from bot.evolution.regime_shadow import regime_shadow_state, sync_regime_shadow
             from bot.evolution.shadow import save_shadow_state
 
-            report["evolution"] = build_evolution(conn, surgeon=report["surgeon"])
-            save_shadow_state(conn)
-            sync_regime_shadow(conn)
+            report["evolution"] = build_evolution(conn, surgeon=report["surgeon"], readonly=True)
             report["regime_shadow"] = regime_shadow_state(conn)
-            sync_history_from_shadows(conn)
             report["evolution_history"] = load_history(conn)
+
+            try:
+                from bot.strategy.bidirectional_shadow import shadow_state as bidi_shadow_state
+                report["bidirectional_shadow"] = bidi_shadow_state(conn)
+            except Exception:
+                report["bidirectional_shadow"] = None
 
         report["meta"]["report_mode"] = "read_only"
         report["meta"]["compute_note"] = (

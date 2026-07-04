@@ -146,6 +146,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     _ensure_scientist_tables(conn)
     _ensure_portfolio_tables(conn)
     _ensure_evolution_shadow_tables(conn)
+    _ensure_bidirectional_shadow_tables(conn)
     _ensure_perf_indexes(conn)
 
 
@@ -187,7 +188,7 @@ def _ensure_evolution_shadow_tables(conn: sqlite3.Connection) -> None:
             parameter TEXT NOT NULL,
             current_value REAL NOT NULL,
             shadow_value REAL NOT NULL,
-            status TEXT NOT NULL CHECK (status IN ('RUNNING', 'COMPLETE')),
+            status TEXT NOT NULL CHECK (status IN ('RUNNING', 'COMPLETE', 'CANCELLED')),
             created_at TEXT NOT NULL,
             completed_at TEXT,
             sample_size INTEGER NOT NULL DEFAULT 0,
@@ -198,7 +199,7 @@ def _ensure_evolution_shadow_tables(conn: sqlite3.Connection) -> None:
             live_wr REAL,
             shadow_dd REAL,
             live_dd REAL,
-            verdict TEXT CHECK (verdict IN ('PROMOTE', 'REJECT') OR verdict IS NULL)
+            verdict TEXT CHECK (verdict IN ('PROMOTE', 'REJECT', 'CANCELLED') OR verdict IS NULL)
         )
         """
     )
@@ -293,6 +294,56 @@ def _ensure_evolution_shadow_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+
+
+def _ensure_bidirectional_shadow_tables(conn: sqlite3.Connection) -> None:
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS bidirectional_shadow_observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            market_slug TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            decision TEXT NOT NULL,
+            confidence REAL,
+            probability_yes REAL,
+            probability_no REAL,
+            regime TEXT,
+            reason TEXT,
+            btc_move_30s REAL,
+            entry_price REAL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS bidirectional_shadow_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            market_slug TEXT NOT NULL,
+            window_start_ts INTEGER,
+            side TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            entry_price REAL NOT NULL,
+            entry_ts INTEGER NOT NULL,
+            entry_regime TEXT,
+            entry_confidence REAL,
+            entry_reason TEXT,
+            max_price_seen REAL,
+            exit_price REAL,
+            exit_reason TEXT,
+            pnl_pct REAL,
+            holding_time_seconds REAL,
+            created_at TEXT DEFAULT (datetime('now')),
+            closed_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_bidi_shadow_obs_market
+            ON bidirectional_shadow_observations(market_slug, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_bidi_shadow_trades_status
+            ON bidirectional_shadow_trades(status);
+        CREATE INDEX IF NOT EXISTS idx_bidi_shadow_trades_market_status
+            ON bidirectional_shadow_trades(market_slug, status);
+        CREATE INDEX IF NOT EXISTS idx_bidi_shadow_trades_entry_ts
+            ON bidirectional_shadow_trades(entry_ts);
+        CREATE INDEX IF NOT EXISTS idx_bidi_shadow_trades_side
+            ON bidirectional_shadow_trades(side);
+    """)
 
 
 def _ensure_perf_indexes(conn: sqlite3.Connection) -> None:
