@@ -57,6 +57,10 @@ def create_shadow_experiment(
     current_value: float,
     shadow_value: float,
     target_sample_size: int = SHADOW_TARGET_SAMPLE,
+    created_by: str | None = None,
+    creator_decision: str | None = None,
+    creator_confidence: float | None = None,
+    creator_reason: str | None = None,
 ) -> dict[str, Any]:
     existing = get_running_shadow(conn)
     if existing is not None:
@@ -67,10 +71,21 @@ def create_shadow_experiment(
         """
         INSERT INTO evolution_shadow (
             parameter, current_value, shadow_value, status,
-            created_at, sample_size, target_sample_size
-        ) VALUES (?, ?, ?, 'RUNNING', ?, 0, ?)
+            created_at, sample_size, target_sample_size,
+            created_by, creator_decision, creator_confidence, creator_reason
+        ) VALUES (?, ?, ?, 'RUNNING', ?, 0, ?, ?, ?, ?, ?)
         """,
-        (parameter, current_value, shadow_value, created_at, target_sample_size),
+        (
+            parameter,
+            current_value,
+            shadow_value,
+            created_at,
+            target_sample_size,
+            created_by,
+            creator_decision,
+            creator_confidence,
+            creator_reason,
+        ),
     )
     shadow_id = int(cur.lastrowid)
     row = get_shadow_by_id(conn, shadow_id)
@@ -132,12 +147,46 @@ def fetch_unevaluated_trades(
           ON e.shadow_id = ? AND e.trade_id = t.id
         JOIN evolution_shadow s ON s.id = ?
         WHERE t.status = 'closed'
-          AND t.closed_at >= s.created_at
+          AND COALESCE(t.closed_at, datetime(t.entry_ts, 'unixepoch')) >= s.created_at
           AND e.id IS NULL
         ORDER BY t.entry_ts ASC
         """,
         (shadow_id, shadow_id),
     ).fetchall()
+
+
+def count_shadow_evaluations(conn: sqlite3.Connection, shadow_id: int) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM evolution_shadow_evaluations WHERE shadow_id = ?",
+        (shadow_id,),
+    ).fetchone()
+    return int(row["n"] or 0)
+
+
+def last_shadow_evaluation_at(conn: sqlite3.Connection, shadow_id: int) -> str | None:
+    row = conn.execute(
+        """
+        SELECT MAX(evaluated_at) AS ts
+        FROM evolution_shadow_evaluations
+        WHERE shadow_id = ?
+        """,
+        (shadow_id,),
+    ).fetchone()
+    return row["ts"] if row and row["ts"] else None
+
+
+def count_eligible_trades_after_shadow(conn: sqlite3.Connection, shadow_id: int) -> int:
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM early_reversion_v2_trades t
+        JOIN evolution_shadow s ON s.id = ?
+        WHERE t.status = 'closed'
+          AND COALESCE(t.closed_at, datetime(t.entry_ts, 'unixepoch')) >= s.created_at
+        """,
+        (shadow_id,),
+    ).fetchone()
+    return int(row["n"] or 0)
 
 
 def load_shadow_evaluations(

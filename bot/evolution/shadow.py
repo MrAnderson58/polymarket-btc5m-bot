@@ -88,6 +88,10 @@ def maybe_create_shadow_experiment(
     *,
     candidate: dict[str, Any] | None,
     ready_for_shadow: bool,
+    created_by: str = "council",
+    creator_decision: str | None = None,
+    creator_confidence: float | None = None,
+    creator_reason: str | None = None,
 ) -> dict[str, Any] | None:
     if not ready_for_shadow or not candidate:
         return get_running_shadow(conn)
@@ -100,6 +104,10 @@ def maybe_create_shadow_experiment(
         current_value=current,
         shadow_value=shadow,
         target_sample_size=SHADOW_TARGET_SAMPLE,
+        created_by=created_by,
+        creator_decision=creator_decision or "READY_FOR_SHADOW",
+        creator_confidence=creator_confidence,
+        creator_reason=creator_reason,
     )
     logger.info(
         "EVOLUTION_SHADOW | CREATED | id=%s | %s %.4f → %.4f",
@@ -217,12 +225,20 @@ def sync_shadow_layer(
     *,
     candidate: dict[str, Any] | None,
     ready_for_shadow: bool,
+    created_by: str = "daily_pipeline",
+    creator_decision: str | None = None,
+    creator_confidence: float | None = None,
+    creator_reason: str | None = None,
 ) -> dict[str, Any] | None:
     """Create experiment if ready, evaluate pending trades, finalize at target sample."""
     maybe_create_shadow_experiment(
         conn,
         candidate=candidate,
         ready_for_shadow=ready_for_shadow,
+        created_by=created_by,
+        creator_decision=creator_decision,
+        creator_confidence=creator_confidence,
+        creator_reason=creator_reason,
     )
     sync_running_shadow_evaluations(conn)
     return maybe_finalize_shadow_experiment(conn) or get_running_shadow(conn) or get_latest_shadow(conn)

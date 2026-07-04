@@ -68,6 +68,10 @@ def build_evolution(
             conn,
             candidate=candidate,
             ready_for_shadow=ready,
+            created_by="daily_pipeline",
+            creator_decision=council.status,
+            creator_confidence=council.confidence_pct,
+            creator_reason=council.reason,
         )
         conn.commit()
 

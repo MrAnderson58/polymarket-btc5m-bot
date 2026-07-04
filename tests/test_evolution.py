@@ -1117,5 +1117,146 @@ class ExperimentIntegrityTestCase(unittest.TestCase):
         self.assertIsNone(result.as_candidate())
 
 
+class RuntimeObserveTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self._tmpdir.name) / "test.db"
+        init_db(self.db_path)
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def _seed_closed_trade(self, conn, *, trade_id: int = 1, closed_at: str = "2026-07-05 10:00:00") -> None:
+        conn.execute(
+            """
+            INSERT INTO early_reversion_v2_trades (
+                id, market_slug, window_start_ts, end_ts, side, strategy_name,
+                status, entry_price, entry_ts, exit_price, exit_reason,
+                pnl_percent, pnl_usdc, holding_time_seconds, created_at, closed_at
+            ) VALUES (?, 'btc-test', 1000, 1300, 'YES', 'NO_C', 'closed',
+                      0.38, 1100, 0.40, 'TRAILING_STOP', 5.0, 0.1, 30,
+                      datetime('now'), ?)
+            """,
+            (trade_id, closed_at),
+        )
+        conn.execute(
+            """
+            INSERT INTO trade_features (
+                trade_id, source_table, market_slug, strategy_name, side,
+                entry_ts, entry_price, regime_label
+            ) VALUES (?, 'early_reversion_v2_trades', 'btc-test', 'NO_C', 'YES', 1100, 0.38, ?)
+            """,
+            (trade_id, "Strong Uptrend"),
+        )
+
+    def test_observe_increments_parameter_shadow(self) -> None:
+        from bot.evolution.observe import observe_closed_trades
+        from bot.evolution.shadow_db import count_shadow_evaluations, create_shadow_experiment
+
+        with connect(self.db_path) as conn:
+            create_shadow_experiment(
+                conn,
+                parameter="entry_threshold",
+                current_value=0.40,
+                shadow_value=0.36,
+                created_by="test",
+                creator_decision="READY_FOR_SHADOW",
+            )
+            conn.execute(
+                "UPDATE evolution_shadow SET created_at = '2026-07-04 00:00:00' WHERE id = 1"
+            )
+            self._seed_closed_trade(conn)
+            conn.commit()
+
+            result = observe_closed_trades(conn)
+            conn.commit()
+
+            self.assertEqual(result["parameter"], 1)
+            self.assertEqual(count_shadow_evaluations(conn, 1), 1)
+
+    def test_observe_increments_regime_shadow(self) -> None:
+        from bot.evolution.observe import observe_closed_trades
+        from bot.evolution.regime_shadow import (
+            count_regime_shadow_trades,
+            create_regime_shadow,
+        )
+
+        with connect(self.db_path) as conn:
+            create_regime_shadow(
+                conn,
+                filter_name="BTC Uptrend Filter",
+                regimes=("Strong Uptrend", "News Spike"),
+                created_by="test",
+            )
+            conn.execute(
+                "UPDATE evolution_regime_shadow SET created_at = '2026-07-04 00:00:00' WHERE id = 1"
+            )
+            self._seed_closed_trade(conn)
+            conn.commit()
+
+            result = observe_closed_trades(conn)
+            conn.commit()
+
+            self.assertEqual(result["regime"], 1)
+            self.assertEqual(count_regime_shadow_trades(conn, 1), 1)
+
+    def test_observe_is_idempotent(self) -> None:
+        from bot.evolution.observe import observe_closed_trades
+        from bot.evolution.shadow_db import count_shadow_evaluations, create_shadow_experiment
+
+        with connect(self.db_path) as conn:
+            create_shadow_experiment(
+                conn,
+                parameter="entry_threshold",
+                current_value=0.40,
+                shadow_value=0.36,
+            )
+            conn.execute(
+                "UPDATE evolution_shadow SET created_at = '2026-07-04 00:00:00' WHERE id = 1"
+            )
+            self._seed_closed_trade(conn)
+            conn.commit()
+            observe_closed_trades(conn)
+            observe_closed_trades(conn)
+            conn.commit()
+            self.assertEqual(count_shadow_evaluations(conn, 1), 1)
+
+    def test_regime_label_normalization(self) -> None:
+        from bot.evolution.regime_labels import normalize_regime_label, regime_in_filter
+
+        self.assertEqual(normalize_regime_label("STRONG_UPTREND"), "Strong Uptrend")
+        self.assertEqual(normalize_regime_label("NEWS_SPIKE"), "News Spike")
+        self.assertTrue(
+            regime_in_filter("STRONG_UPTREND", ["Strong Uptrend", "News Spike"])
+        )
+        self.assertFalse(regime_in_filter("PANIC", ["Strong Uptrend", "News Spike"]))
+
+    def test_only_ready_for_shadow_creates_parameter_shadow(self) -> None:
+        from bot.evolution.shadow import maybe_create_shadow_experiment
+        from bot.evolution.shadow_db import get_running_shadow
+
+        candidate = {
+            "parameter": "entry_threshold",
+            "from_value": 0.40,
+            "to_value": 0.39,
+        }
+        with connect(self.db_path) as conn:
+            maybe_create_shadow_experiment(conn, candidate=candidate, ready_for_shadow=False)
+            conn.commit()
+            self.assertIsNone(get_running_shadow(conn))
+
+            maybe_create_shadow_experiment(
+                conn,
+                candidate=candidate,
+                ready_for_shadow=True,
+                created_by="test",
+                creator_decision="READY_FOR_SHADOW",
+            )
+            conn.commit()
+            running = get_running_shadow(conn)
+            self.assertIsNotNone(running)
+            self.assertEqual(running["shadow_value"], 0.39)
+
+
 if __name__ == "__main__":
     unittest.main()

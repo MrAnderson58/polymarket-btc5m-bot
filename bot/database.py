@@ -294,6 +294,39 @@ def _ensure_evolution_shadow_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    _migrate_evolution_shadow_metadata(conn)
+
+
+def _migrate_evolution_shadow_metadata(conn: sqlite3.Connection) -> None:
+    """Add creator/observability columns to evolution shadow tables."""
+    for table, col, col_type in (
+        ("evolution_shadow", "created_by", "TEXT"),
+        ("evolution_shadow", "creator_decision", "TEXT"),
+        ("evolution_shadow", "creator_confidence", "REAL"),
+        ("evolution_shadow", "creator_reason", "TEXT"),
+        ("evolution_regime_shadow", "created_by", "TEXT"),
+        ("evolution_regime_shadow", "creator_decision", "TEXT"),
+    ):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if col not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evolution_observe_stats (
+            hook TEXT PRIMARY KEY,
+            last_run_at TEXT,
+            last_success_at TEXT,
+            last_error_at TEXT,
+            last_error TEXT,
+            error_count INTEGER NOT NULL DEFAULT 0,
+            total_parameter_evals INTEGER NOT NULL DEFAULT 0,
+            total_regime_evals INTEGER NOT NULL DEFAULT 0,
+            last_parameter_eval_at TEXT,
+            last_regime_eval_at TEXT
+        )
+        """
+    )
 
 
 def _ensure_bidirectional_shadow_tables(conn: sqlite3.Connection) -> None:

@@ -135,6 +135,8 @@ def run_daily_pipeline(
                 conn,
                 filter_name="BTC Uptrend Filter",
                 regimes=DEFAULT_FILTER_REGIMES,
+                created_by="daily_pipeline",
+                creator_decision="AUTO_START",
             )
             conn.commit()
         sync_regime_shadow(conn)

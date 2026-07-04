@@ -307,15 +307,15 @@ def _cycle() -> None:
                     "Exit recovery reconciled %s stuck open position(s)",
                     stuck_exits,
                 )
-            # Observe-only: record shadow evaluations for newly closed trades
-            try:
-                from bot.evolution.observe import observe_closed_trades
-                observe_closed_trades(conn)
-                conn.commit()
-            except Exception as exc:
-                logger.debug("evolution observe skipped: %s", exc)
-        else:
-            conn.commit()
+
+        # Observe-only: sync evolution shadows every cycle (catch-up + new closes)
+        try:
+            from bot.evolution.observe import observe_closed_trades
+            observe_closed_trades(conn)
+        except Exception as exc:
+            logger.warning("evolution observe failed: %s", exc, exc_info=True)
+
+        conn.commit()
 
     market = find_active_btc_5m_market()
     if not market:

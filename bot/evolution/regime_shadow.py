@@ -22,6 +22,7 @@ from typing import Any
 
 from bot.evolution.constants import SHADOW_TARGET_SAMPLE
 from bot.evolution.metrics import lane_metrics
+from bot.evolution.regime_labels import normalize_regime_label, regime_in_filter
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,8 @@ def create_regime_shadow(
     filter_name: str,
     regimes: tuple[str, ...] | list[str],
     target_sample_size: int = REGIME_SHADOW_TARGET,
+    created_by: str | None = None,
+    creator_decision: str | None = None,
 ) -> dict[str, Any]:
     """Create a new regime filter shadow experiment."""
     if get_running_regime_shadow(conn) is not None:
@@ -72,10 +75,18 @@ def create_regime_shadow(
     cur = conn.execute(
         """
         INSERT INTO evolution_regime_shadow (
-            filter_name, regimes_json, status, created_at, target_sample_size
-        ) VALUES (?, ?, 'RUNNING', ?, ?)
+            filter_name, regimes_json, status, created_at, target_sample_size,
+            created_by, creator_decision
+        ) VALUES (?, ?, 'RUNNING', ?, ?, ?, ?)
         """,
-        (filter_name, json.dumps(list(regimes)), _utc_now(), target_sample_size),
+        (
+            filter_name,
+            json.dumps(list(regimes)),
+            _utc_now(),
+            target_sample_size,
+            created_by,
+            creator_decision,
+        ),
     )
     row = conn.execute(
         "SELECT * FROM evolution_regime_shadow WHERE id = ?", (cur.lastrowid,)
@@ -102,7 +113,7 @@ def _fetch_unevaluated_trades(
             ON e.regime_shadow_id = ? AND e.trade_id = t.id
         JOIN evolution_regime_shadow s ON s.id = ?
         WHERE t.status = 'closed'
-          AND t.closed_at >= s.created_at
+          AND COALESCE(t.closed_at, datetime(t.entry_ts, 'unixepoch')) >= s.created_at
           AND e.id IS NULL
           AND f.regime_label IS NOT NULL
         ORDER BY t.entry_ts ASC
@@ -123,9 +134,9 @@ def evaluate_trade_for_regime_shadow(
 
     Returns: 'saved_loss', 'missed_profit', or 'normal'.
     """
-    regime = str(trade.get("regime_label", ""))
+    regime = normalize_regime_label(str(trade.get("regime_label", "")))
     pnl = float(trade.get("pnl_percent") or 0.0)
-    in_filter = regime in filter_regimes
+    in_filter = regime_in_filter(regime, filter_regimes)
 
     if in_filter:
         outcome = "saved_loss" if pnl < 0 else "missed_profit"
@@ -166,6 +177,33 @@ def sync_regime_shadow(conn: sqlite3.Connection) -> dict[str, Any] | None:
         return get_latest_regime_shadow(conn)
 
     return running
+
+
+def count_pending_regime_evaluations(conn: sqlite3.Connection) -> int:
+    running = get_running_regime_shadow(conn)
+    if running is None:
+        return 0
+    return len(_fetch_unevaluated_trades(conn, int(running["id"])))
+
+
+def count_regime_shadow_trades(conn: sqlite3.Connection, shadow_id: int) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM evolution_regime_shadow_trades WHERE regime_shadow_id = ?",
+        (shadow_id,),
+    ).fetchone()
+    return int(row["n"] or 0)
+
+
+def last_regime_shadow_eval_at(conn: sqlite3.Connection, shadow_id: int) -> str | None:
+    row = conn.execute(
+        """
+        SELECT MAX(evaluated_at) AS ts
+        FROM evolution_regime_shadow_trades
+        WHERE regime_shadow_id = ?
+        """,
+        (shadow_id,),
+    ).fetchone()
+    return row["ts"] if row and row["ts"] else None
 
 
 def _update_counters(conn: sqlite3.Connection, shadow_id: int) -> None:
@@ -261,9 +299,14 @@ def regime_shadow_state(conn: sqlite3.Connection) -> dict[str, Any] | None:
         JOIN trade_features f ON f.trade_id = t.id
         WHERE t.status = 'closed'
           AND f.regime_label IS NOT NULL
-          AND t.closed_at >= ?
+          AND COALESCE(t.closed_at, datetime(t.entry_ts, 'unixepoch')) >= ?
         """,
         (row["created_at"],),
+    ).fetchone()
+
+    raw_rows = conn.execute(
+        "SELECT COUNT(*) AS n FROM evolution_regime_shadow_trades WHERE regime_shadow_id = ?",
+        (row["id"],),
     ).fetchone()
 
     return {
@@ -282,6 +325,9 @@ def regime_shadow_state(conn: sqlite3.Connection) -> dict[str, Any] | None:
         "verdict": row.get("verdict"),
         "started_at": row["created_at"],
         "eligible_trades": int(eligible["n"]) if eligible else 0,
+        "raw_evaluation_rows": int(raw_rows["n"] or 0) if raw_rows else 0,
+        "created_by": row.get("created_by"),
+        "creator_decision": row.get("creator_decision"),
     }
 
 
