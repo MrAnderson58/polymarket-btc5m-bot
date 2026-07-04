@@ -34,6 +34,7 @@ def observe_market(
     from bot.strategy.bidirectional_shadow import (
         ensure_tables,
         get_open_shadow_trade,
+        has_shadow_trade,
         open_shadow_trade,
         close_shadow_trade,
         record_observation,
@@ -88,6 +89,10 @@ def observe_market(
         _process_exit(conn, open_trade, feat)
         return
 
+    # Strict one trade per market: never re-enter after any prior trade on this slug
+    if has_shadow_trade(conn, market_slug):
+        return
+
     # Evaluate entry
     decision = evaluate_direction(feat, SHADOW_ENTRY_CONFIG)
     entry_price = feat.yes_ask if decision.decision == "YES" else feat.no_ask
@@ -96,11 +101,14 @@ def observe_market(
 
     if decision.decision in ("YES", "NO"):
         if entry_price and 0 < entry_price < 1:
-            open_shadow_trade(conn, decision, market_slug, window_start_ts, entry_price, now_ts)
-            logger.debug(
-                "BIDI_SHADOW | %s %s @ %.3f | %s | conf=%.2f",
-                decision.decision, market_slug, entry_price, decision.reason, decision.confidence,
+            trade_id = open_shadow_trade(
+                conn, decision, market_slug, window_start_ts, entry_price, now_ts,
             )
+            if trade_id is not None:
+                logger.debug(
+                    "BIDI_SHADOW | %s %s @ %.3f | %s | conf=%.2f",
+                    decision.decision, market_slug, entry_price, decision.reason, decision.confidence,
+                )
 
 
 def _process_exit(conn: sqlite3.Connection, trade: dict, feat: MovementFeatures) -> None:

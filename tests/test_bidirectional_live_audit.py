@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ from bot.research.bidirectional_live_audit import (
     LiveTrade,
     audit_integrity,
     compute_metrics,
+    dedupe_first_trade_per_market,
     evaluate_promotion,
     load_closed_trades,
     render_report,
@@ -131,20 +133,30 @@ class IntegrityTestCase(unittest.TestCase):
     def test_duplicate_market_detected(self) -> None:
         with connect(self.db_path) as conn:
             _seed_shadow_data(conn, 2)
-            conn.execute(
-                """
-                INSERT INTO bidirectional_shadow_trades (
-                    market_slug, window_start_ts, side, status, entry_price, entry_ts,
-                    entry_regime, exit_price, exit_reason, pnl_pct, holding_time_seconds
-                ) VALUES ('btc-updown-5m-1000', 1000, 'YES', 'closed', 0.38, 1060,
-                          'NORMAL', 0.42, 'TIME_STOP', 10.5, 30)
-                """
-            )
-            conn.commit()
             trades = load_closed_trades(conn)
-            result = audit_integrity(conn, trades)
+            # Simulate legacy duplicate rows in memory (DB now blocks inserts)
+            dup_trade = LiveTrade(
+                99, trades[0].market_slug, 1000, "YES", 0.38, 1060,
+                "NORMAL", 0.65, 0.42, "TIME_STOP", 10.5, 30, 0.42, 20.0, 240,
+            )
+            trades_with_dupe = trades + [dup_trade]
+            result = audit_integrity(conn, trades_with_dupe)
         types = [v.violation_type for v in result["violations"]]
         self.assertIn("DUPLICATE_MARKET", types)
+
+    def test_unique_index_blocks_duplicate_insert(self) -> None:
+        with connect(self.db_path) as conn:
+            _seed_shadow_data(conn, 1)
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    """
+                    INSERT INTO bidirectional_shadow_trades (
+                        market_slug, window_start_ts, side, status, entry_price, entry_ts,
+                        entry_regime, exit_price, exit_reason, pnl_pct, holding_time_seconds
+                    ) VALUES ('btc-updown-5m-1000', 1000, 'YES', 'closed', 0.38, 1060,
+                              'NORMAL', 0.42, 'TIME_STOP', 10.5, 30)
+                    """
+                )
 
     def test_no_avoid_zone_violation(self) -> None:
         with connect(self.db_path) as conn:
@@ -219,6 +231,39 @@ class AuditIntegrationTestCase(unittest.TestCase):
             promo = evaluate_promotion(report)
         self.assertEqual(promo["verdict"], "CONTINUE_SHADOW")
         self.assertFalse(promo["checks"]["closed_ge_250"])
+
+
+class CorrectedAuditTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self._tmpdir.name) / "test.db"
+        init_db(self.db_path)
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def test_dedupe_keeps_first_trade_per_market(self) -> None:
+        trades = [
+            LiveTrade(1, "m1", 1000, "YES", 0.40, 1100, "NORMAL", 0.6, 0.44, "TRAIL", 10.0, 30, 0.44, 20.0, 240),
+            LiveTrade(2, "m1", 1000, "YES", 0.41, 1200, "NORMAL", 0.6, 0.45, "TRAIL", 9.0, 25, 0.45, 15.0, 230),
+            LiveTrade(3, "m2", 1300, "NO", 0.40, 1400, "MOMENTUM", 0.7, 0.36, "STOP", -10.0, 20, 0.40, -15.0, 200),
+        ]
+        kept, stats = dedupe_first_trade_per_market(trades)
+        self.assertEqual(stats["raw"], 3)
+        self.assertEqual(stats["corrected"], 2)
+        self.assertEqual(stats["duplicates_removed"], 1)
+        self.assertEqual([t.id for t in kept], [1, 3])
+
+    def test_corrected_audit_report_renders(self) -> None:
+        with connect(self.db_path) as conn:
+            _seed_shadow_data(conn, 10)
+            report = run_live_audit(conn, corrected=True)
+            text = render_report(report)
+
+        self.assertTrue(report["corrected"])
+        self.assertIn("CORRECTED", text)
+        self.assertIn("11. PROMOTION GATE", text)
+        self.assertGreater(report["trade_count"], 0)
 
 
 class RenderReportRegressionTestCase(unittest.TestCase):

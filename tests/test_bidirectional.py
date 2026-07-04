@@ -241,6 +241,91 @@ class SafetyTestCase(unittest.TestCase):
             )
 
 
+class ShadowOneTradePerMarketTestCase(unittest.TestCase):
+    """Strict one trade per market_slug — never re-enter after any prior trade."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self._tmpdir.name) / "test.db"
+        init_db(self.db_path)
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def test_has_shadow_trade_blocks_second_open(self) -> None:
+        from bot.strategy.bidirectional_momentum import DirectionDecision
+        from bot.strategy.bidirectional_shadow import (
+            close_shadow_trade,
+            ensure_tables,
+            has_shadow_trade,
+            open_shadow_trade,
+        )
+
+        decision = DirectionDecision(
+            decision="YES",
+            confidence=0.7,
+            probability_yes=0.7,
+            probability_no=0.3,
+            regime="NORMAL",
+            reason="test",
+            features={"btc_move_30s": 10.0},
+        )
+        slug = "btc-updown-5m-test"
+
+        with connect(self.db_path) as conn:
+            ensure_tables(conn)
+            first_id = open_shadow_trade(conn, decision, slug, 1000, 0.40, 1100)
+            self.assertIsNotNone(first_id)
+            self.assertTrue(has_shadow_trade(conn, slug))
+
+            close_shadow_trade(conn, first_id, 0.44, "TRAILING_STOP", 10.0, 30.0)
+            self.assertFalse(
+                conn.execute(
+                    "SELECT 1 FROM bidirectional_shadow_trades WHERE market_slug=? AND status='open'",
+                    (slug,),
+                ).fetchone()
+            )
+
+            second_id = open_shadow_trade(conn, decision, slug, 1000, 0.41, 1200)
+            self.assertIsNone(second_id)
+            count = conn.execute(
+                "SELECT COUNT(*) FROM bidirectional_shadow_trades WHERE market_slug=?",
+                (slug,),
+            ).fetchone()[0]
+            self.assertEqual(count, 1)
+
+    def test_unique_index_prevents_duplicate_insert(self) -> None:
+        from bot.strategy.bidirectional_momentum import DirectionDecision
+        from bot.strategy.bidirectional_shadow import ensure_tables, open_shadow_trade
+
+        decision = DirectionDecision(
+            decision="NO",
+            confidence=0.7,
+            probability_yes=0.3,
+            probability_no=0.7,
+            regime="MOMENTUM",
+            reason="test",
+            features={"btc_move_30s": 12.0},
+        )
+        slug = "btc-updown-5m-unique"
+
+        with connect(self.db_path) as conn:
+            ensure_tables(conn)
+            open_shadow_trade(conn, decision, slug, 2000, 0.42, 2100)
+            conn.execute(
+                """
+                UPDATE bidirectional_shadow_trades
+                SET status='closed', exit_price=0.38, exit_reason='STOP_LOSS',
+                    pnl_pct=-9.5, holding_time_seconds=20
+                WHERE market_slug=?
+                """,
+                (slug,),
+            )
+            conn.commit()
+            second = open_shadow_trade(conn, decision, slug, 2000, 0.43, 2200)
+            self.assertIsNone(second)
+
+
 class ImportRegressionTestCase(unittest.TestCase):
     """Ensure legacy strategy and bidirectional modules coexist."""
 

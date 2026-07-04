@@ -377,6 +377,24 @@ def _ensure_bidirectional_shadow_tables(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_bidi_shadow_trades_side
             ON bidirectional_shadow_trades(side);
     """)
+    _ensure_bidirectional_shadow_unique_market(conn)
+
+
+def _ensure_bidirectional_shadow_unique_market(conn: sqlite3.Connection) -> None:
+    has_dupes = conn.execute(
+        """
+        SELECT 1 FROM bidirectional_shadow_trades
+        GROUP BY market_slug HAVING COUNT(*) > 1
+        LIMIT 1
+        """
+    ).fetchone()
+    if has_dupes is None:
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_bidi_shadow_trades_market_unique
+            ON bidirectional_shadow_trades(market_slug)
+            """
+        )
 
 
 def _ensure_perf_indexes(conn: sqlite3.Connection) -> None:

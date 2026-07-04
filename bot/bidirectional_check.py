@@ -77,17 +77,16 @@ def run_check() -> int:
             "SELECT MAX(closed_at) FROM bidirectional_shadow_trades WHERE status='closed'"
         ).fetchone()[0]
 
-        # Duplicate check
+        # Duplicate check — any market with more than one trade (open or closed)
         dupes = conn.execute("""
             SELECT market_slug, COUNT(*) as n
             FROM bidirectional_shadow_trades
-            WHERE status='open'
             GROUP BY market_slug HAVING n > 1
         """).fetchall()
 
         # Runtime errors (no error log table, just check for duplicates)
         if dupes:
-            warnings.append(f"DUPLICATE OPEN TRADES: {len(dupes)} markets")
+            warnings.append(f"DUPLICATE MARKET TRADES: {len(dupes)} markets")
 
     # Process check
     process_status = _check_process()

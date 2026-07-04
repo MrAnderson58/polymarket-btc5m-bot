@@ -80,6 +80,25 @@ def ensure_tables(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_bidi_shadow_trades_status
             ON bidirectional_shadow_trades(status);
     """)
+    _ensure_unique_market_index(conn)
+
+
+def _ensure_unique_market_index(conn: sqlite3.Connection) -> None:
+    """One trade per market_slug at DB level when no legacy duplicates exist."""
+    has_dupes = conn.execute(
+        """
+        SELECT 1 FROM bidirectional_shadow_trades
+        GROUP BY market_slug HAVING COUNT(*) > 1
+        LIMIT 1
+        """
+    ).fetchone()
+    if has_dupes is None:
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_bidi_shadow_trades_market_unique
+            ON bidirectional_shadow_trades(market_slug)
+            """
+        )
 
 
 def record_observation(
@@ -117,10 +136,12 @@ def open_shadow_trade(
     window_start_ts: int,
     entry_price: float,
     entry_ts: int,
-) -> int:
-    """Open a virtual shadow trade. Returns trade id."""
+) -> int | None:
+    """Open a virtual shadow trade. Returns trade id, or None if market already traded."""
+    if has_shadow_trade(conn, market_slug):
+        return None
     cur = conn.execute(
-        """INSERT INTO bidirectional_shadow_trades
+        """INSERT OR IGNORE INTO bidirectional_shadow_trades
            (market_slug, window_start_ts, side, status, entry_price, entry_ts,
             entry_regime, entry_confidence, entry_reason, max_price_seen)
            VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)""",
@@ -136,6 +157,8 @@ def open_shadow_trade(
             entry_price,
         ),
     )
+    if cur.rowcount == 0:
+        return None
     return cur.lastrowid
 
 
@@ -164,6 +187,15 @@ def get_open_shadow_trade(conn: sqlite3.Connection, market_slug: str) -> dict | 
         (market_slug,),
     ).fetchone()
     return dict(row) if row else None
+
+
+def has_shadow_trade(conn: sqlite3.Connection, market_slug: str) -> bool:
+    """True if this market_slug ever had a shadow trade (open or closed)."""
+    row = conn.execute(
+        "SELECT 1 FROM bidirectional_shadow_trades WHERE market_slug=? LIMIT 1",
+        (market_slug,),
+    ).fetchone()
+    return row is not None
 
 
 def shadow_state(conn: sqlite3.Connection) -> dict:

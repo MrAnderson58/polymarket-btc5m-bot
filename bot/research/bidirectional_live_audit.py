@@ -1,6 +1,8 @@
 """Read-only production audit for Bidirectional Momentum V1.1 live shadow data.
 
-Usage: python -m bot.research.bidirectional_live_audit
+Usage:
+  python -m bot.research.bidirectional_live_audit
+  python -m bot.research.bidirectional_live_audit --corrected
 
 Does NOT modify the database or trading logic.
 """
@@ -111,6 +113,42 @@ def load_closed_trades(conn: sqlite3.Connection) -> list[LiveTrade]:
             )
         )
     return trades
+
+
+def dedupe_first_trade_per_market(
+    trades: list[LiveTrade],
+) -> tuple[list[LiveTrade], dict[str, int]]:
+    """Keep earliest closed trade per market_slug; drop legacy duplicate entries."""
+    seen: set[str] = set()
+    kept: list[LiveTrade] = []
+    for trade in trades:
+        if trade.market_slug in seen:
+            continue
+        seen.add(trade.market_slug)
+        kept.append(trade)
+    return kept, {
+        "raw": len(trades),
+        "corrected": len(kept),
+        "duplicates_removed": len(trades) - len(kept),
+    }
+
+
+def load_duplicate_market_stats(conn: sqlite3.Connection) -> dict[str, Any]:
+    rows = conn.execute(
+        """
+        SELECT market_slug, COUNT(*) AS n
+        FROM bidirectional_shadow_trades
+        WHERE status = 'closed'
+        GROUP BY market_slug
+        HAVING n > 1
+        ORDER BY n DESC
+        """
+    ).fetchall()
+    return {
+        "markets_with_duplicates": len(rows),
+        "extra_trades": sum(int(r["n"]) - 1 for r in rows),
+        "worst": [(r["market_slug"], int(r["n"])) for r in rows[:5]],
+    }
 
 
 def load_observation_stats(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -662,7 +700,8 @@ def replay_vs_live_consistency() -> dict[str, Any]:
         "EXIT ORDER: Both check STOP_LOSS → TIME_STOP → TRAILING_STOP in same priority."
     )
     diffs.append(
-        "ONE TRADE/MARKET: Live checks get_open_shadow_trade before entry; replay uses trade_completed flag."
+        "ONE TRADE/MARKET: Live uses has_shadow_trade (any prior trade on slug); "
+        "replay uses trade_completed flag."
     )
 
     if cfg != EntryConfig():
@@ -784,8 +823,18 @@ def evaluate_promotion(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_live_audit(conn: sqlite3.Connection) -> dict[str, Any]:
-    trades = load_closed_trades(conn)
+def run_live_audit(conn: sqlite3.Connection, *, corrected: bool = False) -> dict[str, Any]:
+    raw_trades = load_closed_trades(conn)
+    dedup_stats = {
+        "raw": len(raw_trades),
+        "corrected": len(raw_trades),
+        "duplicates_removed": 0,
+    }
+    duplicate_markets = load_duplicate_market_stats(conn)
+    trades = raw_trades
+    if corrected:
+        trades, dedup_stats = dedupe_first_trade_per_market(raw_trades)
+
     obs_stats = load_observation_stats(conn)
     integrity = audit_integrity(conn, trades)
 
@@ -801,7 +850,15 @@ def run_live_audit(conn: sqlite3.Connection) -> dict[str, Any]:
         for side in ("YES", "NO")
     }
 
+    raw_performance = None
+    if corrected and dedup_stats["duplicates_removed"] > 0:
+        raw_performance = compute_metrics(raw_trades)
+
     return {
+        "corrected": corrected,
+        "dedup": dedup_stats,
+        "duplicate_markets": duplicate_markets,
+        "raw_performance": raw_performance,
         "trade_count": len(trades),
         "observations": obs_stats,
         "integrity": integrity,
@@ -851,7 +908,27 @@ def render_report(report: dict[str, Any]) -> str:
         )
 
     h("BIDIRECTIONAL MOMENTUM V1.1 — LIVE SHADOW AUDIT")
+    if report.get("corrected"):
+        lines.append("Mode: CORRECTED (first trade per market_slug only)")
     lines.append(f"Closed trades: {report['trade_count']}")
+    dedup = report.get("dedup", {})
+    if dedup.get("duplicates_removed", 0) > 0:
+        lines.append(
+            f"Dedup: raw={dedup['raw']} corrected={dedup['corrected']} "
+            f"removed={dedup['duplicates_removed']}"
+        )
+        raw_pf = report.get("raw_performance") or {}
+        if raw_pf:
+            lines.append(
+                f"Raw PF (with duplicates): {raw_pf.get('pf', 0):.3f} | "
+                f"Corrected PF: {report['performance']['all'].get('pf', 0):.3f}"
+            )
+    dup_markets = report.get("duplicate_markets", {})
+    if dup_markets.get("markets_with_duplicates", 0) > 0:
+        lines.append(
+            f"Legacy duplicate markets: {dup_markets['markets_with_duplicates']} "
+            f"(+{dup_markets['extra_trades']} extra closed trades)"
+        )
     lines.append(f"Observations: {report['observations']['total']}")
 
     h("1. DATA INTEGRITY")
@@ -995,13 +1072,25 @@ def render_report(report: dict[str, Any]) -> str:
 
 
 def main() -> int:
+    import argparse
+
     from bot.database import connect, init_db
     from bot.strategy.bidirectional_shadow import ensure_tables
+
+    parser = argparse.ArgumentParser(
+        description="Read-only audit for Bidirectional Momentum V1.1 live shadow data.",
+    )
+    parser.add_argument(
+        "--corrected",
+        action="store_true",
+        help="Deduplicate to first closed trade per market_slug (true independent-market PF).",
+    )
+    args = parser.parse_args()
 
     init_db()
     with connect() as conn:
         ensure_tables(conn)
-        report = run_live_audit(conn)
+        report = run_live_audit(conn, corrected=args.corrected)
         print(render_report(report))
     return 0
 
