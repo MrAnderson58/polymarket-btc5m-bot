@@ -252,6 +252,20 @@ def regime_shadow_state(conn: sqlite3.Connection) -> dict[str, Any] | None:
     row = get_running_regime_shadow(conn) or get_latest_regime_shadow(conn)
     if row is None:
         return None
+
+    # Count historical eligible trades (for diagnostics)
+    eligible = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM early_reversion_v2_trades t
+        JOIN trade_features f ON f.trade_id = t.id
+        WHERE t.status = 'closed'
+          AND f.regime_label IS NOT NULL
+          AND t.closed_at >= ?
+        """,
+        (row["created_at"],),
+    ).fetchone()
+
     return {
         "id": row["id"],
         "filter_name": row["filter_name"],
@@ -267,6 +281,7 @@ def regime_shadow_state(conn: sqlite3.Connection) -> dict[str, Any] | None:
         "net_pf_improvement_pct": row.get("net_pf_improvement_pct"),
         "verdict": row.get("verdict"),
         "started_at": row["created_at"],
+        "eligible_trades": int(eligible["n"]) if eligible else 0,
     }
 
 

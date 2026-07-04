@@ -46,25 +46,30 @@ def load_evolution_sources(conn: sqlite3.Connection) -> dict[str, Any]:
 def build_evolution(
     conn: sqlite3.Connection,
     surgeon: dict[str, Any] | None = None,
+    *,
+    readonly: bool = False,
 ) -> dict[str, Any]:
     """Build evolution via Decision Council.
 
     The Council collects votes from all 6 AI sources, finds consensus,
     and returns ONE final decision.
+
+    When readonly=True (report mode), no DB writes occur — existing shadow
+    state is read but no experiments are created or synced.
     """
     sources = load_evolution_sources(conn)
 
     council = convene_council(sources, surgeon=surgeon)
 
-    candidate = council.as_candidate()
-    ready = council.status == EvolutionStatus.READY_FOR_SHADOW.value
-
-    sync_shadow_layer(
-        conn,
-        candidate=candidate,
-        ready_for_shadow=ready,
-    )
-    conn.commit()
+    if not readonly:
+        candidate = council.as_candidate()
+        ready = council.status == EvolutionStatus.READY_FOR_SHADOW.value
+        sync_shadow_layer(
+            conn,
+            candidate=candidate,
+            ready_for_shadow=ready,
+        )
+        conn.commit()
 
     shadow = shadow_state_for_decision(conn)
     if shadow:

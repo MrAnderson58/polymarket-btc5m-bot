@@ -58,6 +58,10 @@ def create_shadow_experiment(
     shadow_value: float,
     target_sample_size: int = SHADOW_TARGET_SAMPLE,
 ) -> dict[str, Any]:
+    existing = get_running_shadow(conn)
+    if existing is not None:
+        return existing
+
     created_at = _utc_now()
     cur = conn.execute(
         """

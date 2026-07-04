@@ -923,5 +923,199 @@ class EvolutionHistoryTestCase(unittest.TestCase):
         self.assertEqual(history[1]["version"], 2)
 
 
+class ExperimentIntegrityTestCase(unittest.TestCase):
+    """Regression tests for experiment integrity (Sprint v2)."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self._tmpdir.name) / "test.db"
+        init_db(self.db_path)
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def _sources(self, trades_since: int = 400) -> dict:
+        return {
+            "optimizer": {
+                "parameter_optimizer": {
+                    "current": {"entry": 0.40},
+                    "optimal": {"entry": 0.39},
+                    "expected_improvement_pct": 14.0,
+                },
+                "walk_forward": {"trend": "stable"},
+                "overfit_detector": {"level": "LOW"},
+            },
+            "strategy_review": {"final_verdict": {}},
+            "scientist": {"best_next_step": {"blocked": True}},
+            "trading_brain": {},
+            "ai_agent": {
+                "decisions": {"ALLOW": 15, "SKIP": 5},
+                "patterns": [
+                    {"pattern": "Entry 0.39 strong edge", "trades": 25, "win_rate": 68.0, "avg_pnl": 3.1, "confidence_pct": 80},
+                ],
+            },
+            "live_sample": {"current_since_change": trades_since, "total_trades": 742},
+        }
+
+    def test_watch_cannot_create_shadow(self) -> None:
+        """WATCH status must not spawn a shadow experiment."""
+        from bot.evolution.council import convene_council
+        from bot.evolution.shadow import sync_shadow_layer
+
+        sources = self._sources(trades_since=400)
+        sources["optimizer"]["parameter_optimizer"]["optimal"] = {"entry": 0.40}
+
+        council = convene_council(sources, surgeon=None)
+
+        with connect(self.db_path) as conn:
+            candidate = council.as_candidate()
+            ready = council.status == "READY_FOR_SHADOW"
+            sync_shadow_layer(conn, candidate=candidate, ready_for_shadow=ready)
+            conn.commit()
+
+            running = get_running_shadow(conn)
+        self.assertIsNone(running)
+
+    def test_report_readonly_no_db_mutation(self) -> None:
+        """build_evolution(readonly=True) must not insert any rows."""
+        try:
+            from bot.evolution.builder import build_evolution
+        except ImportError:
+            self.skipTest("py_clob_client_v2 not available")
+        from bot.evolution.surgeon import run_surgeon
+
+        with connect(self.db_path) as conn:
+            count_before = conn.execute("SELECT COUNT(*) AS n FROM evolution_shadow").fetchone()["n"]
+            surgeon = run_surgeon(conn)
+            build_evolution(conn, surgeon=surgeon, readonly=True)
+            count_after = conn.execute("SELECT COUNT(*) AS n FROM evolution_shadow").fetchone()["n"]
+
+        self.assertEqual(count_before, count_after)
+
+    def test_running_shadow_immutable(self) -> None:
+        """An active RUNNING shadow must not be replaced or mutated by sync_shadow_layer."""
+        from bot.evolution.shadow import sync_shadow_layer
+
+        with connect(self.db_path) as conn:
+            exp = create_shadow_experiment(
+                conn, parameter="entry_threshold", current_value=0.40, shadow_value=0.39
+            )
+            conn.commit()
+
+            new_candidate = {
+                "parameter": "entry_threshold",
+                "from_value": 0.40,
+                "to_value": 0.36,
+                "label": "CHANGE",
+                "confidence_pct": 95,
+                "evidence_trades": 500,
+                "expected_pf_pct": 20.0,
+            }
+            sync_shadow_layer(conn, candidate=new_candidate, ready_for_shadow=True)
+            conn.commit()
+
+            running = get_running_shadow(conn)
+            self.assertEqual(float(running["shadow_value"]), 0.39)
+            self.assertEqual(int(running["id"]), int(exp["id"]))
+
+    def test_second_shadow_cannot_start(self) -> None:
+        """Only one RUNNING shadow allowed. Second create is a no-op."""
+        with connect(self.db_path) as conn:
+            exp1 = create_shadow_experiment(
+                conn, parameter="entry_threshold", current_value=0.40, shadow_value=0.39
+            )
+            exp2 = create_shadow_experiment(
+                conn, parameter="entry_threshold", current_value=0.40, shadow_value=0.36
+            )
+            conn.commit()
+
+        self.assertEqual(int(exp1["id"]), int(exp2["id"]))
+
+    def test_surgeon_vote_with_shadow_running(self) -> None:
+        """Surgeon vote is included even when shadow is running."""
+        from bot.evolution.council import convene_council
+
+        sources = self._sources()
+        surgeon = {
+            "recommendation": {
+                "parameter": "entry",
+                "value": 0.36,
+                "to_value": 0.36,
+                "decision": "CHANGE",
+                "reason": "PF improvement",
+                "confidence": 80,
+            }
+        }
+        shadow_state = {
+            "status": "RUNNING",
+            "parameter": "entry_threshold",
+            "current_value": 0.40,
+            "shadow_value": 0.39,
+            "candidate": {"parameter": "entry_threshold", "from_value": 0.40, "to_value": 0.39},
+        }
+        result = convene_council(sources, surgeon=surgeon, shadow_state=shadow_state)
+        surgeon_vote = next(v for v in result.votes if v.source == "Surgeon")
+        self.assertEqual(surgeon_vote.parameter, "entry")
+        self.assertEqual(surgeon_vote.value, 0.36)
+        self.assertFalse(surgeon_vote.is_keep)
+
+    def test_repeated_daily_idempotent(self) -> None:
+        """Running sync_shadow_layer twice is idempotent."""
+        from bot.evolution.shadow import sync_shadow_layer
+
+        with connect(self.db_path) as conn:
+            candidate = {
+                "parameter": "entry_threshold",
+                "from_value": 0.40,
+                "to_value": 0.39,
+                "label": "CHANGE",
+                "confidence_pct": 90,
+                "evidence_trades": 400,
+                "expected_pf_pct": 16.0,
+            }
+            sync_shadow_layer(conn, candidate=candidate, ready_for_shadow=True)
+            conn.commit()
+            count1 = conn.execute("SELECT COUNT(*) AS n FROM evolution_shadow").fetchone()["n"]
+
+            sync_shadow_layer(conn, candidate=candidate, ready_for_shadow=True)
+            conn.commit()
+            count2 = conn.execute("SELECT COUNT(*) AS n FROM evolution_shadow").fetchone()["n"]
+
+        self.assertEqual(count1, count2)
+        self.assertEqual(count1, 1)
+
+    def test_repeated_report_no_db_change(self) -> None:
+        """Calling build_evolution(readonly=True) multiple times must not change row counts."""
+        try:
+            from bot.evolution.builder import build_evolution
+        except ImportError:
+            self.skipTest("py_clob_client_v2 not available")
+        from bot.evolution.surgeon import run_surgeon
+
+        with connect(self.db_path) as conn:
+            create_shadow_experiment(
+                conn, parameter="entry_threshold", current_value=0.40, shadow_value=0.39
+            )
+            conn.commit()
+
+            surgeon = run_surgeon(conn)
+            build_evolution(conn, surgeon=surgeon, readonly=True)
+            count1 = conn.execute("SELECT COUNT(*) AS n FROM evolution_shadow").fetchone()["n"]
+
+            build_evolution(conn, surgeon=surgeon, readonly=True)
+            count2 = conn.execute("SELECT COUNT(*) AS n FROM evolution_shadow").fetchone()["n"]
+
+        self.assertEqual(count1, count2)
+
+    def test_as_candidate_none_for_watch(self) -> None:
+        """CouncilResult with WATCH status returns None from as_candidate."""
+        from bot.evolution.council import convene_council
+
+        sources = self._sources()
+        sources["optimizer"]["parameter_optimizer"]["optimal"] = {"entry": 0.40}
+        result = convene_council(sources, surgeon=None)
+        self.assertIsNone(result.as_candidate())
+
+
 if __name__ == "__main__":
     unittest.main()

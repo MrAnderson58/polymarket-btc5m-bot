@@ -552,7 +552,7 @@ def convene_council(
     Called after all sources are loaded. Replaces auto_review + decision logic.
     """
     if shadow_state:
-        return _council_with_shadow(sources, shadow_state)
+        return _council_with_shadow(sources, shadow_state, surgeon)
 
     votes = _collect_votes(sources, surgeon)
     live = sources.get("live_sample", {})
@@ -624,6 +624,7 @@ def convene_council(
 def _council_with_shadow(
     sources: dict[str, Any],
     shadow: dict[str, Any],
+    surgeon: Any = None,
 ) -> CouncilResult:
     """When a shadow experiment is active, Council reports its status."""
     raw_status = str(shadow.get("status", "")).upper()
@@ -637,7 +638,7 @@ def _council_with_shadow(
         status = EvolutionStatus.SHADOW_RUNNING.value
 
     candidate = shadow.get("candidate") or {}
-    votes = _collect_votes(sources)
+    votes = _collect_votes(sources, surgeon)
     return CouncilResult(
         status=status,
         final_parameter=candidate.get("parameter") or shadow.get("parameter"),

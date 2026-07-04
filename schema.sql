@@ -665,7 +665,7 @@ CREATE TABLE IF NOT EXISTS evolution_shadow (
     parameter TEXT NOT NULL,
     current_value REAL NOT NULL,
     shadow_value REAL NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('RUNNING', 'COMPLETE')),
+    status TEXT NOT NULL CHECK (status IN ('RUNNING', 'COMPLETE', 'CANCELLED')),
     created_at TEXT NOT NULL,
     completed_at TEXT,
     sample_size INTEGER NOT NULL DEFAULT 0,
