@@ -84,6 +84,8 @@ class CouncilResult:
     def as_candidate(self) -> EvolutionCandidate | None:
         if self.final_parameter is None or self.final_to_value is None:
             return None
+        if self.status not in (EvolutionStatus.READY_FOR_SHADOW.value,):
+            return None
         return {
             "parameter": self.final_parameter,
             "from_value": self.final_from_value or 0.0,
@@ -431,6 +433,15 @@ def _find_consensus(votes: list[Vote]) -> tuple[str | None, float | None, float,
 
     n_supporters = len(best_votes)
     total_voters = len(votes)
+
+    # Single-voter parameters cannot win over multi-voter parameters
+    if n_supporters == 1 and len(scored) > 1:
+        for param, score, pv in scored[1:]:
+            if len(pv) >= 2:
+                best_param, best_score, best_votes = param, score, pv
+                n_supporters = len(pv)
+                break
+
     confidence = (n_supporters / total_voters) * 100.0
 
     values = [v.value for v in best_votes if v.value is not None]

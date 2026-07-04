@@ -20,7 +20,10 @@ def lane_metrics(pnls: list[float]) -> dict[str, float]:
     losses = [p for p in pnls if p <= 0]
     total_profit = sum(wins)
     total_loss = abs(sum(losses))
-    pf = total_profit / total_loss if total_loss else 99.0
+    if not total_loss:
+        pf = 0.0 if not total_profit else 99.0
+    else:
+        pf = total_profit / total_loss
     cumulative = 0.0
     peak = 0.0
     max_dd = 0.0

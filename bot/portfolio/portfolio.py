@@ -24,6 +24,7 @@ class PortfolioState:
     paused: bool = False
     pause_reason: str | None = None
     pause_until_ts: int | None = None
+    guard_reset_after_ts: int | None = None
 
 
 class PortfolioManager:
@@ -122,6 +123,7 @@ class PortfolioManager:
         self.state.paused = False
         self.state.pause_reason = None
         self.state.pause_until_ts = None
+        self.state.guard_reset_after_ts = int(time.time())
         self.save(conn)
 
     def _risk_label(self) -> str:

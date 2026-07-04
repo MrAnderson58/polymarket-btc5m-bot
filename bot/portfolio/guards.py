@@ -24,17 +24,34 @@ class GuardResult:
     pause_until_ts: int | None = None
 
 
-def _consecutive_stop_losses(conn: sqlite3.Connection, *, limit: int = 10) -> int:
-    rows = conn.execute(
-        """
-        SELECT exit_reason
-        FROM early_reversion_v2_trades
-        WHERE status = 'closed'
-        ORDER BY closed_at DESC, entry_ts DESC
-        LIMIT ?
-        """,
-        (limit,),
-    ).fetchall()
+def _consecutive_stop_losses(
+    conn: sqlite3.Connection,
+    *,
+    limit: int = 10,
+    after_ts: int | None = None,
+) -> int:
+    if after_ts:
+        rows = conn.execute(
+            """
+            SELECT exit_reason
+            FROM early_reversion_v2_trades
+            WHERE status = 'closed' AND entry_ts > ?
+            ORDER BY closed_at DESC, entry_ts DESC
+            LIMIT ?
+            """,
+            (after_ts, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT exit_reason
+            FROM early_reversion_v2_trades
+            WHERE status = 'closed'
+            ORDER BY closed_at DESC, entry_ts DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
     streak = 0
     for row in rows:
         if row["exit_reason"] == "STOP_LOSS":
@@ -58,7 +75,9 @@ def check_portfolio_guards(conn: sqlite3.Connection) -> GuardResult:
         )
 
     daily_pnl = daily_realized_pnl_usdc(conn)
-    stop_streak = _consecutive_stop_losses(conn)
+    stop_streak = _consecutive_stop_losses(
+        conn, after_ts=manager.state.guard_reset_after_ts
+    )
 
     if daily_pnl <= -PORTFOLIO_DAILY_LOSS_LIMIT_USDC:
         manager.pause(

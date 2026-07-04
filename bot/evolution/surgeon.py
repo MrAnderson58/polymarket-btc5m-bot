@@ -31,7 +31,7 @@ def _pf(pnls: list[float]) -> float:
     wins = sum(p for p in pnls if p > 0)
     losses = abs(sum(p for p in pnls if p <= 0))
     if not losses:
-        return 99.0 if wins > 0 else 0.0
+        return 0.0  # insufficient data — no losses means unrankable
     return round(wins / losses, 3)
 
 
@@ -168,6 +168,8 @@ def _parameter_impact(trades: list[Any]) -> dict[str, Any]:
     helps_pf_val = baseline_pf
 
     for price, pf in entry_pfs.items():
+        if pf == 0.0:
+            continue  # skip unrankable (all losses or no losses)
         if pf < hurts_pf_val:
             hurts_pf_val = pf
             hurts_pf = {"parameter": "entry_threshold", "value": price, "pf": pf}
@@ -176,6 +178,8 @@ def _parameter_impact(trades: list[Any]) -> dict[str, Any]:
             helps_pf = {"parameter": "entry_threshold", "value": price, "pf": pf}
 
     for reason, pf in exit_pfs.items():
+        if pf == 0.0:
+            continue  # skip unrankable (all losses or no losses)
         if pf < hurts_pf_val:
             hurts_pf_val = pf
             hurts_pf = {"parameter": "exit_reason", "value": reason, "pf": pf}
@@ -276,6 +280,8 @@ def run_surgeon(conn: sqlite3.Connection) -> dict[str, Any]:
             },
         }
 
+    # Reverse to chronological order for correct DD calculation
+    trades = list(reversed(trades))
     all_pnls = [_trade_pnl(t) for t in trades]
     metrics = lane_metrics(all_pnls)
     loss_source = _biggest_loss_source(trades)

@@ -62,6 +62,7 @@ FEATURE_COLUMNS = (
     "is_time_stop",
     "is_trailing",
     "exit_reason",
+    "regime_label",
 )
 
 
@@ -116,6 +117,9 @@ def build_feature_row_cached(trade: Any, cache: MarketDataCache) -> dict[str, An
         "is_time_stop": int(exit_reason == "TIME_STOP"),
         "is_trailing": int(exit_reason == "TRAILING_STOP"),
         "exit_reason": exit_reason,
+        "regime_label": regime_label_from_features(
+            cache.btc_move_at(entry_ts, 30), spread
+        ),
     }
 
 
