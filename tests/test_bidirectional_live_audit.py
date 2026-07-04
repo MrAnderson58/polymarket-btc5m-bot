@@ -221,5 +221,36 @@ class AuditIntegrationTestCase(unittest.TestCase):
         self.assertFalse(promo["checks"]["closed_ge_250"])
 
 
+class RenderReportRegressionTestCase(unittest.TestCase):
+    """Regression: render_report must not crash when rolling windows shadow width var."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self._tmpdir.name) / "test.db"
+        init_db(self.db_path)
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def test_render_report_sections_8_through_11_with_rolling_windows(self) -> None:
+        with connect(self.db_path) as conn:
+            _seed_shadow_data(conn, 55)
+            report = run_live_audit(conn)
+        self.assertTrue(report["temporal"]["quarters"])
+        self.assertTrue(report["temporal"]["rolling_50"])
+        self.assertTrue(report["replay_vs_live"]["differences"] is not None)
+        self.assertIn("A_current", report["stress"]["scenarios"])
+
+        text = render_report(report)
+
+        self.assertIsInstance(text, str)
+        self.assertTrue(text.strip())
+        self.assertIn("8. TEMPORAL STABILITY", text)
+        self.assertIn("9. REPLAY VS LIVE SHADOW", text)
+        self.assertIn("10. COST / STRESS TEST", text)
+        self.assertIn("11. PROMOTION GATE", text)
+        self.assertIn("Rolling windows (50):", text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -35,6 +35,8 @@ PROMOTION_CRITERIA = {
     "max_profit_concentration_pct": 60.0,
 }
 
+REPORT_WIDTH = 72
+
 
 @dataclass
 class LiveTrade:
@@ -829,23 +831,23 @@ def run_live_audit(conn: sqlite3.Connection) -> dict[str, Any]:
 def render_report(report: dict[str, Any]) -> str:
     report["promotion"] = evaluate_promotion(report)
     lines: list[str] = []
-    w = 72
+    report_width = REPORT_WIDTH
 
     def h(title: str) -> None:
         lines.append("")
-        lines.append("=" * w)
+        lines.append("=" * report_width)
         lines.append(title)
-        lines.append("=" * w)
+        lines.append("=" * report_width)
 
-    def row(label: str, m: dict) -> None:
-        if not m or m.get("trades", 0) == 0:
+    def row(label: str, metrics: dict) -> None:
+        if not metrics or metrics.get("trades", 0) == 0:
             lines.append(f"  {label}: no trades")
             return
         lines.append(
-            f"  {label}: N={m['trades']} WR={m['wr']}% PF={m['pf']} "
-            f"avg={m['avg_pnl']}% med={m.get('median_pnl','?')}% "
-            f"DD={m['max_dd']}% MaxCL={m['max_consecutive_losses']} "
-            f"E={m['expectancy']}% hold={m.get('avg_holding_seconds',0)}s"
+            f"  {label}: N={metrics['trades']} WR={metrics['wr']}% PF={metrics['pf']} "
+            f"avg={metrics['avg_pnl']}% med={metrics.get('median_pnl', '?')}% "
+            f"DD={metrics['max_dd']}% MaxCL={metrics['max_consecutive_losses']} "
+            f"E={metrics['expectancy']}% hold={metrics.get('avg_holding_seconds', 0)}s"
         )
 
     h("BIDIRECTIONAL MOMENTUM V1.1 — LIVE SHADOW AUDIT")
@@ -862,12 +864,14 @@ def render_report(report: dict[str, Any]) -> str:
     if ig["violations"]:
         lines.append("  Violations:")
         lines.append(f"  {'ID':>5} {'Market':<28} {'Type':<22} Detail")
-        for v in ig["violations"][:30]:
-            tid = v.trade_id if v.trade_id else "-"
-            slug = v.market_slug[:28]
-            lines.append(f"  {str(tid):>5} {slug:<28} {v.violation_type:<22} {v.detail}")
+        for violation in ig["violations"][:30]:
+            tid = violation.trade_id if violation.trade_id else "-"
+            slug = violation.market_slug[:28]
+            lines.append(
+                f"  {str(tid):>5} {slug:<28} {violation.violation_type:<22} {violation.detail}"
+            )
         if len(ig["violations"]) > 30:
-            lines.append(f"  ... +{len(ig['violations'])-30} more")
+            lines.append(f"  ... +{len(ig['violations']) - 30} more")
 
     h("2. LIVE SHADOW PERFORMANCE")
     for label in ("all", "last_50", "last_100", "last_200"):
@@ -880,10 +884,11 @@ def render_report(report: dict[str, Any]) -> str:
     h("4. ENTRY PRICE BUCKETS")
     for side in ("YES", "NO"):
         lines.append(f"  --- {side} ---")
-        for b, m in report["entry_buckets"][side].items():
+        for bucket, bucket_metrics in report["entry_buckets"][side].items():
             lines.append(
-                f"    {b:<10} N={m['n']:>3} WR={m['wr']:>5.1f}% PF={m['pf']:>5.3f} "
-                f"avg={m['avg_pnl']:>6.2f}% total={m['total_pnl']:>7.1f}%"
+                f"    {bucket:<10} N={bucket_metrics['n']:>3} WR={bucket_metrics['wr']:>5.1f}% "
+                f"PF={bucket_metrics['pf']:>5.3f} avg={bucket_metrics['avg_pnl']:>6.2f}% "
+                f"total={bucket_metrics['total_pnl']:>7.1f}%"
             )
 
     h("5. REGIME ANALYSIS")
@@ -891,90 +896,98 @@ def render_report(report: dict[str, Any]) -> str:
         f"  {'Regime':<18} {'Obs':>6} {'Entries':>8} {'Rate%':>6} "
         f"{'Closed':>7} {'PF':>6} {'WR':>6} {'avgPnL':>7}"
     )
-    for reg, m in report["regime_analysis"].items():
+    for regime, regime_metrics in report["regime_analysis"].items():
         lines.append(
-            f"  {reg:<18} {m['observations']:>6} {m['entry_observations']:>8} "
-            f"{m['entry_rate_pct']:>5.1f}% {m['closed_trades']:>7} "
-            f"{m['pf']:>6.3f} {m['wr']:>5.1f}% {m['avg_pnl']:>6.2f}%"
+            f"  {regime:<18} {regime_metrics['observations']:>6} "
+            f"{regime_metrics['entry_observations']:>8} "
+            f"{regime_metrics['entry_rate_pct']:>5.1f}% {regime_metrics['closed_trades']:>7} "
+            f"{regime_metrics['pf']:>6.3f} {regime_metrics['wr']:>5.1f}% "
+            f"{regime_metrics['avg_pnl']:>6.2f}%"
         )
     chop_rev = report["regime_analysis"].get("CHOP", {}).get("closed_trades", 0)
     chop_rev += report["regime_analysis"].get("REVERSAL", {}).get("closed_trades", 0)
     lines.append(f"  CHOP+REVERSAL closed trades (must be 0): {chop_rev}")
 
     h("6. TIME ANALYSIS (seconds_left at entry)")
-    for b, m in report["time_analysis"].items():
+    for bucket, bucket_metrics in report["time_analysis"].items():
         lines.append(
-            f"  {b:<10} N={m['n']:>3} WR={m['wr']:>5.1f}% PF={m['pf']:>5.3f} avg={m['avg_pnl']:>6.2f}%"
+            f"  {bucket:<10} N={bucket_metrics['n']:>3} WR={bucket_metrics['wr']:>5.1f}% "
+            f"PF={bucket_metrics['pf']:>5.3f} avg={bucket_metrics['avg_pnl']:>6.2f}%"
         )
 
     h("7. BTC MOVE MAGNITUDE (abs btc_move_30s at entry)")
     for side in ("YES", "NO"):
         lines.append(f"  --- {side} ---")
-        for b, m in report["btc_move_analysis"][side].items():
+        for bucket, bucket_metrics in report["btc_move_analysis"][side].items():
             lines.append(
-                f"    {b:<10} N={m['n']:>3} WR={m['wr']:>5.1f}% PF={m['pf']:>5.3f} avg={m['avg_pnl']:>6.2f}%"
+                f"    {bucket:<10} N={bucket_metrics['n']:>3} WR={bucket_metrics['wr']:>5.1f}% "
+                f"PF={bucket_metrics['pf']:>5.3f} avg={bucket_metrics['avg_pnl']:>6.2f}%"
             )
 
     h("8. TEMPORAL STABILITY")
     lines.append("  Quarters:")
-    for q, m in report["temporal"]["quarters"].items():
-        row(f"    {q}", m)
-    rolling = report["temporal"]["rolling_50"]
-    if rolling:
-        lines.append(f"  Rolling windows (50): {len(rolling)} windows")
-        for w in rolling[-5:]:
+    for quarter, quarter_metrics in report["temporal"]["quarters"].items():
+        row(f"    {quarter}", quarter_metrics)
+    rolling_windows = report["temporal"]["rolling_50"]
+    if rolling_windows:
+        lines.append(f"  Rolling windows (50): {len(rolling_windows)} windows")
+        for window in rolling_windows[-5:]:
             lines.append(
-                f"    [{w['window_start_idx']}-{w['window_end_idx']}] "
-                f"PF={w['pf']} WR={w['wr']}% MaxCL={w['max_consecutive_losses']}"
+                f"    [{window['window_start_idx']}-{window['window_end_idx']}] "
+                f"PF={window['pf']} WR={window['wr']}% MaxCL={window['max_consecutive_losses']}"
             )
 
     h("9. REPLAY VS LIVE SHADOW")
     rl = report["replay_vs_live"]
-    lines.append(f"  Replay OOS benchmark: PF={rl['replay_benchmark']['pf']} "
-                   f"YES={rl['replay_benchmark']['yes_pf']} NO={rl['replay_benchmark']['no_pf']}")
+    lines.append(
+        f"  Replay OOS benchmark: PF={rl['replay_benchmark']['pf']} "
+        f"YES={rl['replay_benchmark']['yes_pf']} NO={rl['replay_benchmark']['no_pf']}"
+    )
     all_m = report["performance"]["all"]
     lines.append(
-        f"  Live shadow:          PF={all_m.get('pf',0)} "
-        f"YES={report['side_analysis'].get('YES',{}).get('pf',0)} "
-        f"NO={report['side_analysis'].get('NO',{}).get('pf',0)} "
-        f"MaxCL={all_m.get('max_consecutive_losses',0)}"
+        f"  Live shadow:          PF={all_m.get('pf', 0)} "
+        f"YES={report['side_analysis'].get('YES', {}).get('pf', 0)} "
+        f"NO={report['side_analysis'].get('NO', {}).get('pf', 0)} "
+        f"MaxCL={all_m.get('max_consecutive_losses', 0)}"
     )
-    for d in rl["differences"]:
-        lines.append(f"  • {d}")
+    for diff in rl["differences"]:
+        lines.append(f"  • {diff}")
 
     h("10. COST / STRESS TEST")
     lines.append(f"  {report['stress']['delay_note']}")
-    for name, m in report["stress"]["scenarios"].items():
+    for scenario, scenario_metrics in report["stress"]["scenarios"].items():
         lines.append(
-            f"  {name:<28} PF={m['pf']:>5.3f} WR={m['wr']:>5.1f}% "
-            f"avg={m['avg_pnl']:>6.2f}% DD={m['max_dd']:>6.1f}%"
+            f"  {scenario:<28} PF={scenario_metrics['pf']:>5.3f} WR={scenario_metrics['wr']:>5.1f}% "
+            f"avg={scenario_metrics['avg_pnl']:>6.2f}% DD={scenario_metrics['max_dd']:>6.1f}%"
         )
 
     h("11. PROMOTION GATE")
     promo = report["promotion"]
     lines.append(f"  VERDICT: {promo['verdict']}")
-    for key, ok in promo["checks"].items():
-        lines.append(f"    {'PASS' if ok else 'FAIL'}: {key}")
+    for check_key, passed in promo["checks"].items():
+        lines.append(f"    {'PASS' if passed else 'FAIL'}: {check_key}")
     if promo["reasons"]:
         lines.append("  Reasons:")
-        for r in promo["reasons"]:
-            lines.append(f"    • {r}")
+        for reason in promo["reasons"]:
+            lines.append(f"    • {reason}")
 
     h("12. SUMMARY VERDICTS")
     lines.append(f"  Integrity:    {'PASS' if ig['pass'] else 'FAIL'}")
     pf_stable = sum(
-        1 for q in report["temporal"]["quarters"].values() if q.get("pf", 0) >= 1.2
+        1
+        for quarter_metrics in report["temporal"]["quarters"].values()
+        if quarter_metrics.get("pf", 0) >= 1.2
     )
     lines.append(
-        f"  Performance:  PF={all_m.get('pf',0):.3f} "
+        f"  Performance:  PF={all_m.get('pf', 0):.3f} "
         f"({'stable' if pf_stable >= 3 else 'concentrated'})"
     )
     stress_b = report["stress"]["scenarios"].get("B_entry+0.01_exit-0.01", {})
     lines.append(
-        f"  Robustness:   stress-B PF={stress_b.get('pf',0):.3f} "
-        f"MaxCL={all_m.get('max_consecutive_losses',0)}"
+        f"  Robustness:   stress-B PF={stress_b.get('pf', 0):.3f} "
+        f"MaxCL={all_m.get('max_consecutive_losses', 0)}"
     )
-    lines.append(f"  Replay/Live:  live PF exceeds replay OOS — see section 9 for causes")
+    lines.append("  Replay/Live:  live PF exceeds replay OOS — see section 9 for causes")
     lines.append(f"  Promotion:    {promo['verdict']}")
 
     lines.append("")
