@@ -3,6 +3,10 @@
 Usage:
   python -m bot.research.mtf
   python -m bot.research.mtf diagnose-discovery
+  python -m bot.research.mtf audit-production
+  python -m bot.research.mtf research-15m
+  python -m bot.research.mtf research-1h
+  python -m bot.research.mtf research-daily
 
 Does NOT modify execution, Bidirectional V1.1, or ER strategies.
 """
@@ -53,6 +57,53 @@ def run_diagnose_discovery() -> int:
     return 0
 
 
+def run_audit_production() -> int:
+    from bot.database import connect, init_db
+    from bot.research.mtf.integrity_audit import audit_production, render_production_audit
+
+    init_db()
+    with connect() as conn:
+        report = audit_production(conn)
+        print(render_production_audit(report))
+    return 0
+
+
+def run_research_15m() -> int:
+    from bot.database import connect, init_db
+    from bot.research.mtf.research_15m.engine import run_15m_research
+    from bot.research.mtf.research_15m.report import render_15m_report
+
+    init_db()
+    with connect() as conn:
+        result = run_15m_research(conn)
+        print(render_15m_report(result))
+    return 0
+
+
+def run_research_1h() -> int:
+    from bot.database import connect, init_db
+    from bot.research.mtf.research_1h.engine import run_1h_research
+    from bot.research.mtf.research_1h.report import render_1h_report
+
+    init_db()
+    with connect() as conn:
+        result = run_1h_research(conn)
+        print(render_1h_report(result))
+    return 0
+
+
+def run_research_daily() -> int:
+    from bot.database import connect, init_db
+    from bot.research.mtf.research_daily.engine import run_daily_research
+    from bot.research.mtf.research_daily.report import render_daily_report
+
+    init_db()
+    with connect() as conn:
+        result = run_daily_research(conn)
+        print(render_daily_report(result))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="MTF Polymarket context research")
     parser.add_argument("--audit-only", action="store_true", help="Data audit section only")
@@ -60,13 +111,25 @@ def main() -> int:
         "command",
         nargs="?",
         default="research",
-        choices=("research", "diagnose-discovery"),
+        choices=("research", "diagnose-discovery", "audit-production", "research-15m", "research-1h", "research-daily"),
         help="Subcommand (default: research)",
     )
     args = parser.parse_args()
 
     if args.command == "diagnose-discovery":
         return run_diagnose_discovery()
+
+    if args.command == "audit-production":
+        return run_audit_production()
+
+    if args.command == "research-15m":
+        return run_research_15m()
+
+    if args.command == "research-1h":
+        return run_research_1h()
+
+    if args.command == "research-daily":
+        return run_research_daily()
 
     if args.audit_only:
         from bot.database import connect, init_db

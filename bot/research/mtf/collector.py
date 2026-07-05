@@ -28,6 +28,10 @@ def collect_mtf_snapshot(
     from bot.research.mtf.snapshots import ensure_tables, insert_snapshot
 
     ensure_tables(conn)
+    from bot.research.mtf.metadata import ensure_metadata_table
+    from bot.research.mtf.strike_resolver import get_or_resolve_strike
+
+    ensure_metadata_table(conn)
     now_ts = int(time.time())
 
     row: dict[str, Any] = {
@@ -51,9 +55,14 @@ def collect_mtf_snapshot(
             row[f"market_{prefix}_no_bid"] = quotes.get("no_bid")
             row[f"market_{prefix}_no_ask"] = quotes.get("no_ask")
         row[f"market_{prefix}_seconds_left"] = seconds_left_for_ref(ref, now_ts)
-        row[f"market_{prefix}_strike"] = strike
+        strike_result = get_or_resolve_strike(conn, ref.slug, tf, snapshot_ts=now_ts)
+        if strike_result.strike is not None:
+            row[f"market_{prefix}_strike"] = strike_result.strike
 
-    row["raw_json"] = {"htf_discovery": {k: v.slug if v else None for k, v in htf.items()}}
+    raw_meta = {
+        "htf_discovery": {k: v.slug if v else None for k, v in htf.items()},
+    }
+    row["raw_json"] = raw_meta
     insert_snapshot(conn, row)
     logger.debug(
         "MTF snapshot collected | 5m=%s 15m=%s 1h=%s daily=%s",

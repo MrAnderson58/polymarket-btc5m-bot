@@ -221,13 +221,17 @@ class MtfCollectorTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
 
+    @patch("bot.research.mtf.strike_resolver.get_or_resolve_strike")
     @patch("bot.research.mtf.quotes.fetch_mtf_market_quotes")
     @patch("bot.research.mtf.discovery.discover_active_htf_markets")
     def test_snapshot_persistence_all_timeframes(
         self,
         mock_discover: MagicMock,
         mock_quotes: MagicMock,
+        mock_strike: MagicMock,
     ) -> None:
+        from bot.research.mtf.strike_resolver import BINANCE_OPEN, StrikeResult
+
         ws = 1_783_354_500
         now_ts = ws + 120
         mock_discover.return_value = {
@@ -241,6 +245,7 @@ class MtfCollectorTestCase(unittest.TestCase):
             "no_bid": 0.50,
             "no_ask": 0.52,
         }
+        mock_strike.return_value = StrikeResult(60100.0, BINANCE_OPEN, ws, 0.92, "slug")
         with patch("bot.research.mtf.collector.time.time", return_value=now_ts):
             with connect(self.db_path) as conn:
                 collect_mtf_snapshot(
@@ -262,10 +267,16 @@ class MtfCollectorTestCase(unittest.TestCase):
         self.assertEqual(row["market_daily_slug"], "bitcoin-up-or-down-on-july-6-2026")
         self.assertEqual(row["market_15m_yes_bid"], 0.48)
         self.assertLessEqual(row["market_15m_yes_bid"], row["market_15m_yes_ask"])
+        self.assertEqual(row["market_15m_strike"], 60100.0)
 
+    @patch("bot.research.mtf.strike_resolver.get_or_resolve_strike")
     @patch("bot.research.mtf.quotes.fetch_mtf_market_quotes")
     @patch("bot.research.mtf.discovery.discover_active_htf_markets")
-    def test_graceful_missing_quotes(self, mock_discover: MagicMock, mock_quotes: MagicMock) -> None:
+    def test_graceful_missing_quotes(
+        self, mock_discover: MagicMock, mock_quotes: MagicMock, mock_strike: MagicMock,
+    ) -> None:
+        from bot.research.mtf.strike_resolver import UNKNOWN, StrikeResult
+
         ws = 1_783_354_500
         now_ts = ws + 60
         mock_discover.return_value = {
@@ -274,6 +285,7 @@ class MtfCollectorTestCase(unittest.TestCase):
             "daily": None,
         }
         mock_quotes.return_value = None
+        mock_strike.return_value = StrikeResult(None, UNKNOWN, None, 0.0, f"btc-updown-15m-{ws}")
         with patch("bot.research.mtf.collector.time.time", return_value=now_ts):
             with connect(self.db_path) as conn:
                 collect_mtf_snapshot(
@@ -291,9 +303,14 @@ class MtfCollectorTestCase(unittest.TestCase):
         self.assertEqual(row["market_15m_seconds_left"], 840)
         self.assertIsNone(row["market_15m_yes_ask"])
 
+    @patch("bot.research.mtf.strike_resolver.get_or_resolve_strike")
     @patch("bot.research.mtf.quotes.fetch_mtf_market_quotes")
     @patch("bot.research.mtf.discovery.discover_active_htf_markets")
-    def test_no_look_ahead_quote_timestamp(self, mock_discover: MagicMock, mock_quotes: MagicMock) -> None:
+    def test_no_look_ahead_quote_timestamp(
+        self, mock_discover: MagicMock, mock_quotes: MagicMock, mock_strike: MagicMock,
+    ) -> None:
+        from bot.research.mtf.strike_resolver import UNKNOWN, StrikeResult
+
         snapshot_ts = 1_700_000_100
         mock_discover.return_value = {
             "15m": HtfMarketRef("15m", "btc-updown-15m-1700000000", "t", 1_700_000_000, 1_700_000_900, True),
@@ -301,6 +318,7 @@ class MtfCollectorTestCase(unittest.TestCase):
             "daily": None,
         }
         mock_quotes.return_value = {"yes_bid": 0.5, "yes_ask": 0.52, "no_bid": 0.48, "no_ask": 0.5}
+        mock_strike.return_value = StrikeResult(None, UNKNOWN, None, 0.0, "btc-updown-15m-1700000000")
         with patch("bot.research.mtf.collector.time.time", return_value=snapshot_ts):
             with connect(self.db_path) as conn:
                 collect_mtf_snapshot(

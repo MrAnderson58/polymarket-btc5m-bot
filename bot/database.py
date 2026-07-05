@@ -149,6 +149,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     _ensure_bidirectional_shadow_tables(conn)
     _ensure_bidirectional_shadow_v12_tables(conn)
     _ensure_mtf_snapshot_tables(conn)
+    _ensure_futures_research_tables(conn)
     _ensure_perf_indexes(conn)
 
 
@@ -404,9 +405,16 @@ def _ensure_bidirectional_shadow_v12_tables(conn: sqlite3.Connection) -> None:
     ensure_tables(conn)
 
 
+def _ensure_futures_research_tables(conn: sqlite3.Connection) -> None:
+    from bot.research.futures.schema import ensure_tables
+    ensure_tables(conn)
+
+
 def _ensure_mtf_snapshot_tables(conn: sqlite3.Connection) -> None:
+    from bot.research.mtf.metadata import ensure_metadata_table
     from bot.research.mtf.snapshots import ensure_tables
     ensure_tables(conn)
+    ensure_metadata_table(conn)
 
 
 def _ensure_perf_indexes(conn: sqlite3.Connection) -> None:

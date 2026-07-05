@@ -49,8 +49,10 @@ class TfDiagnostic:
     candidate_patterns: list[str] = field(default_factory=list)
     candidates_found: list[str] = field(default_factory=list)
     selected_slug: str | None = None
+    active_interval: str | None = None
     quotes_available: bool = False
     strike: float | None = None
+    strike_source: str | None = None
     seconds_left: int | None = None
     reason: str | None = None
     errors: list[str] = field(default_factory=list)
@@ -322,12 +324,16 @@ def _diagnose_htf(
     return diag
 
 
-def _enrich_diagnostic_quotes(diag: TfDiagnostic, ts: int, strike_fallback: float | None) -> None:
+def _enrich_diagnostic_quotes(diag: TfDiagnostic, ts: int) -> None:
     if not diag.selected_slug:
         return
     try:
+        from bot.research.mtf.alignment import active_interval_label
         from bot.market_scanner import get_token_ids_for_market_slug
         from bot.research.mtf.quotes import fetch_mtf_market_quotes
+        from bot.research.mtf.strike_resolver import resolve_strike
+
+        diag.active_interval = active_interval_label(diag.selected_slug, diag.timeframe)
 
         token_ids = get_token_ids_for_market_slug(diag.selected_slug)
         if not token_ids:
@@ -341,13 +347,16 @@ def _enrich_diagnostic_quotes(diag: TfDiagnostic, ts: int, strike_fallback: floa
             if diag.reason is None:
                 diag.reason = QUOTE_UNAVAILABLE
             diag.errors.append("quotes unavailable")
-            return
+        else:
+            diag.quotes_available = True
 
-        diag.quotes_available = True
-        if strike_fallback is not None:
-            diag.strike = strike_fallback
-        elif diag.reason is None:
+        strike_result = resolve_strike(diag.selected_slug, diag.timeframe, snapshot_ts=ts)
+        diag.strike = strike_result.strike
+        diag.strike_source = strike_result.strike_source
+        if strike_result.strike is None and diag.reason is None:
             diag.reason = STRIKE_UNAVAILABLE
+        if strike_result.resolution_notes:
+            diag.errors.append(strike_result.resolution_notes)
 
         if diag.seconds_left is None and diag.timeframe == "15m":
             ws = parse_15m_window_start_ts(diag.selected_slug)
@@ -362,7 +371,7 @@ def _enrich_diagnostic_quotes(diag: TfDiagnostic, ts: int, strike_fallback: floa
             diag.reason = QUOTE_UNAVAILABLE
 
 
-def diagnose_discovery(ts: int | None = None, *, strike_fallback: float | None = None) -> dict[str, TfDiagnostic]:
+def diagnose_discovery(ts: int | None = None) -> dict[str, TfDiagnostic]:
     ts = ts or int(time.time())
     out = {
         "5m": _diagnose_5m(ts),
@@ -371,7 +380,7 @@ def diagnose_discovery(ts: int | None = None, *, strike_fallback: float | None =
         "daily": _diagnose_htf(ts, "daily", discover_daily_market, slug_daily_at),
     }
     for tf in ("15m", "1h", "daily"):
-        _enrich_diagnostic_quotes(out[tf], ts, strike_fallback)
+        _enrich_diagnostic_quotes(out[tf], ts)
     return out
 
 
@@ -388,8 +397,10 @@ def render_diagnose_discovery(diagnostics: dict[str, TfDiagnostic]) -> str:
         elif tf == "15m":
             lines.append(f"  candidate patterns: {', '.join(d.candidate_patterns)}")
             lines.append(f"  selected slug: {d.selected_slug or 'NONE'}")
+            lines.append(f"  active interval: {d.active_interval or 'NONE'}")
             lines.append(f"  quotes available: {'yes' if d.quotes_available else 'no'}")
             lines.append(f"  strike: {d.strike if d.strike is not None else 'NONE'}")
+            lines.append(f"  strike source: {d.strike_source or 'NONE'}")
             lines.append(f"  seconds_left: {d.seconds_left if d.seconds_left is not None else 'NULL'}")
             if d.reason:
                 lines.append(f"  reason: {d.reason}")
@@ -398,8 +409,10 @@ def render_diagnose_discovery(diagnostics: dict[str, TfDiagnostic]) -> str:
             if d.candidates_found:
                 lines.append(f"  candidate slugs: {', '.join(d.candidates_found[:5])}")
             lines.append(f"  selected slug: {d.selected_slug or 'NONE'}")
+            lines.append(f"  active interval: {d.active_interval or 'NONE'}")
             lines.append(f"  quotes available: {'yes' if d.quotes_available else 'no'}")
             lines.append(f"  strike: {d.strike if d.strike is not None else 'NONE'}")
+            lines.append(f"  strike source: {d.strike_source or 'NONE'}")
             lines.append(f"  seconds_left: {d.seconds_left if d.seconds_left is not None else 'NULL'}")
             if d.reason:
                 lines.append(f"  reason: {d.reason}")
