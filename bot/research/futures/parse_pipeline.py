@@ -1,4 +1,4 @@
-"""Parse raw messages into futures_research_signals."""
+"""Parse raw messages into futures_research_signals (SQLite research DB only)."""
 
 from __future__ import annotations
 
@@ -11,14 +11,32 @@ from bot.research.futures.schema import PARSE_AUDIT_TABLE, TARGETS_TABLE, insert
 from bot.research.futures.source_reader import SourceReader
 
 
+def _classify(parsed) -> tuple[str, bool]:
+    if parsed.side and parsed.symbol:
+        return "SUCCESS", True
+    if parsed.fields_found:
+        return "PARTIAL", bool(parsed.side or parsed.symbol)
+    return "FAILED", False
+
+
 def parse_and_store_messages(
     research_conn: sqlite3.Connection,
     source: SourceReader | None = None,
     *,
     limit: int | None = None,
+    source_filter: str | None = None,
 ) -> dict[str, int]:
     parser = SignalParser()
-    stats = {"processed": 0, "inserted": 0, "partial": 0, "failed": 0}
+    stats = {
+        "source_rows_read": 0,
+        "candidate_messages": 0,
+        "parsed_signals": 0,
+        "inserted": 0,
+        "partial": 0,
+        "failed": 0,
+        "skipped_non_signal": 0,
+        "skipped_invalid_row": 0,
+    }
 
     owns_source = source is None
     if source is None:
@@ -26,19 +44,26 @@ def parse_and_store_messages(
         source = open_source_reader(sqlite_conn=research_conn)
 
     try:
-        for msg in source.iter_telegram_messages(limit=limit):
-            stats["processed"] += 1
+        for row in source.iter_raw_rows(limit=limit, source=source_filter):
+            stats["source_rows_read"] += 1
+            msg = source.map_row(row)
+            if msg is None:
+                stats["skipped_invalid_row"] += 1
+                continue
+
+            stats["candidate_messages"] += 1
             parsed = parser.parse(msg.text)
-            status = (
-                "SUCCESS" if parsed.side and parsed.symbol
-                else ("PARTIAL" if parsed.fields_found else "FAILED")
-            )
+            status, is_signal = _classify(parsed)
+
             if status == "SUCCESS":
                 stats["inserted"] += 1
+                stats["parsed_signals"] += 1
             elif status == "PARTIAL":
                 stats["partial"] += 1
+                stats["parsed_signals"] += 1
             else:
                 stats["failed"] += 1
+                stats["skipped_non_signal"] += 1
 
             research_conn.execute(
                 f"""
@@ -53,7 +78,7 @@ def parse_and_store_messages(
                 ),
             )
 
-            if not parsed.side and not parsed.symbol:
+            if not is_signal:
                 continue
 
             sid = insert_signal(research_conn, {

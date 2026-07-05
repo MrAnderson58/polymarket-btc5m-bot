@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Iterator
 from urllib.parse import urlparse
 
@@ -22,19 +22,28 @@ from bot.research.futures.db_config import (
 )
 from bot.research.futures.source_data import (
     SOURCE_TABLES,
+    MessageColumnMap,
     RawMessage,
-    _iter_from_table,
-    _normalize_ts,
-    _pick_column,
+    build_messages_query,
+    channel_stats_sqlite,
+    iter_sqlite_rows,
+    resolve_message_columns,
+    row_to_raw_message,
     table_columns,
     table_exists,
     table_row_count,
-    table_ts_range,
+    table_ts_range_sqlite,
+    _normalize_ts,
 )
 
 READ_ONLY_GUARANTEE = (
     "Source adapter is read-only: no INSERT/UPDATE/DELETE on telegram/source tables."
 )
+
+# When auditing all channels without --source, cap parse-quality scan
+DEFAULT_PARSE_SAMPLE_LIMIT = 5000
+# Channels with fewer rows get a full parse scan in audit
+FULL_PARSE_SCAN_MAX_ROWS = 20_000
 
 
 class SourceConfigError(RuntimeError):
@@ -55,6 +64,15 @@ class SourceConnectionInfo:
 
 
 @dataclass
+class MessageStats:
+    count: int
+    first_timestamp: int | None
+    last_timestamp: int | None
+    duration_seconds: int
+    source_filter: str | None = None
+    column_map: dict[str, str] | None = None
+
+
 class SourceReader(ABC):
     info: SourceConnectionInfo
 
@@ -65,17 +83,47 @@ class SourceReader(ABC):
     def list_source_tables(self) -> dict[str, dict[str, Any]]: ...
 
     @abstractmethod
-    def iter_telegram_messages(self, *, limit: int | None = None) -> Iterator[RawMessage]: ...
+    def resolve_message_table(self) -> tuple[str, MessageColumnMap] | None: ...
+
+    @abstractmethod
+    def message_stats(self, *, source: str | None = None) -> MessageStats: ...
+
+    @abstractmethod
+    def iter_raw_rows(
+        self,
+        *,
+        limit: int | None = None,
+        source: str | None = None,
+    ) -> Iterator[dict[str, Any]]: ...
 
     @abstractmethod
     def channel_stats(self) -> list[dict[str, Any]]: ...
 
+    def iter_telegram_messages(
+        self,
+        *,
+        limit: int | None = None,
+        source: str | None = None,
+    ) -> Iterator[RawMessage]:
+        resolved = self.resolve_message_table()
+        if resolved is None:
+            return
+        _, mapping = resolved
+        for row in self.iter_raw_rows(limit=limit, source=source):
+            msg = row_to_raw_message(row, mapping)
+            if msg:
+                yield msg
+
+    def map_row(self, row: dict[str, Any]) -> RawMessage | None:
+        resolved = self.resolve_message_table()
+        if resolved is None:
+            return None
+        return row_to_raw_message(row, resolved[1])
+
 
 def _parse_dsn_meta(url: str) -> tuple[str | None, str | None]:
     parsed = urlparse(url)
-    host = parsed.hostname
-    db = parsed.path.lstrip("/") if parsed.path else None
-    return host, db
+    return parsed.hostname, (parsed.path.lstrip("/") if parsed.path else None)
 
 
 def _postgres_connect(url: str):
@@ -104,8 +152,6 @@ class PostgresSourceReader(SourceReader):
         host, db = _parse_dsn_meta(url)
         try:
             self._conn = _postgres_connect(url)
-            status = "connected"
-            reason = None
         except SourceConfigError:
             raise
         except Exception as exc:
@@ -116,12 +162,12 @@ class PostgresSourceReader(SourceReader):
 
         self.info = SourceConnectionInfo(
             backend="postgres",
-            status=status,
-            reason_code=reason,
+            status="connected",
             dsn_host=host,
             dsn_database=db,
             read_only=True,
         )
+        self._mapping_cache: dict[str, MessageColumnMap] = {}
 
     def close(self) -> None:
         self._conn.close()
@@ -151,27 +197,57 @@ class PostgresSourceReader(SourceReader):
         )
         return [r["column_name"] for r in cur.fetchall()]
 
-    def _pg_count(self, name: str) -> int:
+    def _pg_count(self, name: str, *, source_col: str | None = None, source: str | None = None) -> int:
         if not self._pg_table_exists(name):
             return 0
         cur = self._conn.cursor()
-        cur.execute(f"SELECT COUNT(*) AS n FROM {name}")
+        if source and source_col:
+            cur.execute(f"SELECT COUNT(*) AS n FROM {name} WHERE {source_col} = %s", (source,))
+        else:
+            cur.execute(f"SELECT COUNT(*) AS n FROM {name}")
         row = cur.fetchone()
         return int(row["n"]) if row else 0
 
-    def _pg_ts_range(self, name: str, ts_col: str) -> tuple[int | None, int | None]:
+    def _pg_ts_range(
+        self,
+        name: str,
+        ts_col: str,
+        *,
+        source_col: str | None = None,
+        source: str | None = None,
+    ) -> tuple[int | None, int | None]:
         if not self._pg_table_exists(name):
             return None, None
         cur = self._conn.cursor()
-        cur.execute(
-            f"SELECT MIN({ts_col}) AS lo, MAX({ts_col}) AS hi FROM {name} WHERE {ts_col} IS NOT NULL"
-        )
+        if source and source_col:
+            cur.execute(
+                f"SELECT MIN({ts_col}) AS lo, MAX({ts_col}) AS hi FROM {name} "
+                f"WHERE {source_col} = %s AND {ts_col} IS NOT NULL",
+                (source,),
+            )
+        else:
+            cur.execute(
+                f"SELECT MIN({ts_col}) AS lo, MAX({ts_col}) AS hi FROM {name} WHERE {ts_col} IS NOT NULL",
+            )
         row = cur.fetchone()
         if not row or row["lo"] is None:
             return None, None
-        lo = _normalize_ts(row["lo"])
-        hi = _normalize_ts(row["hi"])
-        return lo, hi
+        return _normalize_ts(row["lo"]), _normalize_ts(row["hi"])
+
+    def _mapping_for(self, table: str) -> MessageColumnMap | None:
+        if table not in self._mapping_cache:
+            mapping = resolve_message_columns(table, self._pg_columns(table))
+            if mapping:
+                self._mapping_cache[table] = mapping
+        return self._mapping_cache.get(table)
+
+    def resolve_message_table(self) -> tuple[str, MessageColumnMap] | None:
+        for table in ("telegram_messages", "telegram_signals"):
+            if self._pg_table_exists(table):
+                mapping = self._mapping_for(table)
+                if mapping:
+                    return table, mapping
+        return None
 
     def list_source_tables(self) -> dict[str, dict[str, Any]]:
         tables: dict[str, dict[str, Any]] = {}
@@ -183,76 +259,71 @@ class PostgresSourceReader(SourceReader):
                 "columns": self._pg_columns(name) if exists else [],
             }
             if exists:
-                for ts_col in ("timestamp", "message_ts", "ts", "created_at", "recorded_at", "date"):
-                    if ts_col in info["columns"]:
-                        info["ts_range"] = self._pg_ts_range(name, ts_col)
-                        break
+                mapping = resolve_message_columns(name, info["columns"])
+                if mapping:
+                    info["column_map"] = {
+                        "text": mapping.text_col,
+                        "timestamp": mapping.ts_col,
+                        "message_id": mapping.msg_id_col,
+                        "source": mapping.source_col,
+                    }
+                    info["ts_range"] = self._pg_ts_range(name, mapping.ts_col)
             tables[name] = info
         return tables
 
-    def iter_telegram_messages(self, *, limit: int | None = None) -> Iterator[RawMessage]:
-        tables = self.list_source_tables()
-        if tables.get("telegram_messages", {}).get("exists"):
-            yield from self._iter_pg_table("telegram_messages", limit=limit)
+    def message_stats(self, *, source: str | None = None) -> MessageStats:
+        resolved = self.resolve_message_table()
+        if resolved is None:
+            return MessageStats(count=0, first_timestamp=None, last_timestamp=None, duration_seconds=0)
+        table, mapping = resolved
+        count = self._pg_count(table, source_col=mapping.source_col, source=source)
+        lo, hi = self._pg_ts_range(
+            table, mapping.ts_col, source_col=mapping.source_col, source=source,
+        )
+        duration = (hi - lo) if lo is not None and hi is not None else 0
+        return MessageStats(
+            count=count,
+            first_timestamp=lo,
+            last_timestamp=hi,
+            duration_seconds=duration,
+            source_filter=source,
+            column_map={
+                "text": mapping.text_col,
+                "timestamp": mapping.ts_col,
+                "message_id": mapping.msg_id_col,
+                "source": mapping.source_col or "",
+            },
+        )
+
+    def iter_raw_rows(
+        self,
+        *,
+        limit: int | None = None,
+        source: str | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        resolved = self.resolve_message_table()
+        if resolved is None:
             return
-        if tables.get("telegram_signals", {}).get("exists"):
-            yield from self._iter_pg_table("telegram_signals", limit=limit)
-            return
-
-    def _iter_pg_table(self, table: str, *, limit: int | None) -> Iterator[RawMessage]:
-        cols = self._pg_columns(table)
-        text_col = _pick_column(cols, ("text", "message_text", "content", "body", "raw_text"))
-        ts_col = _pick_column(cols, ("timestamp", "message_ts", "ts", "created_at", "date"))
-        msg_col = _pick_column(cols, ("message_id", "msg_id", "id"))
-        src_col = _pick_column(cols, ("source", "channel", "channel_username", "channel_name"))
-        ch_col = _pick_column(cols, ("channel_id", "chat_id"))
-        raw_col = _pick_column(cols, ("raw_json", "metadata_json", "payload"))
-
-        if not text_col or not ts_col or not msg_col:
-            return
-
-        q = f"SELECT * FROM {table} ORDER BY {ts_col} ASC"
-        if limit:
-            q += f" LIMIT {int(limit)}"
-
+        _, mapping = resolved
+        q, params = build_messages_query(mapping, source=source, limit=limit, param_style="pg")
         cur = self._conn.cursor()
-        cur.execute(q)
+        cur.execute(q, params)
         for row in cur:
-            text = row.get(text_col)
-            if not text:
-                continue
-            ts = _normalize_ts(row.get(ts_col))
-            if ts is None:
-                continue
-            source = str(row[src_col]) if src_col and row.get(src_col) is not None else "unknown"
-            yield RawMessage(
-                source=source,
-                message_id=str(row[msg_col]),
-                timestamp=ts,
-                text=str(text),
-                channel_id=str(row[ch_col]) if ch_col and row.get(ch_col) is not None else None,
-                raw_json=str(row[raw_col]) if raw_col and row.get(raw_col) is not None else None,
-            )
+            yield dict(row)
 
     def channel_stats(self) -> list[dict[str, Any]]:
-        tables = self.list_source_tables()
-        if tables.get("telegram_messages", {}).get("exists"):
-            table = "telegram_messages"
-        elif tables.get("telegram_signals", {}).get("exists"):
-            table = "telegram_signals"
-        else:
+        resolved = self.resolve_message_table()
+        if resolved is None:
             return []
-
-        cols = self._pg_columns(table)
-        src_col = _pick_column(cols, ("source", "channel", "channel_username", "channel_name"))
-        if not src_col:
+        table, mapping = resolved
+        if not mapping.source_col:
             return [{"source": "all", "count": self._pg_count(table)}]
-
-        rows = self._conn.cursor()
-        rows.execute(
-            f"SELECT {src_col} AS source, COUNT(*) AS n FROM {table} GROUP BY {src_col} ORDER BY n DESC"
+        cur = self._conn.cursor()
+        cur.execute(
+            f"SELECT {mapping.source_col} AS source, COUNT(*) AS n FROM {table} "
+            f"GROUP BY {mapping.source_col} ORDER BY n DESC",
         )
-        return [{"source": r["source"], "count": r["n"]} for r in rows.fetchall()]
+        return [{"source": r["source"], "count": r["n"]} for r in cur.fetchall()]
 
 
 class SqliteSourceReader(SourceReader):
@@ -270,6 +341,14 @@ class SqliteSourceReader(SourceReader):
         if self._owns_conn:
             self._conn.close()
 
+    def resolve_message_table(self) -> tuple[str, MessageColumnMap] | None:
+        for table in ("telegram_messages", "telegram_signals"):
+            if table_exists(self._conn, table):
+                mapping = resolve_message_columns(table, table_columns(self._conn, table))
+                if mapping:
+                    return table, mapping
+        return None
+
     def list_source_tables(self) -> dict[str, dict[str, Any]]:
         tables: dict[str, dict[str, Any]] = {}
         for name in SOURCE_TABLES:
@@ -280,23 +359,62 @@ class SqliteSourceReader(SourceReader):
                 "columns": table_columns(self._conn, name) if exists else [],
             }
             if exists:
-                for ts_col in ("timestamp", "message_ts", "ts", "created_at", "recorded_at"):
-                    if ts_col in info["columns"]:
-                        info["ts_range"] = table_ts_range(self._conn, name, ts_col)
-                        break
+                mapping = resolve_message_columns(name, info["columns"])
+                if mapping:
+                    info["column_map"] = {
+                        "text": mapping.text_col,
+                        "timestamp": mapping.ts_col,
+                        "message_id": mapping.msg_id_col,
+                        "source": mapping.source_col,
+                    }
+                    info["ts_range"] = table_ts_range_sqlite(self._conn, name, mapping.ts_col)
             tables[name] = info
         return tables
 
-    def iter_telegram_messages(self, *, limit: int | None = None) -> Iterator[RawMessage]:
-        if table_exists(self._conn, "telegram_messages"):
-            yield from iter(_iter_from_table(self._conn, "telegram_messages", limit=limit))
+    def message_stats(self, *, source: str | None = None) -> MessageStats:
+        resolved = self.resolve_message_table()
+        if resolved is None:
+            return MessageStats(count=0, first_timestamp=None, last_timestamp=None, duration_seconds=0)
+        table, mapping = resolved
+        count = table_row_count(
+            self._conn, table, source_col=mapping.source_col, source=source,
+        )
+        lo, hi = table_ts_range_sqlite(
+            self._conn, table, mapping.ts_col,
+            source_col=mapping.source_col, source=source,
+        )
+        duration = (hi - lo) if lo is not None and hi is not None else 0
+        return MessageStats(
+            count=count,
+            first_timestamp=lo,
+            last_timestamp=hi,
+            duration_seconds=duration,
+            source_filter=source,
+            column_map={
+                "text": mapping.text_col,
+                "timestamp": mapping.ts_col,
+                "message_id": mapping.msg_id_col,
+                "source": mapping.source_col or "",
+            },
+        )
+
+    def iter_raw_rows(
+        self,
+        *,
+        limit: int | None = None,
+        source: str | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        resolved = self.resolve_message_table()
+        if resolved is None:
             return
-        if table_exists(self._conn, "telegram_signals"):
-            yield from iter(_iter_from_table(self._conn, "telegram_signals", limit=limit))
+        _, mapping = resolved
+        yield from iter_sqlite_rows(self._conn, mapping, source=source, limit=limit)
 
     def channel_stats(self) -> list[dict[str, Any]]:
-        from bot.research.futures.source_data import channel_stats
-        return channel_stats(self._conn)
+        resolved = self.resolve_message_table()
+        if resolved is None:
+            return []
+        return channel_stats_sqlite(self._conn, resolved[1])
 
 
 def resolve_source_backend() -> str:
@@ -315,7 +433,6 @@ def resolve_source_backend() -> str:
 
 
 def open_source_reader(*, sqlite_conn: sqlite3.Connection | None = None) -> SourceReader:
-    """Open read-only source reader. Never writes to source tables."""
     backend = resolve_source_backend()
     url = get_futures_source_database_url()
 

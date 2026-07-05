@@ -2,36 +2,21 @@
 
 Usage:
   python -m bot.research.futures check-source
-  python -m bot.research.futures audit-data
-  python -m bot.research.futures parse
+  python -m bot.research.futures audit-data [--source CHANNEL]
+  python -m bot.research.futures parse-sample [--source CHANNEL] [--limit N]
+  python -m bot.research.futures parse [--source CHANNEL] [--limit N]
   python -m bot.research.futures snapshot
   python -m bot.research.futures outcomes
   python -m bot.research.futures report
-  python -m bot.research.futures pipeline   # parse + snapshot + outcomes
+  python -m bot.research.futures pipeline
 
 Observe-only. No execution. No order placement.
-
-Environment (production):
-  FUTURES_SOURCE_DATABASE_URL=postgresql://user:pass@host:5432/dbname
-  FUTURES_SOURCE_BACKEND=postgres          # auto | postgres | sqlite
-  FUTURES_REQUIRE_POSTGRES=true          # fail if postgres unavailable
-  FUTURES_RESEARCH_DATABASE_PATH=data/trades.db
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-
-
-def _open_research():
-    from bot.database import connect, init_db
-    from bot.research.futures.schema import ensure_tables
-
-    init_db()
-    conn = connect().__enter__()
-    ensure_tables(conn)
-    return conn
 
 
 def main() -> int:
@@ -41,6 +26,7 @@ def main() -> int:
         choices=(
             "check-source",
             "audit-data",
+            "parse-sample",
             "parse",
             "snapshot",
             "outcomes",
@@ -49,7 +35,17 @@ def main() -> int:
         ),
         help="Research subcommand",
     )
-    parser.add_argument("--limit", type=int, default=None, help="Limit rows processed")
+    parser.add_argument(
+        "--source",
+        default=None,
+        help="Filter by channel/source name (e.g. signalyp)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Max source rows to read (parse/parse-sample)",
+    )
     args = parser.parse_args()
 
     if args.command == "check-source":
@@ -75,7 +71,9 @@ def main() -> int:
 
             try:
                 source = open_source_reader(sqlite_conn=research_conn)
-                audit = audit_source_data(research_conn, source)
+                audit = audit_source_data(
+                    research_conn, source, source_filter=args.source,
+                )
                 source.close()
             except SourceConfigError as exc:
                 print(f"SOURCE ERROR: {exc.reason_code}\n  {exc}", file=sys.stderr)
@@ -83,12 +81,33 @@ def main() -> int:
             print(render_audit_report(audit))
             return 0
 
+        if args.command == "parse-sample":
+            from bot.research.futures.parse_sample import parse_sample, render_parse_sample
+            from bot.research.futures.source_reader import SourceConfigError
+
+            limit = args.limit if args.limit is not None else 30
+            try:
+                report = parse_sample(
+                    sqlite_conn=research_conn,
+                    source_filter=args.source,
+                    limit=limit,
+                )
+            except SourceConfigError as exc:
+                print(f"SOURCE ERROR: {exc.reason_code}\n  {exc}", file=sys.stderr)
+                return 1
+            print(render_parse_sample(report))
+            return 0
+
         if args.command == "parse":
             from bot.research.futures.parse_pipeline import parse_and_store_messages
             from bot.research.futures.source_reader import SourceConfigError
 
             try:
-                stats = parse_and_store_messages(research_conn, limit=args.limit)
+                stats = parse_and_store_messages(
+                    research_conn,
+                    limit=args.limit,
+                    source_filter=args.source,
+                )
             except SourceConfigError as exc:
                 print(f"SOURCE ERROR: {exc.reason_code}\n  {exc}", file=sys.stderr)
                 return 1
@@ -117,7 +136,11 @@ def main() -> int:
             from bot.research.futures.source_reader import SourceConfigError
 
             try:
-                p = parse_and_store_messages(research_conn, limit=args.limit)
+                p = parse_and_store_messages(
+                    research_conn,
+                    limit=args.limit,
+                    source_filter=args.source,
+                )
             except SourceConfigError as exc:
                 print(f"SOURCE ERROR: {exc.reason_code}\n  {exc}", file=sys.stderr)
                 return 1
