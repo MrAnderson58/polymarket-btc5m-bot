@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 PARSER_VERSION = "deterministic_v1"
+PARSER_VERSION_V2 = "deterministic_v2"
+
+# Parser quality gates before full-channel reparse
+REPARSE_MIN_EXPLICIT_PRECISION = 0.95
+REPARSE_MIN_SYMBOL_ACCURACY = 0.98
+REPARSE_MIN_SIDE_ACCURACY = 0.98
+VALIDATION_SAMPLE_SIZE = 200
 
 # Outcome evaluation horizons (seconds)
 OUTCOME_HORIZONS = {

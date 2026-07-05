@@ -5,18 +5,27 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from bot.research.futures.config import PARSER_VERSION
-from bot.research.futures.parser import SignalParser
+from bot.research.futures.config import PARSER_VERSION, PARSER_VERSION_V2
+from bot.research.futures.parser_factory import get_parser
 from bot.research.futures.schema import PARSE_AUDIT_TABLE, TARGETS_TABLE, insert_signal
 from bot.research.futures.source_reader import SourceReader, resolve_research_source
 
 
-def _classify(parsed) -> tuple[str, bool]:
+def _process_v1(parsed) -> tuple[str, bool, bool]:
     if parsed.side and parsed.symbol:
-        return "SUCCESS", True
+        return "SUCCESS", True, True
     if parsed.fields_found:
-        return "PARTIAL", bool(parsed.side or parsed.symbol)
-    return "FAILED", False
+        return "PARTIAL", bool(parsed.side or parsed.symbol), False
+    return "FAILED", False, False
+
+
+def _process_v2(result) -> tuple[str, bool, bool]:
+    parsed = result.parsed
+    if result.passes_gate:
+        return "SUCCESS", True, True
+    if parsed.fields_found:
+        return "PARTIAL", False, False
+    return "FAILED", False, False
 
 
 def parse_and_store_messages(
@@ -26,9 +35,12 @@ def parse_and_store_messages(
     source_conn: sqlite3.Connection | None = None,
     limit: int | None = None,
     source_filter: str | None = None,
+    parser_version: str | None = None,
 ) -> dict[str, int]:
-    parser = SignalParser()
+    version = parser_version or PARSER_VERSION
+    parser = get_parser(version)
     stats = {
+        "parser_version": version,
         "source_rows_read": 0,
         "candidate_messages": 0,
         "parsed_signals": 0,
@@ -37,6 +49,7 @@ def parse_and_store_messages(
         "failed": 0,
         "skipped_non_signal": 0,
         "skipped_invalid_row": 0,
+        "skipped_gate": 0,
     }
 
     source, owns_source = resolve_research_source(
@@ -52,15 +65,28 @@ def parse_and_store_messages(
                 continue
 
             stats["candidate_messages"] += 1
-            parsed = parser.parse(msg.text)
-            status, is_signal = _classify(parsed)
+
+            if version == PARSER_VERSION_V2:
+                result = parser.parse(msg.text)
+                status, store_signal, _ = _process_v2(result)
+                parsed = result.parsed
+                if status == "PARTIAL" and not result.passes_gate:
+                    stats["skipped_gate"] += 1
+                fields = parsed.fields_found + [f"taxonomy:{result.message_type.value}"]
+                errors = parsed.errors + [result.gate_reason] if result.gate_reason else parsed.errors
+            else:
+                parsed = parser.parse(msg.text)
+                status, store_signal, is_partial_signal = _process_v1(parsed)
+                fields = parsed.fields_found
+                errors = parsed.errors
 
             if status == "SUCCESS":
                 stats["inserted"] += 1
                 stats["parsed_signals"] += 1
             elif status == "PARTIAL":
                 stats["partial"] += 1
-                stats["parsed_signals"] += 1
+                if version != PARSER_VERSION_V2:
+                    stats["parsed_signals"] += 1
             else:
                 stats["failed"] += 1
                 stats["skipped_non_signal"] += 1
@@ -73,12 +99,12 @@ def parse_and_store_messages(
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    msg.source, msg.message_id, PARSER_VERSION, msg.text,
-                    status, json.dumps(parsed.fields_found), json.dumps(parsed.errors),
+                    msg.source, msg.message_id, version, msg.text,
+                    status, json.dumps(fields), json.dumps(errors),
                 ),
             )
 
-            if not is_signal:
+            if not store_signal:
                 continue
 
             sid = insert_signal(research_conn, {
@@ -95,7 +121,7 @@ def parse_and_store_messages(
                 "confidence": parsed.confidence,
                 "raw_text": msg.text,
                 "parser_confidence": parsed.parser_confidence,
-                "parser_version": PARSER_VERSION,
+                "parser_version": version,
             })
             if sid:
                 research_conn.execute(f"DELETE FROM {TARGETS_TABLE} WHERE signal_id = ?", (sid,))

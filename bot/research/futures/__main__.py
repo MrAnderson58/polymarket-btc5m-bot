@@ -3,8 +3,12 @@
 Usage:
   python -m bot.research.futures check-source
   python -m bot.research.futures audit-data [--source CHANNEL]
+  python -m bot.research.futures classify-sample [--source CHANNEL] [--limit N]
+  python -m bot.research.futures template-discover [--source CHANNEL] [--limit N]
+  python -m bot.research.futures lifecycle-audit [--source CHANNEL] [--limit N]
+  python -m bot.research.futures parser-audit [--source CHANNEL] [--limit N]
   python -m bot.research.futures parse-sample [--source CHANNEL] [--limit N]
-  python -m bot.research.futures parse [--source CHANNEL] [--limit N]
+  python -m bot.research.futures parse [--source CHANNEL] [--limit N] [--parser-version V]
   python -m bot.research.futures snapshot
   python -m bot.research.futures outcomes
   python -m bot.research.futures report
@@ -26,6 +30,10 @@ def main() -> int:
         choices=(
             "check-source",
             "audit-data",
+            "classify-sample",
+            "template-discover",
+            "lifecycle-audit",
+            "parser-audit",
             "parse-sample",
             "parse",
             "snapshot",
@@ -44,7 +52,17 @@ def main() -> int:
         "--limit",
         type=int,
         default=None,
-        help="Max source rows to read (parse/parse-sample)",
+        help="Max source rows to read",
+    )
+    parser.add_argument(
+        "--parser-version",
+        default=None,
+        help="Parser version (deterministic_v1 or deterministic_v2)",
+    )
+    parser.add_argument(
+        "--stratified",
+        action="store_true",
+        help="Stratified sampling for parse-sample",
     )
     args = parser.parse_args()
 
@@ -81,16 +99,87 @@ def main() -> int:
             print(render_audit_report(audit))
             return 0
 
+        if args.command == "classify-sample":
+            from bot.research.futures.classify_sample import classify_sample, render_classify_sample
+            from bot.research.futures.source_reader import SourceConfigError
+
+            limit = args.limit if args.limit is not None else 500
+            try:
+                report = classify_sample(
+                    research_conn=research_conn,
+                    source_filter=args.source,
+                    limit=limit,
+                )
+            except SourceConfigError as exc:
+                print(f"SOURCE ERROR: {exc.reason_code}\n  {exc}", file=sys.stderr)
+                return 1
+            print(render_classify_sample(report))
+            return 0
+
+        if args.command == "template-discover":
+            from bot.research.futures.source_reader import SourceConfigError
+            from bot.research.futures.template_discovery import discover_templates, render_template_report
+
+            limit = args.limit if args.limit is not None else 2000
+            try:
+                report = discover_templates(
+                    research_conn=research_conn,
+                    source_filter=args.source,
+                    limit=limit,
+                )
+            except SourceConfigError as exc:
+                print(f"SOURCE ERROR: {exc.reason_code}\n  {exc}", file=sys.stderr)
+                return 1
+            print(render_template_report(report))
+            return 0
+
+        if args.command == "lifecycle-audit":
+            from bot.research.futures.lifecycle_research import analyze_lifecycle, render_lifecycle_report
+            from bot.research.futures.source_reader import SourceConfigError
+
+            limit = args.limit if args.limit is not None else 5000
+            try:
+                report = analyze_lifecycle(
+                    research_conn=research_conn,
+                    source_filter=args.source,
+                    limit=limit,
+                )
+            except SourceConfigError as exc:
+                print(f"SOURCE ERROR: {exc.reason_code}\n  {exc}", file=sys.stderr)
+                return 1
+            print(render_lifecycle_report(report))
+            return 0
+
+        if args.command == "parser-audit":
+            from bot.research.futures.parser_quality_audit import render_parser_audit, run_parser_audit
+            from bot.research.futures.source_reader import SourceConfigError
+
+            sample_size = args.limit if args.limit is not None else None
+            try:
+                kwargs = {"research_conn": research_conn, "source_filter": args.source}
+                if sample_size is not None:
+                    kwargs["sample_size"] = sample_size
+                report = run_parser_audit(**kwargs)
+            except SourceConfigError as exc:
+                print(f"SOURCE ERROR: {exc.reason_code}\n  {exc}", file=sys.stderr)
+                return 1
+            print(render_parser_audit(report))
+            return 0
+
         if args.command == "parse-sample":
+            from bot.research.futures.config import PARSER_VERSION_V2
             from bot.research.futures.parse_sample import parse_sample, render_parse_sample
             from bot.research.futures.source_reader import SourceConfigError
 
             limit = args.limit if args.limit is not None else 30
+            version = args.parser_version or PARSER_VERSION_V2
             try:
                 report = parse_sample(
                     research_conn=research_conn,
                     source_filter=args.source,
                     limit=limit,
+                    parser_version=version,
+                    stratified=args.stratified,
                 )
             except SourceConfigError as exc:
                 print(f"SOURCE ERROR: {exc.reason_code}\n  {exc}", file=sys.stderr)
@@ -107,6 +196,7 @@ def main() -> int:
                     research_conn,
                     limit=args.limit,
                     source_filter=args.source,
+                    parser_version=args.parser_version,
                 )
             except SourceConfigError as exc:
                 print(f"SOURCE ERROR: {exc.reason_code}\n  {exc}", file=sys.stderr)
@@ -140,6 +230,7 @@ def main() -> int:
                     research_conn,
                     limit=args.limit,
                     source_filter=args.source,
+                    parser_version=args.parser_version,
                 )
             except SourceConfigError as exc:
                 print(f"SOURCE ERROR: {exc.reason_code}\n  {exc}", file=sys.stderr)

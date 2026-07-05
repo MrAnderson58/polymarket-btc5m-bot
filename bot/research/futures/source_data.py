@@ -174,20 +174,37 @@ def build_messages_query(
     mapping: MessageColumnMap,
     *,
     source: str | None = None,
+    text_ilike: str | None = None,
     limit: int | None = None,
     order: str = "ASC",
+    offset: int | None = None,
     param_style: str = "pg",
 ) -> tuple[str, list[Any]]:
     placeholder = "%s" if param_style == "pg" else "?"
     q = f"SELECT {mapping.select_sql()} FROM {mapping.table}"
     params: list[Any] = []
+    clauses: list[str] = []
     if source and mapping.source_col:
-        q += f" WHERE {mapping.source_col} = {placeholder}"
+        if param_style == "pg":
+            clauses.append(f"{mapping.source_col} = {placeholder}")
+        else:
+            clauses.append(f"{mapping.source_col} = {placeholder}")
         params.append(source)
+    if text_ilike and mapping.text_col:
+        if param_style == "pg":
+            clauses.append(f"{mapping.text_col} ILIKE {placeholder}")
+        else:
+            clauses.append(f"UPPER({mapping.text_col}) LIKE UPPER({placeholder})")
+        params.append(f"%{text_ilike}%")
+    if clauses:
+        q += " WHERE " + " AND ".join(clauses)
     q += f" ORDER BY {mapping.ts_col} {order}"
     if limit is not None:
         q += f" LIMIT {placeholder}"
         params.append(int(limit))
+    if offset is not None:
+        q += f" OFFSET {placeholder}"
+        params.append(int(offset))
     return q, params
 
 
@@ -252,9 +269,15 @@ def iter_sqlite_rows(
     mapping: MessageColumnMap,
     *,
     source: str | None = None,
+    text_ilike: str | None = None,
     limit: int | None = None,
+    order: str = "ASC",
+    offset: int | None = None,
 ) -> Iterator[dict[str, Any]]:
-    q, params = build_messages_query(mapping, source=source, limit=limit, param_style="sqlite")
+    q, params = build_messages_query(
+        mapping, source=source, text_ilike=text_ilike, limit=limit,
+        order=order, offset=offset, param_style="sqlite",
+    )
     conn.row_factory = sqlite3.Row
     try:
         for row in conn.execute(q, params):

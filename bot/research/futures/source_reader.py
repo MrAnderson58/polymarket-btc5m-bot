@@ -94,6 +94,9 @@ class SourceReader(ABC):
         *,
         limit: int | None = None,
         source: str | None = None,
+        text_ilike: str | None = None,
+        order: str = "ASC",
+        offset: int | None = None,
     ) -> Iterator[dict[str, Any]]: ...
 
     @abstractmethod
@@ -300,12 +303,18 @@ class PostgresSourceReader(SourceReader):
         *,
         limit: int | None = None,
         source: str | None = None,
+        text_ilike: str | None = None,
+        order: str = "ASC",
+        offset: int | None = None,
     ) -> Iterator[dict[str, Any]]:
         resolved = self.resolve_message_table()
         if resolved is None:
             return
         _, mapping = resolved
-        q, params = build_messages_query(mapping, source=source, limit=limit, param_style="pg")
+        q, params = build_messages_query(
+            mapping, source=source, text_ilike=text_ilike, limit=limit,
+            order=order, offset=offset, param_style="pg",
+        )
         cur = self._conn.cursor()
         cur.execute(q, params)
         for row in cur:
@@ -403,12 +412,18 @@ class SqliteSourceReader(SourceReader):
         *,
         limit: int | None = None,
         source: str | None = None,
+        text_ilike: str | None = None,
+        order: str = "ASC",
+        offset: int | None = None,
     ) -> Iterator[dict[str, Any]]:
         resolved = self.resolve_message_table()
         if resolved is None:
             return
         _, mapping = resolved
-        yield from iter_sqlite_rows(self._conn, mapping, source=source, limit=limit)
+        yield from iter_sqlite_rows(
+            self._conn, mapping, source=source, text_ilike=text_ilike,
+            limit=limit, order=order, offset=offset,
+        )
 
     def channel_stats(self) -> list[dict[str, Any]]:
         resolved = self.resolve_message_table()
