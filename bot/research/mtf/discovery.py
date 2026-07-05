@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -19,6 +22,16 @@ from bot.research.mtf.config import (
 
 logger = logging.getLogger(__name__)
 
+ET = ZoneInfo("America/New_York")
+
+# Diagnostic reason codes
+NO_CANDIDATE = "NO_CANDIDATE"
+CANDIDATE_CLOSED = "CANDIDATE_CLOSED"
+TOKEN_IDS_MISSING = "TOKEN_IDS_MISSING"
+QUOTE_UNAVAILABLE = "QUOTE_UNAVAILABLE"
+STRIKE_UNAVAILABLE = "STRIKE_UNAVAILABLE"
+TIME_PARSE_FAILED = "TIME_PARSE_FAILED"
+
 
 @dataclass
 class HtfMarketRef:
@@ -30,16 +43,94 @@ class HtfMarketRef:
     active: bool
 
 
+@dataclass
+class TfDiagnostic:
+    timeframe: str
+    candidate_patterns: list[str] = field(default_factory=list)
+    candidates_found: list[str] = field(default_factory=list)
+    selected_slug: str | None = None
+    quotes_available: bool = False
+    strike: float | None = None
+    seconds_left: int | None = None
+    reason: str | None = None
+    errors: list[str] = field(default_factory=list)
+
+
 def _align_window(ts: int, window_sec: int) -> int:
     return (ts // window_sec) * window_sec
+
+
+def slug_5m_at(ts: int) -> str:
+    return f"btc-updown-5m-{_align_window(ts, TF_5M_SECONDS)}"
 
 
 def slug_15m_at(ts: int) -> str:
     return f"{SLUG_15M_PREFIX}-{_align_window(ts, TF_15M_SECONDS)}"
 
 
-def slug_5m_at(ts: int) -> str:
-    return f"btc-updown-5m-{_align_window(ts, TF_5M_SECONDS)}"
+def parse_15m_window_start_ts(slug: str) -> int | None:
+    """Parse window_start_ts from ``btc-updown-15m-{window_start_ts}``."""
+    m = re.match(rf"^{re.escape(SLUG_15M_PREFIX)}-(\d+)$", slug)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def compute_seconds_left(end_ts: int | None, snapshot_ts: int) -> int | None:
+    if end_ts is None:
+        return None
+    return max(0, end_ts - snapshot_ts)
+
+
+def seconds_left_for_ref(ref: HtfMarketRef, snapshot_ts: int) -> int | None:
+    """Compute seconds_left for a discovered market at snapshot time."""
+    if ref.timeframe == "15m":
+        ws = ref.window_start_ts
+        if ws is None:
+            ws = parse_15m_window_start_ts(ref.slug)
+        if ws is None:
+            return None
+        return compute_seconds_left(ws + TF_15M_SECONDS, snapshot_ts)
+    return compute_seconds_left(ref.end_ts, snapshot_ts)
+
+
+def _hour_label_et(dt: datetime) -> str:
+    hour = dt.hour
+    if hour == 0:
+        return "12am"
+    if hour < 12:
+        return f"{hour}am"
+    if hour == 12:
+        return "12pm"
+    return f"{hour - 12}pm"
+
+
+def slug_1h_at(ts: int) -> str:
+    """Build confirmed production hourly slug: ``bitcoin-up-or-down-july-6-2026-1pm-et``."""
+    dt = datetime.fromtimestamp(ts, tz=ET)
+    month = dt.strftime("%B").lower()
+    return f"bitcoin-up-or-down-{month}-{dt.day}-{dt.year}-{_hour_label_et(dt)}-et"
+
+
+def slug_daily_at(ts: int) -> str:
+    """Build confirmed production daily slug: ``bitcoin-up-or-down-on-july-6-2026``."""
+    dt = datetime.fromtimestamp(ts, tz=ET)
+    month = dt.strftime("%B").lower()
+    return f"bitcoin-up-or-down-on-{month}-{dt.day}-{dt.year}"
+
+
+def _end_ts_from_gamma_event(event: dict[str, Any]) -> int | None:
+    end_date = event.get("endDate")
+    if not end_date:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(end_date).replace("Z", "+00:00"))
+        return int(dt.timestamp())
+    except (TypeError, ValueError):
+        return None
 
 
 def _fetch_gamma_event(slug: str) -> dict[str, Any] | None:
@@ -49,108 +140,270 @@ def _fetch_gamma_event(slug: str) -> dict[str, Any] | None:
         events = resp.json()
         return events[0] if events else None
     except Exception as exc:
-        logger.debug("Gamma fetch failed for %s: %s", slug, exc)
+        logger.warning("Gamma fetch failed for %s: %s", slug, exc)
         return None
+
+
+def _ref_from_gamma_event(
+    timeframe: str,
+    slug: str,
+    event: dict[str, Any],
+    *,
+    window_start_ts: int | None = None,
+) -> HtfMarketRef:
+    end_ts = _end_ts_from_gamma_event(event)
+    return HtfMarketRef(
+        timeframe=timeframe,
+        slug=slug,
+        title=event.get("title") or "",
+        window_start_ts=window_start_ts,
+        end_ts=end_ts,
+        active=bool(event.get("active")) and not event.get("closed"),
+    )
+
+
+def _is_active_unexpired(event: dict[str, Any], ts: int) -> bool:
+    if event.get("closed") or not event.get("active"):
+        return False
+    end_ts = _end_ts_from_gamma_event(event)
+    if end_ts is not None and end_ts <= ts:
+        return False
+    return True
 
 
 def discover_15m_market(ts: int | None = None) -> HtfMarketRef | None:
     ts = ts or int(time.time())
     for offset in (0, -TF_15M_SECONDS):
-        slug = slug_15m_at(ts + offset)
+        aligned = _align_window(ts + offset, TF_15M_SECONDS)
+        slug = f"{SLUG_15M_PREFIX}-{aligned}"
         event = _fetch_gamma_event(slug)
         if not event:
             continue
-        ws = _align_window(ts + offset, TF_15M_SECONDS)
-        return HtfMarketRef(
-            timeframe="15m",
-            slug=slug,
-            title=event.get("title") or "",
-            window_start_ts=ws,
-            end_ts=ws + TF_15M_SECONDS,
-            active=bool(event.get("active")) and not event.get("closed"),
-        )
+        if not _is_active_unexpired(event, ts):
+            continue
+        return _ref_from_gamma_event("15m", slug, event, window_start_ts=aligned)
     return None
 
 
-def search_gamma_btc_markets(limit: int = 50) -> list[dict[str, Any]]:
-    """Search Gamma for active BTC up/down markets across timeframes."""
-    results: list[dict[str, Any]] = []
-    queries = [
-        ("btc-updown-15m", "15m"),
-        ("btc-updown-5m", "5m"),
-        ("bitcoin-up-or-down", "1h"),
-    ]
-    seen: set[str] = set()
-    for q, default_tf in queries:
-        try:
-            resp = requests.get(
-                f"{GAMMA_API}/events",
-                params={"limit": limit, "active": "true", "closed": "false", "q": q},
-                timeout=8,
-            )
-            resp.raise_for_status()
-            for ev in resp.json() or []:
-                slug = (ev.get("slug") or "").lower()
-                title = (ev.get("title") or "").lower()
-                if slug in seen:
-                    continue
-                if "btc" not in slug and "bitcoin" not in slug and "btc" not in title:
-                    continue
-                if "up" not in slug and "up" not in title:
-                    continue
-                if "down" not in slug and "down" not in title:
-                    continue
-                seen.add(slug)
-                if "15m" in slug or "15m" in title:
-                    tf = "15m"
-                elif "on-" in slug or "daily" in title:
-                    tf = "daily"
-                elif "5m" in slug:
-                    tf = "5m"
-                else:
-                    tf = default_tf
-                results.append({
-                    "timeframe": tf,
-                    "slug": ev.get("slug"),
-                    "title": ev.get("title"),
-                    "active": ev.get("active"),
-                    "closed": ev.get("closed"),
-                })
-        except Exception as exc:
-            logger.debug("Gamma search failed for %s: %s", q, exc)
-    return results
+def discover_1h_market(ts: int | None = None) -> HtfMarketRef | None:
+    ts = ts or int(time.time())
+    candidates: list[str] = []
+    for offset_h in (0, -1, 1):
+        candidate_ts = ts + offset_h * TF_1H_SECONDS
+        slug = slug_1h_at(candidate_ts)
+        candidates.append(slug)
+        event = _fetch_gamma_event(slug)
+        if not event:
+            continue
+        if not _is_active_unexpired(event, ts):
+            continue
+        return _ref_from_gamma_event("1h", slug, event)
+    logger.debug("1h discovery failed; tried: %s", candidates)
+    return None
+
+
+def discover_daily_market(ts: int | None = None) -> HtfMarketRef | None:
+    ts = ts or int(time.time())
+    dt_et = datetime.fromtimestamp(ts, tz=ET)
+    candidates: list[str] = []
+    for day_offset in (0, 1, -1):
+        day_ts = int((dt_et + timedelta(days=day_offset)).timestamp())
+        slug = slug_daily_at(day_ts)
+        candidates.append(slug)
+        event = _fetch_gamma_event(slug)
+        if not event:
+            continue
+        if not _is_active_unexpired(event, ts):
+            continue
+        return _ref_from_gamma_event("daily", slug, event)
+    logger.debug("daily discovery failed; tried: %s", candidates)
+    return None
 
 
 def discover_active_htf_markets(ts: int | None = None) -> dict[str, HtfMarketRef | None]:
     """Best-effort discovery of active 15m/1h/daily BTC markets at timestamp."""
     ts = ts or int(time.time())
-    out: dict[str, HtfMarketRef | None] = {"15m": discover_15m_market(ts), "1h": None, "daily": None}
+    return {
+        "15m": discover_15m_market(ts),
+        "1h": discover_1h_market(ts),
+        "daily": discover_daily_market(ts),
+    }
 
-    # 1h/daily: search Gamma (slug not deterministic UTC)
+
+def _diagnose_5m(ts: int) -> TfDiagnostic:
+    diag = TfDiagnostic(timeframe="5m")
+    slug = slug_5m_at(ts)
+    diag.candidate_patterns = [slug]
+    event = _fetch_gamma_event(slug)
+    if event:
+        diag.candidates_found = [slug]
+        diag.selected_slug = slug
+    else:
+        diag.reason = NO_CANDIDATE
+        diag.errors.append(f"5m slug not found: {slug}")
+    return diag
+
+
+def _diagnose_15m(ts: int) -> TfDiagnostic:
+    diag = TfDiagnostic(timeframe="15m")
+    patterns = [
+        slug_15m_at(ts),
+        slug_15m_at(ts - TF_15M_SECONDS),
+    ]
+    diag.candidate_patterns = patterns
+    ref = discover_15m_market(ts)
+    if ref is None:
+        for slug in patterns:
+            event = _fetch_gamma_event(slug)
+            if event:
+                diag.candidates_found.append(slug)
+                if event.get("closed") or not event.get("active"):
+                    diag.reason = CANDIDATE_CLOSED
+                else:
+                    end_ts = _end_ts_from_gamma_event(event)
+                    if end_ts is not None and end_ts <= ts:
+                        diag.reason = CANDIDATE_CLOSED
+                    else:
+                        diag.reason = NO_CANDIDATE
+                break
+        if not diag.candidates_found:
+            diag.reason = NO_CANDIDATE
+            diag.errors.append("no 15m candidate found via slug lookup")
+        return diag
+
+    diag.candidates_found = [ref.slug]
+    diag.selected_slug = ref.slug
+    diag.seconds_left = seconds_left_for_ref(ref, ts)
+    if diag.seconds_left is None:
+        diag.reason = TIME_PARSE_FAILED
+        diag.errors.append("could not compute 15m seconds_left")
+    return diag
+
+
+def _diagnose_htf(
+    ts: int,
+    timeframe: str,
+    discover_fn: Any,
+    pattern_fn: Any,
+    *,
+    extra_patterns: list[str] | None = None,
+) -> TfDiagnostic:
+    diag = TfDiagnostic(timeframe=timeframe)
+    patterns = list(extra_patterns or [])
+    patterns.append(pattern_fn(ts))
+    if timeframe == "1h":
+        patterns.extend([
+            pattern_fn(ts - TF_1H_SECONDS),
+            pattern_fn(ts + TF_1H_SECONDS),
+        ])
+    elif timeframe == "daily":
+        dt_et = datetime.fromtimestamp(ts, tz=ET)
+        patterns.append(pattern_fn(int((dt_et + timedelta(days=1)).timestamp())))
+        patterns.append(pattern_fn(int((dt_et - timedelta(days=1)).timestamp())))
+    diag.candidate_patterns = patterns
+
+    for slug in patterns:
+        event = _fetch_gamma_event(slug)
+        if event:
+            diag.candidates_found.append(slug)
+
+    ref = discover_fn(ts)
+    if ref is None:
+        if not diag.candidates_found:
+            diag.reason = NO_CANDIDATE
+            diag.errors.append(f"no {timeframe} candidate found")
+        else:
+            diag.reason = CANDIDATE_CLOSED
+            diag.errors.append(f"{timeframe} candidates exist but none active/unexpired")
+        return diag
+
+    diag.selected_slug = ref.slug
+    diag.seconds_left = seconds_left_for_ref(ref, ts)
+    return diag
+
+
+def _enrich_diagnostic_quotes(diag: TfDiagnostic, ts: int, strike_fallback: float | None) -> None:
+    if not diag.selected_slug:
+        return
     try:
-        for item in search_gamma_btc_markets(limit=30):
-            slug = item.get("slug") or ""
-            tf = item.get("timeframe")
-            if tf == "1h" and out["1h"] is None and "bitcoin-up-or-down" in slug:
-                if "on-" not in slug:  # exclude daily pattern
-                    out["1h"] = HtfMarketRef(
-                        timeframe="1h",
-                        slug=slug,
-                        title=item.get("title") or "",
-                        window_start_ts=None,
-                        end_ts=None,
-                        active=True,
-                    )
-            if tf == "daily" and out["daily"] is None and "on-" in slug:
-                out["daily"] = HtfMarketRef(
-                    timeframe="daily",
-                    slug=slug,
-                    title=item.get("title") or "",
-                    window_start_ts=None,
-                    end_ts=None,
-                    active=True,
-                )
-    except Exception:
-        pass
+        from bot.market_scanner import get_token_ids_for_market_slug
+        from bot.research.mtf.quotes import fetch_mtf_market_quotes
 
+        token_ids = get_token_ids_for_market_slug(diag.selected_slug)
+        if not token_ids:
+            if diag.reason is None:
+                diag.reason = TOKEN_IDS_MISSING
+            diag.errors.append("token IDs missing for selected slug")
+            return
+
+        quotes = fetch_mtf_market_quotes(diag.selected_slug)
+        if not quotes or quotes.get("yes_ask") is None:
+            if diag.reason is None:
+                diag.reason = QUOTE_UNAVAILABLE
+            diag.errors.append("quotes unavailable")
+            return
+
+        diag.quotes_available = True
+        if strike_fallback is not None:
+            diag.strike = strike_fallback
+        elif diag.reason is None:
+            diag.reason = STRIKE_UNAVAILABLE
+
+        if diag.seconds_left is None and diag.timeframe == "15m":
+            ws = parse_15m_window_start_ts(diag.selected_slug)
+            if ws is None:
+                if diag.reason is None:
+                    diag.reason = TIME_PARSE_FAILED
+            else:
+                diag.seconds_left = compute_seconds_left(ws + TF_15M_SECONDS, ts)
+    except Exception as exc:
+        diag.errors.append(str(exc))
+        if diag.reason is None:
+            diag.reason = QUOTE_UNAVAILABLE
+
+
+def diagnose_discovery(ts: int | None = None, *, strike_fallback: float | None = None) -> dict[str, TfDiagnostic]:
+    ts = ts or int(time.time())
+    out = {
+        "5m": _diagnose_5m(ts),
+        "15m": _diagnose_15m(ts),
+        "1h": _diagnose_htf(ts, "1h", discover_1h_market, slug_1h_at),
+        "daily": _diagnose_htf(ts, "daily", discover_daily_market, slug_daily_at),
+    }
+    for tf in ("15m", "1h", "daily"):
+        _enrich_diagnostic_quotes(out[tf], ts, strike_fallback)
     return out
+
+
+def render_diagnose_discovery(diagnostics: dict[str, TfDiagnostic]) -> str:
+    lines: list[str] = []
+    for tf in ("5m", "15m", "1h", "daily"):
+        d = diagnostics[tf]
+        lines.append(f"{tf}:")
+        if tf == "5m":
+            lines.append(f"  slug: {d.selected_slug or 'NOT FOUND'}")
+            lines.append(f"  found: {'yes' if d.selected_slug else 'no'}")
+            if d.reason:
+                lines.append(f"  reason: {d.reason}")
+        elif tf == "15m":
+            lines.append(f"  candidate patterns: {', '.join(d.candidate_patterns)}")
+            lines.append(f"  selected slug: {d.selected_slug or 'NONE'}")
+            lines.append(f"  quotes available: {'yes' if d.quotes_available else 'no'}")
+            lines.append(f"  strike: {d.strike if d.strike is not None else 'NONE'}")
+            lines.append(f"  seconds_left: {d.seconds_left if d.seconds_left is not None else 'NULL'}")
+            if d.reason:
+                lines.append(f"  reason: {d.reason}")
+        else:
+            lines.append(f"  candidates found: {len(d.candidates_found)}")
+            if d.candidates_found:
+                lines.append(f"  candidate slugs: {', '.join(d.candidates_found[:5])}")
+            lines.append(f"  selected slug: {d.selected_slug or 'NONE'}")
+            lines.append(f"  quotes available: {'yes' if d.quotes_available else 'no'}")
+            lines.append(f"  strike: {d.strike if d.strike is not None else 'NONE'}")
+            lines.append(f"  seconds_left: {d.seconds_left if d.seconds_left is not None else 'NULL'}")
+            if d.reason:
+                lines.append(f"  reason: {d.reason}")
+        for err in d.errors:
+            lines.append(f"  error: {err}")
+        lines.append("")
+    return "\n".join(lines).rstrip()

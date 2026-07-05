@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from bot.research.mtf.discovery import discover_15m_market, search_gamma_btc_markets
+from bot.research.mtf.discovery import discover_15m_market, discover_1h_market, discover_daily_market
 from bot.research.mtf.snapshots import TABLE, ensure_tables
 
 
@@ -59,19 +59,24 @@ def audit_data_coverage(conn: sqlite3.Connection) -> dict[str, Any]:
     ).fetchone()
 
     # Live discovery probe (optional, may fail offline)
-    gamma_markets: list[dict] = []
+    live_probes: dict[str, str | None] = {}
     try:
-        gamma_markets = search_gamma_btc_markets(limit=20)
+        m15 = discover_15m_market()
+        m1h = discover_1h_market()
+        md = discover_daily_market()
+        live_probes = {
+            "15m": m15.slug if m15 else None,
+            "1h": m1h.slug if m1h else None,
+            "daily": md.slug if md else None,
+        }
     except Exception:
-        pass
-
-    m15 = discover_15m_market()
+        live_probes = {"15m": None, "1h": None, "daily": None}
 
     slug_patterns = {
         "5m": "btc-updown-5m-{unix_window_start}",
         "15m": "btc-updown-15m-{unix_window_start}",
-        "1h": "bitcoin-up-or-down-{date}-{hour}-et (Gamma search)",
-        "daily": "bitcoin-up-or-down-on-{month}-{day}-{year} (Gamma search)",
+        "1h": "bitcoin-up-or-down-{month}-{day}-{year}-{hour}{am|pm}-et",
+        "daily": "bitcoin-up-or-down-on-{month}-{day}-{year}",
     }
 
     coverage_15m = snap_15m / snap_count if snap_count else 0
@@ -91,9 +96,8 @@ def audit_data_coverage(conn: sqlite3.Connection) -> dict[str, Any]:
         "snapshot_coverage_daily": round(coverage_daily, 3),
         "snapshot_ts_range": (snap_range[0], snap_range[1]) if snap_range else (None, None),
         "slug_patterns": slug_patterns,
-        "gamma_search_results": len(gamma_markets),
-        "gamma_sample_slugs": [g.get("slug") for g in gamma_markets[:10]],
-        "live_15m_probe": m15.slug if m15 else None,
+        "live_discovery_probes": live_probes,
+        "live_15m_probe": live_probes.get("15m"),
         "sufficient_for_model_c": (
             snap_count >= 100
             and coverage_15m >= 0.30

@@ -2,6 +2,7 @@
 
 Usage:
   python -m bot.research.mtf
+  python -m bot.research.mtf diagnose-discovery
 
 Does NOT modify execution, Bidirectional V1.1, or ER strategies.
 """
@@ -44,10 +45,28 @@ def run_research() -> dict:
     return {"report": report, "verdict": verdict, "trade_count": len(contexts)}
 
 
+def run_diagnose_discovery() -> int:
+    from bot.research.mtf.discovery import diagnose_discovery, render_diagnose_discovery
+
+    diagnostics = diagnose_discovery()
+    print(render_diagnose_discovery(diagnostics))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="MTF Polymarket context research")
     parser.add_argument("--audit-only", action="store_true", help="Data audit section only")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="research",
+        choices=("research", "diagnose-discovery"),
+        help="Subcommand (default: research)",
+    )
     args = parser.parse_args()
+
+    if args.command == "diagnose-discovery":
+        return run_diagnose_discovery()
 
     if args.audit_only:
         from bot.database import connect, init_db
