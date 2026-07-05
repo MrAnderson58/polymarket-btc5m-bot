@@ -293,10 +293,60 @@ class IntegrityViolation:
     market_slug: str
     violation_type: str
     detail: str
+    verified: bool = True  # False = timing/path suspect, not proven bug
+
+
+def _audit_quote_alignment(
+    conn: sqlite3.Connection,
+    trade: LiveTrade,
+    violations: list[IntegrityViolation],
+    quote_suspects: list[IntegrityViolation],
+) -> None:
+    """Compare stored prices to v4 quotes — suspects only until alignment study confirms."""
+    q_entry = _quote_at_ts(conn, trade.market_slug, trade.entry_ts)
+    if q_entry:
+        ask = q_entry["yes_ask"] if trade.side == "YES" else q_entry["no_ask"]
+        if ask and abs(ask - trade.entry_price) > 0.03:
+            quote_suspects.append(
+                IntegrityViolation(
+                    trade.id,
+                    trade.market_slug,
+                    "ENTRY_NOT_ASK",
+                    f"trade={trade.entry_price:.3f} v4_ask={ask:.3f} Δ={abs(ask-trade.entry_price):.3f}",
+                    verified=False,
+                )
+            )
+        lag = trade.entry_ts - int(q_entry["timestamp"] or trade.entry_ts)
+        if lag > 15:
+            quote_suspects.append(
+                IntegrityViolation(
+                    trade.id,
+                    trade.market_slug,
+                    "STALE_ENTRY_QUOTE",
+                    f"quote lag {lag}s (v4 at-or-before)",
+                    verified=False,
+                )
+            )
+
+    if trade.exit_ts:
+        q_exit = _quote_at_ts(conn, trade.market_slug, trade.exit_ts)
+        if q_exit and trade.exit_price is not None:
+            bid = q_exit["yes_bid"] if trade.side == "YES" else q_exit["no_bid"]
+            if bid and abs(bid - trade.exit_price) > 0.03:
+                quote_suspects.append(
+                    IntegrityViolation(
+                        trade.id,
+                        trade.market_slug,
+                        "EXIT_NOT_BID",
+                        f"trade={trade.exit_price:.3f} v4_bid={bid:.3f}",
+                        verified=False,
+                    )
+                )
 
 
 def audit_integrity(conn: sqlite3.Connection, trades: list[LiveTrade]) -> dict[str, Any]:
     violations: list[IntegrityViolation] = []
+    quote_suspects: list[IntegrityViolation] = []
     cfg = SHADOW_ENTRY_CONFIG
 
     # One trade per market
@@ -392,43 +442,8 @@ def audit_integrity(conn: sqlite3.Connection, trades: list[LiveTrade]) -> dict[s
                 )
             )
 
-        # Price source validation via v4 observations (when available)
-        q_entry = _quote_at_ts(conn, t.market_slug, t.entry_ts)
-        if q_entry:
-            ask = q_entry["yes_ask"] if t.side == "YES" else q_entry["no_ask"]
-            if ask and abs(ask - t.entry_price) > 0.03:
-                violations.append(
-                    IntegrityViolation(
-                        t.id,
-                        t.market_slug,
-                        "ENTRY_NOT_ASK",
-                        f"trade={t.entry_price:.3f} v4_ask={ask:.3f} Δ={abs(ask-t.entry_price):.3f}",
-                    )
-                )
-            lag = t.entry_ts - int(q_entry["timestamp"] or t.entry_ts)
-            if lag > 15:
-                violations.append(
-                    IntegrityViolation(
-                        t.id,
-                        t.market_slug,
-                        "STALE_ENTRY_QUOTE",
-                        f"quote lag {lag}s",
-                    )
-                )
-
-        if t.exit_ts:
-            q_exit = _quote_at_ts(conn, t.market_slug, t.exit_ts)
-            if q_exit and t.exit_price is not None:
-                bid = q_exit["yes_bid"] if t.side == "YES" else q_exit["no_bid"]
-                if bid and abs(bid - t.exit_price) > 0.03:
-                    violations.append(
-                        IntegrityViolation(
-                            t.id,
-                            t.market_slug,
-                            "EXIT_NOT_BID",
-                            f"trade={t.exit_price:.3f} v4_bid={bid:.3f}",
-                        )
-                    )
+        # Price source validation — unverified until quote alignment study (see bidirectional_quote_alignment)
+        _audit_quote_alignment(conn, t, violations, quote_suspects)
 
     # NO avoid zone: verify no YES/NO observations led to entry in zone for NO
     zone_obs = conn.execute(
@@ -446,6 +461,8 @@ def audit_integrity(conn: sqlite3.Connection, trades: list[LiveTrade]) -> dict[s
 
     return {
         "violations": violations,
+        "quote_suspects": quote_suspects,
+        "quote_suspect_count": len(quote_suspects),
         "violation_count": len(violations),
         "exit_reasons": exit_reasons,
         "markets_with_trades": len(by_market),
@@ -938,6 +955,12 @@ def render_report(report: dict[str, Any]) -> str:
     lines.append(f"  Exit reasons: {ig['exit_reasons']}")
     lines.append(f"  NO avoid zone entries: {ig['no_avoid_zone_entries']} (must be 0)")
     lines.append(f"  NO avoid zone NO observations: {ig['no_avoid_zone_observations']}")
+    qs = ig.get("quote_suspect_count", 0)
+    if qs:
+        lines.append(
+            f"  Quote alignment suspects (unverified): {qs} "
+            "(run: python -m bot.research.bidirectional_quote_alignment)"
+        )
     if ig["violations"]:
         lines.append("  Violations:")
         lines.append(f"  {'ID':>5} {'Market':<28} {'Type':<22} Detail")
