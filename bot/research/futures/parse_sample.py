@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from typing import Any
 
 from bot.research.futures.parser import SignalParser
-from bot.research.futures.source_reader import SourceReader, open_source_reader
+from bot.research.futures.source_reader import SourceReader, resolve_research_source
 
 
 def _parse_status(parsed) -> str:
@@ -35,13 +36,22 @@ def _parse_reason(parsed, status: str) -> str:
 def parse_sample(
     source: SourceReader | None = None,
     *,
+    research_conn: sqlite3.Connection | None = None,
+    source_conn: sqlite3.Connection | None = None,
     source_filter: str | None = None,
     limit: int = 30,
-    sqlite_conn=None,
 ) -> dict[str, Any]:
-    owns = source is None
-    if source is None:
-        source = open_source_reader(sqlite_conn=sqlite_conn)
+    if source is not None:
+        source_reader, owns = source, False
+    elif research_conn is not None:
+        source_reader, owns = resolve_research_source(
+            research_conn, source_conn=source_conn,
+        )
+    elif source_conn is not None:
+        from bot.research.futures.source_reader import SqliteSourceReader
+        source_reader, owns = SqliteSourceReader(source_conn), False
+    else:
+        raise ValueError("parse_sample requires source, research_conn, or source_conn")
 
     parser = SignalParser()
     samples: list[dict[str, Any]] = []
@@ -54,9 +64,9 @@ def parse_sample(
     }
 
     try:
-        for row in source.iter_raw_rows(limit=limit, source=source_filter):
+        for row in source_reader.iter_raw_rows(limit=limit, source=source_filter):
             stats["source_rows_read"] += 1
-            msg = source.map_row(row)
+            msg = source_reader.map_row(row)
             if msg is None:
                 continue
             stats["candidate_messages"] += 1
@@ -82,7 +92,7 @@ def parse_sample(
             })
     finally:
         if owns:
-            source.close()
+            source_reader.close()
 
     return {
         "source_filter": source_filter,

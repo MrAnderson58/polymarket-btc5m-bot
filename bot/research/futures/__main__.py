@@ -88,7 +88,7 @@ def main() -> int:
             limit = args.limit if args.limit is not None else 30
             try:
                 report = parse_sample(
-                    sqlite_conn=research_conn,
+                    research_conn=research_conn,
                     source_filter=args.source,
                     limit=limit,
                 )

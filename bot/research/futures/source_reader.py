@@ -432,7 +432,21 @@ def resolve_source_backend() -> str:
     return backend
 
 
-def open_source_reader(*, sqlite_conn: sqlite3.Connection | None = None) -> SourceReader:
+def sqlite_has_telegram_source(conn: sqlite3.Connection) -> bool:
+    """True when conn contains a readable local telegram_messages/telegram_signals table."""
+    for table in ("telegram_messages", "telegram_signals"):
+        if not table_exists(conn, table):
+            continue
+        mapping = resolve_message_columns(table, table_columns(conn, table))
+        if mapping is None:
+            continue
+        if table_row_count(conn, table) > 0:
+            return True
+    return False
+
+
+def open_configured_source_reader() -> SourceReader:
+    """Open telegram source from environment configuration only (production PostgreSQL)."""
     backend = resolve_source_backend()
     url = get_futures_source_database_url()
 
@@ -455,6 +469,43 @@ def open_source_reader(*, sqlite_conn: sqlite3.Connection | None = None) -> Sour
             reason_code=REASON_SOURCE_BACKEND_MISMATCH,
         )
 
+    raise SourceConfigError(
+        "No PostgreSQL source configured; pass an explicit source reader or sqlite source connection",
+        reason_code=REASON_SQLITE_SOURCE_EMPTY,
+    )
+
+
+def resolve_research_source(
+    research_conn: sqlite3.Connection,
+    *,
+    source: SourceReader | None = None,
+    source_conn: sqlite3.Connection | None = None,
+) -> tuple[SourceReader, bool]:
+    """Resolve telegram source with precedence: reader > source_conn > local conn > env.
+
+    Returns (reader, should_close).
+    """
+    if source is not None:
+        return source, False
+    if source_conn is not None:
+        return SqliteSourceReader(source_conn), False
+    if sqlite_has_telegram_source(research_conn):
+        return SqliteSourceReader(research_conn), False
+    return open_configured_source_reader(), True
+
+
+def open_source_reader(*, sqlite_conn: sqlite3.Connection | None = None) -> SourceReader:
+    """CLI helper: env-configured source, or sqlite backend using the given connection."""
+    backend = resolve_source_backend()
+    if backend == "postgres":
+        return open_configured_source_reader()
+
+    if get_futures_require_postgres():
+        raise SourceConfigError(
+            "FUTURES_REQUIRE_POSTGRES=true but source backend resolved to sqlite",
+            reason_code=REASON_SOURCE_BACKEND_MISMATCH,
+        )
+
     if sqlite_conn is None:
         raise SourceConfigError(
             "SQLite source backend requires a database connection",
@@ -464,6 +515,7 @@ def open_source_reader(*, sqlite_conn: sqlite3.Connection | None = None) -> Sour
     reader = SqliteSourceReader(sqlite_conn)
     tables = reader.list_source_tables()
     if not any(tables[n]["exists"] and tables[n]["row_count"] > 0 for n in ("telegram_messages", "telegram_signals")):
+        url = get_futures_source_database_url()
         if url and url.startswith(("postgres://", "postgresql://")):
             raise SourceConfigError(
                 "PostgreSQL URL is configured but sqlite fallback has no telegram messages",

@@ -14,7 +14,8 @@ from bot.research.futures.source_reader import (
     DEFAULT_PARSE_SAMPLE_LIMIT,
     FULL_PARSE_SCAN_MAX_ROWS,
     SourceReader,
-    open_source_reader,
+    open_configured_source_reader,
+    resolve_research_source,
 )
 
 
@@ -69,13 +70,14 @@ def audit_source_data(
     research_conn: sqlite3.Connection,
     source: SourceReader | None = None,
     *,
+    source_conn: sqlite3.Connection | None = None,
     source_filter: str | None = None,
     parse_sample_limit: int = DEFAULT_PARSE_SAMPLE_LIMIT,
 ) -> dict[str, Any]:
     ensure_tables(research_conn)
-    owns_source = source is None
-    if source is None:
-        source = open_source_reader(sqlite_conn=research_conn)
+    source, owns_source = resolve_research_source(
+        research_conn, source=source, source_conn=source_conn,
+    )
 
     try:
         tables = source.list_source_tables()
@@ -137,7 +139,7 @@ def check_source_connection(*, sqlite_conn: sqlite3.Connection | None = None) ->
     from bot.research.futures.source_reader import SourceConfigError
 
     try:
-        source = open_source_reader(sqlite_conn=sqlite_conn)
+        source = open_configured_source_reader()
         tables = source.list_source_tables()
         resolved = source.resolve_message_table()
         msg_table = resolved[0] if resolved else "telegram_messages"

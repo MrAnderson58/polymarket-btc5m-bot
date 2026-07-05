@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -110,6 +110,23 @@ class FuturesSchemaTestCase(unittest.TestCase):
             audit = audit_source_data(conn)
         self.assertEqual(audit["messages"]["count"], 1)
         self.assertEqual(audit["messages"]["long_count"], 1)
+
+    @patch.dict(os.environ, {
+        "FUTURES_SOURCE_DATABASE_URL": "postgresql:///trading_ai",
+        "FUTURES_SOURCE_BACKEND": "postgres",
+        "FUTURES_REQUIRE_POSTGRES": "true",
+    })
+    @patch("bot.research.futures.source_reader.PostgresSourceReader")
+    @patch("bot.research.futures.source_reader._postgres_connect")
+    def test_audit_uses_injected_sqlite_not_env_postgres(
+        self, mock_pg_connect, mock_pg_reader,
+    ) -> None:
+        with connect(self.db_path) as conn:
+            self._seed_telegram(conn)
+            audit = audit_source_data(conn)
+        self.assertEqual(audit["messages"]["count"], 1)
+        mock_pg_reader.assert_not_called()
+        mock_pg_connect.assert_not_called()
 
     def test_unique_signal_constraint(self) -> None:
         with connect(self.db_path) as conn:

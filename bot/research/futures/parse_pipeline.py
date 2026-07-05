@@ -8,7 +8,7 @@ import sqlite3
 from bot.research.futures.config import PARSER_VERSION
 from bot.research.futures.parser import SignalParser
 from bot.research.futures.schema import PARSE_AUDIT_TABLE, TARGETS_TABLE, insert_signal
-from bot.research.futures.source_reader import SourceReader
+from bot.research.futures.source_reader import SourceReader, resolve_research_source
 
 
 def _classify(parsed) -> tuple[str, bool]:
@@ -23,6 +23,7 @@ def parse_and_store_messages(
     research_conn: sqlite3.Connection,
     source: SourceReader | None = None,
     *,
+    source_conn: sqlite3.Connection | None = None,
     limit: int | None = None,
     source_filter: str | None = None,
 ) -> dict[str, int]:
@@ -38,10 +39,9 @@ def parse_and_store_messages(
         "skipped_invalid_row": 0,
     }
 
-    owns_source = source is None
-    if source is None:
-        from bot.research.futures.source_reader import open_source_reader
-        source = open_source_reader(sqlite_conn=research_conn)
+    source, owns_source = resolve_research_source(
+        research_conn, source=source, source_conn=source_conn,
+    )
 
     try:
         for row in source.iter_raw_rows(limit=limit, source=source_filter):
