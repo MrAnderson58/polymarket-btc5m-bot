@@ -410,6 +410,42 @@ def _cycle() -> None:
         except Exception as exc:
             logger.debug("bidirectional shadow skipped: %s", exc)
 
+        # Bidirectional Momentum V1.2 — parallel observe-only shadow
+        try:
+            from bot.strategy.bidirectional_observe_v12 import observe_market_v12
+            observe_market_v12(
+                conn,
+                market_slug=market.slug,
+                window_start_ts=market.window_start_ts,
+                btc_price=btc_price,
+                strike=strike,
+                yes_bid=quotes["yes_bid"] or 0,
+                yes_ask=quotes["yes_ask"] or 0,
+                no_bid=quotes["no_bid"] or 0,
+                no_ask=quotes["no_ask"] or 0,
+                seconds_from_start=int(300 - seconds_left),
+                seconds_left=int(seconds_left),
+            )
+        except Exception as exc:
+            logger.debug("bidirectional v12 shadow skipped: %s", exc)
+
+        # MTF context snapshot collector — observe-only research
+        try:
+            from bot.research.mtf.collector import collect_mtf_snapshot
+            collect_mtf_snapshot(
+                conn,
+                market_5m_slug=market.slug,
+                btc_price=btc_price,
+                yes_bid=quotes["yes_bid"] or 0,
+                yes_ask=quotes["yes_ask"] or 0,
+                no_bid=quotes["no_bid"] or 0,
+                no_ask=quotes["no_ask"] or 0,
+                strike=strike,
+                seconds_left=int(seconds_left),
+            )
+        except Exception as exc:
+            logger.debug("mtf snapshot skipped: %s", exc)
+
         conn.commit()
 
     _cycle_signal_status["v2"] = v2_status

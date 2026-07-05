@@ -147,6 +147,8 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     _ensure_portfolio_tables(conn)
     _ensure_evolution_shadow_tables(conn)
     _ensure_bidirectional_shadow_tables(conn)
+    _ensure_bidirectional_shadow_v12_tables(conn)
+    _ensure_mtf_snapshot_tables(conn)
     _ensure_perf_indexes(conn)
 
 
@@ -395,6 +397,16 @@ def _ensure_bidirectional_shadow_unique_market(conn: sqlite3.Connection) -> None
             ON bidirectional_shadow_trades(market_slug)
             """
         )
+
+
+def _ensure_bidirectional_shadow_v12_tables(conn: sqlite3.Connection) -> None:
+    from bot.strategy.bidirectional_shadow_v12 import ensure_tables
+    ensure_tables(conn)
+
+
+def _ensure_mtf_snapshot_tables(conn: sqlite3.Connection) -> None:
+    from bot.research.mtf.snapshots import ensure_tables
+    ensure_tables(conn)
 
 
 def _ensure_perf_indexes(conn: sqlite3.Connection) -> None:
