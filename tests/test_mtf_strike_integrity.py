@@ -226,14 +226,11 @@ class AlignmentTestCase(unittest.TestCase):
         bounds = parse_15m_slug_bounds(slug)
         self.assertEqual(bounds, (ws, ws + 900))
 
-    @patch("bot.research.mtf.alignment.discover_1h_market")
-    def test_1h_et_boundary_selection(self, mock_disc: MagicMock) -> None:
-        from bot.research.mtf.discovery import HtfMarketRef
-
+    def test_1h_et_boundary_selection(self) -> None:
         ws = int(datetime(2026, 7, 6, 13, 0, tzinfo=ET).timestamp())
         slug = slug_1h_at(ws)
-        mock_disc.return_value = HtfMarketRef("1h", slug, "", ws, ws + 3600, True)
         self.assertTrue(is_1h_market_correct(slug, ws + 1800))
+        self.assertFalse(is_1h_market_correct(slug, ws - 1))
 
     def test_dst_slug_format(self) -> None:
         # US DST spring forward 2026: Mar 8

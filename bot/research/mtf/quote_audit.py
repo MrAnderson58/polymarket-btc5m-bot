@@ -26,6 +26,7 @@ BOUNDARY_SWITCH = "BOUNDARY_SWITCH"
 
 STALE_QUOTE_SEC = 120
 FROZEN_REPEAT_COUNT = 5
+MAX_ISSUES_PER_TF = 500
 
 
 @dataclass
@@ -168,7 +169,7 @@ def audit_tf_row(
     return stats
 
 
-def aggregate_tf_stats(rows: list[sqlite3.Row], timeframe: str) -> TfCoverageStats:
+def aggregate_tf_stats(rows, timeframe: str) -> TfCoverageStats:
     total = TfCoverageStats()
     slug_set: set[str] = set()
     prev: sqlite3.Row | None = None
@@ -186,7 +187,52 @@ def aggregate_tf_stats(rows: list[sqlite3.Row], timeframe: str) -> TfCoverageSta
         total.missing_quote += s.missing_quote
         total.boundary_switch += s.boundary_switch
         total.wrong_window += s.wrong_window
-        total.issues.extend(s.issues)
+        for issue in s.issues:
+            if len(total.issues) < MAX_ISSUES_PER_TF:
+                total.issues.append(issue)
+        slug = row[f"market_{timeframe}_slug"]
+        if slug:
+            slug_set.add(slug)
+        prev = row
+
+    total.unique_markets = len(slug_set)
+    return total
+
+
+def aggregate_tf_stats_stream(
+    conn: sqlite3.Connection,
+    timeframe: str,
+    *,
+    table: str = TABLE,
+    progress_every: int = 0,
+    progress_fn=None,
+) -> TfCoverageStats:
+    """Stream snapshots from DB — avoids loading all rows into memory."""
+    total = TfCoverageStats()
+    slug_set: set[str] = set()
+    prev: sqlite3.Row | None = None
+    repeat_counts: dict[tuple[str, float, float], int] = {}
+    processed = 0
+
+    for row in conn.execute(f"SELECT * FROM {table} ORDER BY timestamp ASC"):
+        processed += 1
+        if progress_every and progress_fn and processed % progress_every == 0:
+            progress_fn("scan_snapshots", processed)
+
+        s = audit_tf_row(row, timeframe, prev_row=prev, repeat_counts=repeat_counts)
+        total.slug_coverage += s.slug_coverage
+        total.quote_coverage += s.quote_coverage
+        total.strike_coverage += s.strike_coverage
+        total.seconds_left_coverage += s.seconds_left_coverage
+        total.invalid_bid_ask += s.invalid_bid_ask
+        total.stale_quote += s.stale_quote
+        total.frozen_quote += s.frozen_quote
+        total.missing_quote += s.missing_quote
+        total.boundary_switch += s.boundary_switch
+        total.wrong_window += s.wrong_window
+        for issue in s.issues:
+            if len(total.issues) < MAX_ISSUES_PER_TF:
+                total.issues.append(issue)
         slug = row[f"market_{timeframe}_slug"]
         if slug:
             slug_set.add(slug)

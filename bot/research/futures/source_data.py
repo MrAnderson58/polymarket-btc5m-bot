@@ -115,11 +115,13 @@ def _iter_from_table(conn: sqlite3.Connection, table: str, *, limit: int | None)
 def _normalize_ts(value: Any) -> int | None:
     if value is None:
         return None
+    from datetime import datetime
+    if isinstance(value, datetime):
+        return int(value.timestamp())
     try:
         ts = int(float(value))
     except (TypeError, ValueError):
         return None
-    # Heuristic: ms vs s
     if ts > 10_000_000_000:
         ts //= 1000
     return ts

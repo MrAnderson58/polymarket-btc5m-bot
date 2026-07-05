@@ -10,9 +10,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import requests
-
 from bot.config import GAMMA_API
+from bot.research.mtf.http_client import DEFAULT_HTTP_TIMEOUT, http_get_json
 from bot.research.mtf.config import (
     SLUG_15M_PREFIX,
     TF_15M_SECONDS,
@@ -136,14 +135,15 @@ def _end_ts_from_gamma_event(event: dict[str, Any]) -> int | None:
 
 
 def _fetch_gamma_event(slug: str) -> dict[str, Any] | None:
-    try:
-        resp = requests.get(f"{GAMMA_API}/events", params={"slug": slug}, timeout=5)
-        resp.raise_for_status()
-        events = resp.json()
-        return events[0] if events else None
-    except Exception as exc:
-        logger.warning("Gamma fetch failed for %s: %s", slug, exc)
+    events, reason = http_get_json(
+        f"{GAMMA_API}/events",
+        params={"slug": slug},
+        timeout=DEFAULT_HTTP_TIMEOUT,
+    )
+    if reason:
+        logger.warning("Gamma fetch failed for %s: %s", slug, reason)
         return None
+    return events[0] if events else None
 
 
 def _ref_from_gamma_event(

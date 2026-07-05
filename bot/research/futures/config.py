@@ -47,3 +47,7 @@ STANDARDIZED_RR = 2.0
 # Observe agent
 OBSERVE_MODEL_VERSION = "observe_v1"
 OBSERVE_FEATURE_VERSION = "features_v1"
+
+# Source DB (raw Telegram / market data) vs research DB (SQLite parser output)
+# Production: set FUTURES_SOURCE_DATABASE_URL to PostgreSQL with telegram_* tables.
+FUTURES_SOURCE_DATABASE_URL = None  # loaded from env in db_config.py

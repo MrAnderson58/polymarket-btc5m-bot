@@ -57,13 +57,13 @@ def run_diagnose_discovery() -> int:
     return 0
 
 
-def run_audit_production() -> int:
+def run_audit_production(*, offline: bool = True, progress: bool = True) -> int:
     from bot.database import connect, init_db
     from bot.research.mtf.integrity_audit import audit_production, render_production_audit
 
     init_db()
     with connect() as conn:
-        report = audit_production(conn)
+        report = audit_production(conn, offline=offline, progress=progress)
         print(render_production_audit(report))
     return 0
 
@@ -108,6 +108,30 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="MTF Polymarket context research")
     parser.add_argument("--audit-only", action="store_true", help="Data audit section only")
     parser.add_argument(
+        "--offline",
+        action="store_true",
+        default=True,
+        help="audit-production: local DB only, no network (default)",
+    )
+    parser.add_argument(
+        "--no-offline",
+        action="store_false",
+        dest="offline",
+        help="audit-production: allow online checks (discovery still uses bounded HTTP)",
+    )
+    parser.add_argument(
+        "--progress",
+        action="store_true",
+        default=True,
+        help="audit-production: print stage progress to stderr (default)",
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_false",
+        dest="progress",
+        help="audit-production: suppress progress logging",
+    )
+    parser.add_argument(
         "command",
         nargs="?",
         default="research",
@@ -120,7 +144,7 @@ def main() -> int:
         return run_diagnose_discovery()
 
     if args.command == "audit-production":
-        return run_audit_production()
+        return run_audit_production(offline=args.offline, progress=args.progress)
 
     if args.command == "research-15m":
         return run_research_15m()

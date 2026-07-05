@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
-from typing import Any
+import sys
+import time
+from typing import Any, Callable
 
-from bot.research.mtf.alignment import (
-    WRONG_15M_WINDOW,
-    WRONG_1H_MARKET,
-    WRONG_DAILY_MARKET,
-)
 from bot.research.mtf.metadata import ensure_metadata_table, list_metadata_by_source
-from bot.research.mtf.quote_audit import aggregate_tf_stats
+from bot.research.mtf.quote_audit import aggregate_tf_stats_stream
 from bot.research.mtf.snapshots import TABLE, ensure_tables
+
+logger = logging.getLogger(__name__)
+
+ProgressFn = Callable[[str, int | None], None]
+
+
+def _default_progress(stage: str, count: int | None = None) -> None:
+    msg = f"[audit-production] {stage}" + (f" ({count:,} rows)" if count is not None else "")
+    print(msg, file=sys.stderr, flush=True)
+    logger.info(msg)
 
 
 def _fmt_tf_stats(stats: Any) -> dict[str, Any]:
@@ -27,32 +35,63 @@ def _fmt_tf_stats(stats: Any) -> dict[str, Any]:
         "frozen_quote_count": stats.frozen_quote,
         "missing_quote_count": stats.missing_quote,
         "boundary_switch_count": stats.boundary_switch,
+        "issues_captured": len(stats.issues),
     }
 
 
-def audit_production(conn: sqlite3.Connection) -> dict[str, Any]:
+def audit_production(
+    conn: sqlite3.Connection,
+    *,
+    offline: bool = True,
+    progress: bool = True,
+    progress_fn: ProgressFn | None = None,
+    progress_every: int = 25_000,
+) -> dict[str, Any]:
+    """Audit local MTF snapshot DB. Offline mode uses no external HTTP (default)."""
+    started = time.monotonic()
+    log = progress_fn or (_default_progress if progress else lambda *_: None)
+
     ensure_tables(conn)
+    log("init_tables")
     ensure_metadata_table(conn)
+    log("init_metadata")
 
-    rows = conn.execute(
-        f"SELECT * FROM {TABLE} ORDER BY timestamp ASC"
-    ).fetchall()
+    total = conn.execute(f"SELECT COUNT(*) FROM {TABLE}").fetchone()[0]
+    log("count_snapshots", total)
 
-    total = len(rows)
-    first_ts = rows[0]["timestamp"] if rows else None
-    last_ts = rows[-1]["timestamp"] if rows else None
+    bounds = conn.execute(
+        f"SELECT MIN(timestamp), MAX(timestamp) FROM {TABLE}"
+    ).fetchone()
+    first_ts, last_ts = bounds[0], bounds[1]
     duration = (last_ts - first_ts) if first_ts is not None and last_ts is not None else 0
 
-    s15 = aggregate_tf_stats(rows, "15m")
-    s1h = aggregate_tf_stats(rows, "1h")
-    sd = aggregate_tf_stats(rows, "daily")
+    def scan_progress(stage: str, count: int) -> None:
+        log(stage, count)
 
+    log("scan_15m")
+    s15 = aggregate_tf_stats_stream(
+        conn, "15m", progress_every=progress_every, progress_fn=scan_progress,
+    )
+    log("scan_1h")
+    s1h = aggregate_tf_stats_stream(
+        conn, "1h", progress_every=progress_every, progress_fn=scan_progress,
+    )
+    log("scan_daily")
+    sd = aggregate_tf_stats_stream(
+        conn, "daily", progress_every=progress_every, progress_fn=scan_progress,
+    )
+    log("strike_sources")
     strike_sources = [
         {"timeframe": r["timeframe"], "strike_source": r["strike_source"], "count": r["n"]}
         for r in list_metadata_by_source(conn)
     ]
 
+    elapsed = round(time.monotonic() - started, 2)
+    log("complete", int(elapsed * 1000))
+
     return {
+        "mode": "offline" if offline else "online",
+        "elapsed_seconds": elapsed,
         "snapshots": {
             "total": total,
             "first_timestamp": first_ts,
@@ -83,6 +122,8 @@ def _top_issue_summary(*stats_list: Any) -> dict[str, int]:
 def render_production_audit(report: dict[str, Any]) -> str:
     s = report["snapshots"]
     lines = [
+        f"MODE: {report.get('mode', 'offline')} (elapsed {report.get('elapsed_seconds', '?')}s)",
+        "",
         "SNAPSHOTS",
         f"  total: {s['total']}",
         f"  first timestamp: {s['first_timestamp']}",

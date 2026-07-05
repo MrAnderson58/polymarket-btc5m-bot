@@ -6,84 +6,121 @@ import sqlite3
 from typing import Any
 
 from bot.research.futures.config import PARSER_VERSION
+from bot.research.futures.db_config import get_futures_research_database_path
 from bot.research.futures.parser import parse_signal_text
 from bot.research.futures.schema import SIGNALS_TABLE, ensure_tables
-from bot.research.futures.source_data import (
-    SOURCE_TABLES,
-    channel_stats,
-    iter_telegram_messages,
-    table_columns,
-    table_exists,
-    table_row_count,
-    table_ts_range,
-)
+from bot.research.futures.source_data import SOURCE_TABLES
+from bot.research.futures.source_reader import SourceReader, open_source_reader
 
 
-def audit_source_data(conn: sqlite3.Connection) -> dict[str, Any]:
-    ensure_tables(conn)
+def audit_source_data(
+    research_conn: sqlite3.Connection,
+    source: SourceReader | None = None,
+) -> dict[str, Any]:
+    ensure_tables(research_conn)
+    owns_source = source is None
+    if source is None:
+        source = open_source_reader(sqlite_conn=research_conn)
 
-    tables: dict[str, Any] = {}
-    for name in SOURCE_TABLES:
-        exists = table_exists(conn, name)
-        info: dict[str, Any] = {
-            "exists": exists,
-            "row_count": table_row_count(conn, name) if exists else 0,
-            "columns": table_columns(conn, name) if exists else [],
+    try:
+        tables = source.list_source_tables()
+        messages = list(source.iter_telegram_messages())
+        channels = source.channel_stats()
+
+        parseable = 0
+        long_count = 0
+        short_count = 0
+        symbols: set[str] = set()
+        ts_issues = 0
+
+        for msg in messages:
+            parsed = parse_signal_text(msg.text)
+            if parsed.side:
+                parseable += 1
+                if parsed.side == "LONG":
+                    long_count += 1
+                elif parsed.side == "SHORT":
+                    short_count += 1
+            if parsed.symbol:
+                symbols.add(parsed.symbol)
+            if msg.timestamp <= 0:
+                ts_issues += 1
+
+        first_ts = min((m.timestamp for m in messages), default=None)
+        last_ts = max((m.timestamp for m in messages), default=None)
+
+        parsed_in_db = 0
+        if research_conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (SIGNALS_TABLE,),
+        ).fetchone():
+            parsed_in_db = research_conn.execute(
+                f"SELECT COUNT(*) FROM {SIGNALS_TABLE}"
+            ).fetchone()[0]
+
+        return {
+            "source": {
+                "backend": source.info.backend,
+                "status": source.info.status,
+                "reason_code": source.info.reason_code,
+                "dsn_host": source.info.dsn_host,
+                "dsn_database": source.info.dsn_database,
+                "read_only": source.info.read_only,
+                "details": source.info.details,
+            },
+            "research_db": {
+                "backend": "sqlite",
+                "path": get_futures_research_database_path(),
+            },
+            "tables": tables,
+            "messages": {
+                "count": len(messages),
+                "first_timestamp": first_ts,
+                "last_timestamp": last_ts,
+                "duration_seconds": (last_ts - first_ts) if first_ts and last_ts else 0,
+                "channels": channels,
+                "parseable_long_short": parseable,
+                "long_count": long_count,
+                "short_count": short_count,
+                "unique_symbols": sorted(symbols),
+                "symbol_count": len(symbols),
+                "timestamp_quality_issues": ts_issues,
+            },
+            "research_signals_parsed": parsed_in_db,
+            "parser_version": PARSER_VERSION,
+            "candle_availability": _candle_availability_note(first_ts, last_ts),
+            "gaps": _detect_gaps(messages),
         }
-        if exists:
-            for ts_col in ("timestamp", "message_ts", "ts", "created_at", "recorded_at"):
-                if ts_col in info["columns"]:
-                    info["ts_range"] = table_ts_range(conn, name, ts_col)
-                    break
-        tables[name] = info
+    finally:
+        if owns_source:
+            source.close()
 
-    messages = iter_telegram_messages(conn)
-    parseable = 0
-    long_count = 0
-    short_count = 0
-    symbols: set[str] = set()
-    ts_issues = 0
 
-    for msg in messages:
-        parsed = parse_signal_text(msg.text)
-        if parsed.side:
-            parseable += 1
-            if parsed.side == "LONG":
-                long_count += 1
-            elif parsed.side == "SHORT":
-                short_count += 1
-        if parsed.symbol:
-            symbols.add(parsed.symbol)
-        if msg.timestamp <= 0:
-            ts_issues += 1
+def check_source_connection(*, sqlite_conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+    """Lightweight connectivity probe — no full message scan."""
+    from bot.research.futures.source_reader import SourceConfigError
 
-    first_ts = min((m.timestamp for m in messages), default=None)
-    last_ts = max((m.timestamp for m in messages), default=None)
-
-    parsed_in_db = 0
-    if table_exists(conn, SIGNALS_TABLE):
-        parsed_in_db = table_row_count(conn, SIGNALS_TABLE)
-
-    return {
-        "tables": tables,
-        "messages": {
-            "count": len(messages),
-            "first_timestamp": first_ts,
-            "last_timestamp": last_ts,
-            "duration_seconds": (last_ts - first_ts) if first_ts and last_ts else 0,
-            "channels": channel_stats(conn),
-            "parseable_long_short": parseable,
-            "long_count": long_count,
-            "short_count": short_count,
-            "unique_symbols": sorted(symbols),
-            "symbol_count": len(symbols),
-            "timestamp_quality_issues": ts_issues,
-        },
-        "research_signals_parsed": parsed_in_db,
-        "parser_version": PARSER_VERSION,
-        "candle_availability": _candle_availability_note(first_ts, last_ts),
-        "gaps": _detect_gaps(messages),
-    }
+    try:
+        source = open_source_reader(sqlite_conn=sqlite_conn)
+        tables = source.list_source_tables()
+        msg_table = "telegram_messages" if tables.get("telegram_messages", {}).get("exists") else "telegram_signals"
+        msg_count = tables.get(msg_table, {}).get("row_count", 0)
+        result = {
+            "ok": True,
+            "source": {
+                "backend": source.info.backend,
+                "status": source.info.status,
+                "dsn_host": source.info.dsn_host,
+                "dsn_database": source.info.dsn_database,
+            },
+            "message_table": msg_table,
+            "message_count": msg_count,
+            "discovered_tables": [n for n in SOURCE_TABLES if tables.get(n, {}).get("exists")],
+        }
+        source.close()
+        return result
+    except SourceConfigError as exc:
+        return {"ok": False, "reason_code": exc.reason_code, "error": str(exc)}
 
 
 def _candle_availability_note(first_ts: int | None, last_ts: int | None) -> dict[str, Any]:
@@ -113,13 +150,33 @@ def _detect_gaps(messages: list, *, gap_hours: int = 24) -> list[dict[str, Any]]
 
 
 def render_audit_report(audit: dict[str, Any]) -> str:
+    src = audit.get("source", {})
+    research = audit.get("research_db", {})
     lines = ["FUTURES SOURCE DATA AUDIT", "=" * 40, ""]
-    lines.append("TABLES")
+    lines.extend([
+        "SOURCE DB",
+        f"  backend: {src.get('backend', 'unknown')}",
+        f"  status: {src.get('status', 'unknown')}",
+        f"  host: {src.get('dsn_host') or 'n/a'}",
+        f"  database: {src.get('dsn_database') or 'n/a'}",
+        f"  read_only: {src.get('read_only', True)}",
+    ])
+    if src.get("reason_code"):
+        lines.append(f"  reason_code: {src['reason_code']}")
+    lines.extend([
+        "",
+        "RESEARCH DB",
+        f"  backend: {research.get('backend', 'sqlite')}",
+        f"  path: {research.get('path', 'n/a')}",
+        "",
+        "TABLES",
+    ])
     for name, info in audit["tables"].items():
         status = "present" if info["exists"] else "missing"
         lines.append(f"  {name}: {status} ({info['row_count']} rows)")
         if info.get("columns"):
-            lines.append(f"    columns: {', '.join(info['columns'][:12])}{'...' if len(info['columns']) > 12 else ''}")
+            cols = info["columns"]
+            lines.append(f"    columns: {', '.join(cols[:12])}{'...' if len(cols) > 12 else ''}")
         if info.get("ts_range"):
             lines.append(f"    ts range: {info['ts_range']}")
 
@@ -141,7 +198,7 @@ def render_audit_report(audit: dict[str, Any]) -> str:
         lines.append(f"  {ch['source']}: {ch['count']} messages")
 
     if audit["gaps"]:
-        lines.extend(["", "GAPS (>24h)",])
+        lines.extend(["", "GAPS (>24h)"])
         for g in audit["gaps"][:10]:
             lines.append(f"  {g['from_ts']} -> {g['to_ts']} ({g['gap_hours']}h)")
 
@@ -151,3 +208,14 @@ def render_audit_report(audit: dict[str, Any]) -> str:
         f"Parser version: {audit['parser_version']}",
     ])
     return "\n".join(lines)
+
+
+def render_check_source(result: dict[str, Any]) -> str:
+    if result.get("ok"):
+        src = result["source"]
+        return (
+            f"SOURCE OK: {src['backend']} @ {src.get('dsn_host')}/{src.get('dsn_database')}\n"
+            f"  message_table: {result.get('message_table')} ({result.get('message_count')} rows)\n"
+            f"  tables: {', '.join(result.get('discovered_tables', []))}"
+        )
+    return f"SOURCE FAILED: {result.get('reason_code')}\n  {result.get('error')}"
