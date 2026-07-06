@@ -63,9 +63,9 @@ def _pick_exit_on_train(train_trades_by_exit: dict[str, list[SimTrade]]) -> str:
     return best_mode
 
 
-def run_15m_research(conn: sqlite3.Connection) -> dict[str, Any]:
+def run_15m_research(conn: sqlite3.Connection, *, dataset: str = "raw") -> dict[str, Any]:
     ensure_tables(conn)
-    paths = load_15m_market_paths(conn)
+    paths = load_15m_market_paths(conn, dataset=dataset)
     markets = list_markets_chronological(paths)
 
     data_audit = {
@@ -137,6 +137,7 @@ def run_15m_research(conn: sqlite3.Connection) -> dict[str, Any]:
 
     return {
         "status": "ok",
+        "dataset": dataset,
         "data_audit": data_audit,
         "train_markets": len(train_markets),
         "test_markets": len(test_markets),
@@ -174,3 +175,41 @@ def _determine_verdict(
     if test_n >= 5 and len(strong) >= 2 and total_trades >= MIN_TRADES_VERDICT:
         return "READY_FOR_15M_SHADOW"
     return "CONTINUE_RESEARCH"
+
+
+def run_15m_raw_vs_clean(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Compare 15m walk-forward on RAW vs CLEAN datasets."""
+    raw = run_15m_research(conn, dataset="raw")
+    clean = run_15m_research(conn, dataset="clean")
+    comparison: list[dict[str, Any]] = []
+    raw_by_key = {
+        (r["family"], r["side"]): r for r in raw.get("family_results", [])
+    }
+    for cr in clean.get("family_results", []):
+        key = (cr["family"], cr["side"])
+        rr = raw_by_key.get(key, {})
+        comparison.append({
+            "family": cr["family"],
+            "side": cr["side"],
+            "raw_train_pf": rr.get("pf"),
+            "raw_oos_pf": rr.get("oos_pf"),
+            "clean_train_pf": cr.get("pf"),
+            "clean_oos_pf": cr.get("oos_pf"),
+            "raw_n": rr.get("n"),
+            "clean_n": cr.get("n"),
+        })
+    return {
+        "raw": {
+            "markets": raw.get("data_audit", {}).get("markets"),
+            "verdict": raw.get("verdict"),
+            "observations": raw.get("data_audit", {}).get("observations"),
+        },
+        "clean": {
+            "markets": clean.get("data_audit", {}).get("markets"),
+            "verdict": clean.get("verdict"),
+            "observations": clean.get("data_audit", {}).get("observations"),
+        },
+        "comparison": comparison,
+        "promote_15m": False,
+        "note": "Do NOT promote 15m strategies — weak OOS on raw data; clean filter for integrity only.",
+    }

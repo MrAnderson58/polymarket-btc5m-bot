@@ -104,6 +104,27 @@ def run_research_daily() -> int:
     return 0
 
 
+def run_research_15m_compare() -> int:
+    import json
+    from bot.database import connect, init_db
+    from bot.research.mtf.clean_eligibility import audit_bid_gt_ask_timeline, count_clean_vs_raw
+    from bot.research.mtf.research_15m.engine import run_15m_raw_vs_clean
+    from bot.research.mtf.snapshots import ensure_tables
+
+    init_db()
+    with connect() as conn:
+        ensure_tables(conn)
+        counts = count_clean_vs_raw(conn)
+        bid_audit = audit_bid_gt_ask_timeline(conn)
+        compare = run_15m_raw_vs_clean(conn)
+    print("MTF 15m RAW vs CLEAN COMPARISON")
+    print(f"Rows: raw={counts['raw_rows']} clean={counts['clean_rows']} rejected={counts['rejected']}")
+    print(f"BID_GT_ASK: total={bid_audit['total_bid_gt_ask']} before_fix={bid_audit['before_fix']} after_fix={bid_audit['after_fix']}")
+    print(f"Stale token hypothesis: {bid_audit['stale_token_hypothesis']}")
+    print(json.dumps(compare, indent=2, default=str))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="MTF Polymarket context research")
     parser.add_argument("--audit-only", action="store_true", help="Data audit section only")
@@ -135,7 +156,7 @@ def main() -> int:
         "command",
         nargs="?",
         default="research",
-        choices=("research", "diagnose-discovery", "audit-production", "research-15m", "research-1h", "research-daily"),
+        choices=("research", "diagnose-discovery", "audit-production", "research-15m", "research-15m-compare", "research-1h", "research-daily"),
         help="Subcommand (default: research)",
     )
     args = parser.parse_args()
@@ -148,6 +169,9 @@ def main() -> int:
 
     if args.command == "research-15m":
         return run_research_15m()
+
+    if args.command == "research-15m-compare":
+        return run_research_15m_compare()
 
     if args.command == "research-1h":
         return run_research_1h()

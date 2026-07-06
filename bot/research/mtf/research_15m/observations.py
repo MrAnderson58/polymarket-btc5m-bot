@@ -5,13 +5,18 @@ from __future__ import annotations
 import sqlite3
 from collections import defaultdict
 
+from bot.research.mtf.clean_eligibility import row_is_clean_15m
 from bot.research.mtf.discovery import parse_15m_window_start_ts
 from bot.research.mtf.research_15m.features import build_obs15m
 from bot.research.mtf.research_15m.models import Obs15m
 from bot.research.mtf.snapshots import TABLE
 
 
-def load_15m_market_paths(conn: sqlite3.Connection) -> dict[str, list[Obs15m]]:
+def load_15m_market_paths(
+    conn: sqlite3.Connection,
+    *,
+    dataset: str = "raw",
+) -> dict[str, list[Obs15m]]:
     rows = conn.execute(
         f"""
         SELECT *
@@ -24,6 +29,10 @@ def load_15m_market_paths(conn: sqlite3.Connection) -> dict[str, list[Obs15m]]:
 
     raw_by_slug: dict[str, list[sqlite3.Row]] = defaultdict(list)
     for row in rows:
+        if dataset == "clean":
+            ok, _ = row_is_clean_15m(row)
+            if not ok:
+                continue
         slug = row["market_15m_slug"]
         ws = parse_15m_window_start_ts(slug)
         if ws is None:

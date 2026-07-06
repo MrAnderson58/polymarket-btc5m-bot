@@ -150,6 +150,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     _ensure_bidirectional_shadow_v12_tables(conn)
     _ensure_mtf_snapshot_tables(conn)
     _ensure_futures_research_tables(conn)
+    _ensure_market_behavior_tables(conn)
     _ensure_perf_indexes(conn)
 
 
@@ -407,6 +408,11 @@ def _ensure_bidirectional_shadow_v12_tables(conn: sqlite3.Connection) -> None:
 
 def _ensure_futures_research_tables(conn: sqlite3.Connection) -> None:
     from bot.research.futures.schema import ensure_tables
+    ensure_tables(conn)
+
+
+def _ensure_market_behavior_tables(conn: sqlite3.Connection) -> None:
+    from bot.research.market_behavior.schema import ensure_tables
     ensure_tables(conn)
 
 
