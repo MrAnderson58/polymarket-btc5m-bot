@@ -23,7 +23,7 @@ from bot.research.futures_agent.env_bootstrap import (
 from bot.research.futures_agent.ingestion import ingest_forwarded_signal
 from bot.research.futures_agent.pipeline import process_input, process_pending
 from bot.research.futures_agent.schema import apply_migrations
-from bot.research.futures_agent.schema_validate import validate_stage1_schema
+from bot.research.futures_agent.schema_validate import _check_fk_postgres, validate_stage1_schema
 
 EXPLICIT_LONG = (
     "SUI LONG\n"
@@ -115,8 +115,115 @@ class FuturesAgentConfigTestCase(unittest.TestCase):
         self.assertEqual(cfg.backend, "sqlite")
         self.assertEqual(cfg.config_source, "fallback_sqlite")
 
+    def test_explicit_sqlite_url_overrides_project_postgres_dotenv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".env").write_text(
+                "FUTURES_AGENT_DATABASE_URL=postgresql:///trading_ai\n",
+                encoding="utf-8",
+            )
+            db_path = root / "isolated_agent.db"
+            with patch(
+                "bot.research.futures_agent.env_bootstrap.project_root",
+                return_value=root,
+            ):
+                reset_bootstrap_for_tests()
+                os.environ.pop("FUTURES_AGENT_DATABASE_URL", None)
+                with agent_connection(f"sqlite:///{db_path}") as conn:
+                    apply_migrations(conn, postgres=False)
+                    n = conn.execute(
+                        "SELECT COUNT(*) AS n FROM futures_agent_migrations"
+                    ).fetchone()["n"]
+            self.assertEqual(n, 1)
+            self.assertTrue(db_path.exists())
+
+    def test_url_none_uses_configured_postgresql(self) -> None:
+        reset_bootstrap_for_tests()
+        os.environ["FUTURES_AGENT_DATABASE_URL"] = "postgresql:///trading_ai"
+        psycopg2, extras = _fake_psycopg2_modules()
+        mock_pg = MagicMock()
+        psycopg2.connect.return_value = mock_pg
+        with patch.dict(sys.modules, {"psycopg2": psycopg2, "psycopg2.extras": extras}):
+            with agent_connection() as conn:
+                self.assertIsInstance(conn, _PgConnWrapper)
+        psycopg2.connect.assert_called_once()
+
 
 class FuturesAgentPostgresAdapterTestCase(unittest.TestCase):
+    def tearDown(self) -> None:
+        reset_bootstrap_for_tests()
+        os.environ.pop("FUTURES_AGENT_DATABASE_URL", None)
+
+    def test_execute_no_params_preserves_literal_percent(self) -> None:
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value = mock_cur
+        psycopg2, extras = _fake_psycopg2_modules()
+        with patch.dict(sys.modules, {"psycopg2": psycopg2, "psycopg2.extras": extras}):
+            wrapper = _PgConnWrapper(mock_conn)
+            wrapper.execute(
+                "SELECT 1 WHERE 'futures_agent_x' LIKE 'futures_agent_%'"
+            )
+        mock_cur.execute.assert_called_once_with(
+            "SELECT 1 WHERE 'futures_agent_x' LIKE 'futures_agent_%'"
+        )
+
+    def test_execute_converts_placeholders_only_with_params(self) -> None:
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.cursor.return_value = mock_cur
+        psycopg2, extras = _fake_psycopg2_modules()
+        with patch.dict(sys.modules, {"psycopg2": psycopg2, "psycopg2.extras": extras}):
+            wrapper = _PgConnWrapper(mock_conn)
+            wrapper.execute("SELECT version FROM t WHERE version = ?", (1,))
+        mock_cur.execute.assert_called_once_with(
+            "SELECT version FROM t WHERE version = %s",
+            (1,),
+        )
+
+    def test_fk_validation_query_with_mock_postgres_cursor(self) -> None:
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_cur.fetchall.return_value = [
+            {
+                "table_name": "futures_agent_signals",
+                "column_name": "input_id",
+                "foreign_table": "futures_agent_inputs",
+            },
+            {
+                "table_name": "futures_agent_targets",
+                "column_name": "signal_id",
+                "foreign_table": "futures_agent_signals",
+            },
+        ]
+        mock_conn.cursor.return_value = mock_cur
+        psycopg2, extras = _fake_psycopg2_modules()
+        with patch.dict(sys.modules, {"psycopg2": psycopg2, "psycopg2.extras": extras}):
+            wrapper = _PgConnWrapper(mock_conn)
+            errors: list[str] = []
+            _check_fk_postgres(wrapper, errors)
+        executed_sql = mock_cur.execute.call_args[0][0]
+        self.assertEqual(len(mock_cur.execute.call_args[0]), 1)
+        self.assertNotIn("LIKE", executed_sql)
+        self.assertEqual(errors, [])
+
+    def test_migration_rollback_on_validation_failure(self) -> None:
+        mock_conn = MagicMock()
+        mock_pg = MagicMock()
+        psycopg2, extras = _fake_psycopg2_modules()
+        psycopg2.connect.return_value = mock_pg
+        with patch.dict(sys.modules, {"psycopg2": psycopg2, "psycopg2.extras": extras}):
+            reset_bootstrap_for_tests()
+            os.environ["FUTURES_AGENT_DATABASE_URL"] = "postgresql:///trading_ai"
+            with patch(
+                "bot.research.futures_agent.schema.validate_stage1_schema",
+                side_effect=[{"valid": False, "errors": ["missing FK"]}],
+            ):
+                with self.assertRaises(RuntimeError):
+                    with agent_connection() as conn:
+                        apply_migrations(conn, postgres=True)
+            mock_pg.rollback.assert_called()
+
     def test_execute_does_not_append_returning_id(self) -> None:
         mock_conn = MagicMock()
         psycopg2, extras = _fake_psycopg2_modules()
@@ -189,6 +296,28 @@ class FuturesAgentPostgresAdapterTestCase(unittest.TestCase):
             self.assertTrue(first)
             self.assertEqual(second, [])
             self.assertTrue(validation["valid"])
+
+    def test_ingest_persists_input_signal_and_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "agent.db"
+            url = f"sqlite:///{db_path}"
+            with agent_connection(url) as conn:
+                apply_migrations(conn, postgres=False)
+                ing = ingest_forwarded_signal(
+                    conn, raw_text=EXPLICIT_LONG, telegram_message_id="full-1",
+                )
+                proc = process_input(conn, ing.input_id)
+                tps = conn.execute(
+                    "SELECT target_index, target_price FROM futures_agent_targets "
+                    "WHERE signal_id = ? ORDER BY target_index",
+                    (proc.signal_id,),
+                ).fetchall()
+                sig = conn.execute(
+                    "SELECT input_id FROM futures_agent_signals WHERE id = ?",
+                    (proc.signal_id,),
+                ).fetchone()
+            self.assertEqual(sig["input_id"], ing.input_id)
+            self.assertEqual(len(tps), 2)
 
     def test_ingest_persists_to_configured_sqlite_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -273,6 +402,28 @@ class FuturesAgentCliConfigTestCase(unittest.TestCase):
         self.assertEqual(diag["database_name"], "trading_ai")
         self.assertEqual(diag["config_source"], "project_dotenv")
         self.assertFalse(db_path.exists())
+
+
+@unittest.skipUnless(
+    os.getenv("FUTURES_AGENT_PG_SMOKE_TEST"),
+    "set FUTURES_AGENT_PG_SMOKE_TEST=1 for real PostgreSQL smoke test",
+)
+class FuturesAgentPostgresSmokeTest(unittest.TestCase):
+    def tearDown(self) -> None:
+        reset_bootstrap_for_tests()
+
+    def test_real_postgresql_migrate_and_ingest(self) -> None:
+        reset_bootstrap_for_tests()
+        url = os.environ.get("FUTURES_AGENT_DATABASE_URL", "")
+        if not url.startswith(("postgres://", "postgresql://")):
+            self.skipTest("FUTURES_AGENT_DATABASE_URL must be PostgreSQL")
+        with agent_connection() as conn:
+            applied = apply_migrations(conn, postgres=True)
+            validation = validate_stage1_schema(conn, postgres=True)
+            if applied:
+                applied_again = apply_migrations(conn, postgres=True)
+                self.assertEqual(applied_again, [])
+        self.assertTrue(validation["valid"])
 
 
 if __name__ == "__main__":

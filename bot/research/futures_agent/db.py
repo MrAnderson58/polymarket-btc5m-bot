@@ -8,30 +8,49 @@ from typing import Any, Iterator
 from urllib.parse import urlparse
 
 from bot.research.futures_agent.config import AGENT_TABLE_ALLOWLIST
-from bot.research.futures_agent.env_bootstrap import AgentDbConfig, resolve_agent_db_config
+from bot.research.futures_agent.env_bootstrap import resolve_agent_db_config
 
 
 class AgentDbError(RuntimeError):
     pass
 
 
+def _is_postgres_dsn(dsn: str) -> bool:
+    return dsn.startswith(("postgres://", "postgresql://"))
+
+
 def resolve_agent_url() -> str:
     return resolve_agent_db_config().url
 
 
+def _adapt_sql_placeholders(sql: str, params: tuple | list | None) -> str:
+    """Convert SQLite ? placeholders to psycopg2 %s only when binding params."""
+    if not params:
+        return sql
+    return sql.replace("?", "%s")
+
+
 @contextmanager
 def agent_connection(url: str | None = None) -> Iterator[Any]:
-    """Yield a DB connection. PostgreSQL failures fail fast — no silent SQLite fallback."""
-    cfg = resolve_agent_db_config()
-    dsn = url or cfg.url
+    """Yield a DB connection.
 
-    if cfg.postgres_url_configured and not dsn.startswith(("postgres://", "postgresql://")):
+    Precedence: explicit url argument > configured env/.env > SQLite fallback.
+    Explicit sqlite:/// URLs work even when project .env configures PostgreSQL.
+    """
+    cfg = resolve_agent_db_config()
+    dsn = url if url is not None else cfg.url
+
+    if (
+        url is None
+        and cfg.postgres_url_configured
+        and not _is_postgres_dsn(dsn)
+    ):
         raise AgentDbError(
             "FUTURES_AGENT_DATABASE_URL is configured for PostgreSQL but resolved to non-PostgreSQL URL. "
             f"Resolved: {dsn!r}"
         )
 
-    if dsn.startswith(("postgres://", "postgresql://")):
+    if _is_postgres_dsn(dsn):
         try:
             import psycopg2
             import psycopg2.extras
@@ -86,12 +105,16 @@ class _PgConnWrapper:
 
     def execute(self, sql: str, params: tuple | list | None = None):
         cur = self._conn.cursor(cursor_factory=self._extras.RealDictCursor)
-        pg_sql = sql.replace("?", "%s")
-        cur.execute(pg_sql, params or ())
+        if params:
+            pg_sql = _adapt_sql_placeholders(sql, params)
+            cur.execute(pg_sql, params)
+        else:
+            # No bound params: pass SQL verbatim so literal % (e.g. LIKE 'foo_%') is preserved.
+            cur.execute(sql)
         return _PgCursor(cur)
 
     def insert_returning_id(self, sql: str, params: tuple | list | None = None) -> int:
-        pg_sql = sql.replace("?", "%s").rstrip().rstrip(";")
+        pg_sql = _adapt_sql_placeholders(sql, params).rstrip().rstrip(";")
         if "RETURNING" not in pg_sql.upper():
             pg_sql += " RETURNING id"
         cur = self._conn.cursor(cursor_factory=self._extras.RealDictCursor)

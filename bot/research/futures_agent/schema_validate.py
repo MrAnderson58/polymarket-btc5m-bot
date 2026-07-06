@@ -21,6 +21,23 @@ STAGE1_TABLES = {
     }),
 }
 
+_FK_QUERY_POSTGRES = """
+SELECT
+    tc.table_name,
+    kcu.column_name,
+    ccu.table_name AS foreign_table
+FROM information_schema.table_constraints AS tc
+JOIN information_schema.key_column_usage AS kcu
+  ON tc.constraint_schema = kcu.constraint_schema
+ AND tc.constraint_name = kcu.constraint_name
+JOIN information_schema.constraint_column_usage AS ccu
+  ON ccu.constraint_schema = tc.constraint_schema
+ AND ccu.constraint_name = tc.constraint_name
+WHERE tc.constraint_type = 'FOREIGN KEY'
+  AND tc.table_schema = 'public'
+  AND tc.table_name IN ('futures_agent_signals', 'futures_agent_targets')
+"""
+
 
 def validate_stage1_schema(conn: Any, *, postgres: bool) -> dict[str, Any]:
     errors: list[str] = []
@@ -51,8 +68,10 @@ def _table_columns(conn: Any, table: str, *, postgres: bool) -> list[str] | None
     if postgres:
         rows = conn.execute(
             """
-            SELECT column_name FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = ?
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = ?
             ORDER BY ordinal_position
             """,
             (table,),
@@ -67,18 +86,7 @@ def _table_columns(conn: Any, table: str, *, postgres: bool) -> list[str] | None
 
 
 def _check_fk_postgres(conn: Any, errors: list[str]) -> None:
-    rows = conn.execute(
-        """
-        SELECT tc.table_name, kcu.column_name, ccu.table_name AS foreign_table
-        FROM information_schema.table_constraints tc
-        JOIN information_schema.key_column_usage kcu
-          ON tc.constraint_name = kcu.constraint_name
-        JOIN information_schema.constraint_column_usage ccu
-          ON ccu.constraint_name = tc.constraint_name
-        WHERE tc.constraint_type = 'FOREIGN KEY'
-          AND tc.table_name LIKE 'futures_agent_%'
-        """
-    ).fetchall()
+    rows = conn.execute(_FK_QUERY_POSTGRES).fetchall()
     fk_pairs = {(r["table_name"], r["column_name"], r["foreign_table"]) for r in rows}
     expected = {
         ("futures_agent_signals", "input_id", "futures_agent_inputs"),
