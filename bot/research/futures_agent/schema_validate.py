@@ -35,8 +35,42 @@ JOIN information_schema.constraint_column_usage AS ccu
  AND ccu.constraint_name = tc.constraint_name
 WHERE tc.constraint_type = 'FOREIGN KEY'
   AND tc.table_schema = 'public'
-  AND tc.table_name IN ('futures_agent_signals', 'futures_agent_targets')
+  AND tc.table_name IN (
+    'futures_agent_signals', 'futures_agent_targets',
+    'futures_agent_market_snapshots', 'futures_agent_btc_context',
+    'futures_agent_relative_strength'
+  )
 """
+
+STAGE2_TABLES = {
+    "futures_agent_market_snapshots": frozenset({
+        "id", "signal_id", "snapshot_ts", "symbol", "exchange",
+        "spot_price", "futures_price",
+        "return_1m", "return_5m", "return_15m", "return_30m", "return_1h", "return_4h", "return_24h",
+        "ema_fast", "ema_slow", "ema_slope", "atr", "realized_vol",
+        "distance_from_local_high", "distance_from_local_low", "volume_ratio",
+        "funding_rate", "open_interest", "basis", "data_quality", "raw_metadata_json", "created_at",
+    }),
+    "futures_agent_btc_context": frozenset({
+        "id", "signal_id", "snapshot_ts", "btc_price",
+        "return_5m", "return_15m", "return_1h", "return_4h", "return_24h",
+        "trend_15m", "trend_1h", "trend_4h",
+        "volatility_regime", "momentum_regime", "market_regime", "created_at",
+    }),
+    "futures_agent_relative_strength": frozenset({
+        "id", "signal_id", "symbol", "snapshot_ts",
+        "alt_return_5m", "alt_return_15m", "alt_return_1h",
+        "btc_return_5m", "btc_return_15m", "btc_return_1h",
+        "excess_return_5m", "excess_return_15m", "excess_return_1h",
+        "correlation_to_btc", "beta_to_btc", "relative_strength_label", "created_at",
+    }),
+}
+
+STAGE2_FK_EXPECTED = {
+    ("futures_agent_market_snapshots", "signal_id", "futures_agent_signals"),
+    ("futures_agent_btc_context", "signal_id", "futures_agent_signals"),
+    ("futures_agent_relative_strength", "signal_id", "futures_agent_signals"),
+}
 
 
 def validate_stage1_schema(conn: Any, *, postgres: bool) -> dict[str, Any]:
@@ -95,3 +129,32 @@ def _check_fk_postgres(conn: Any, errors: list[str]) -> None:
     for exp in expected:
         if exp not in fk_pairs:
             errors.append(f"missing FK: {exp[0]}.{exp[1]} -> {exp[2]}")
+
+
+def validate_stage2_schema(conn: Any, *, postgres: bool) -> dict[str, Any]:
+    errors: list[str] = []
+    tables_ok: list[str] = []
+
+    for table, required_cols in STAGE2_TABLES.items():
+        cols = _table_columns(conn, table, postgres=postgres)
+        if cols is None:
+            errors.append(f"missing table: {table}")
+            continue
+        missing = required_cols - set(cols)
+        if missing:
+            errors.append(f"{table} missing columns: {sorted(missing)}")
+        else:
+            tables_ok.append(table)
+
+    if postgres:
+        rows = conn.execute(_FK_QUERY_POSTGRES).fetchall()
+        fk_pairs = {(r["table_name"], r["column_name"], r["foreign_table"]) for r in rows}
+        for exp in STAGE2_FK_EXPECTED:
+            if exp not in fk_pairs:
+                errors.append(f"missing FK: {exp[0]}.{exp[1]} -> {exp[2]}")
+
+    return {
+        "valid": len(errors) == 0,
+        "tables_ok": tables_ok,
+        "errors": errors,
+    }

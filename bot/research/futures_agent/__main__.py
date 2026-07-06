@@ -5,6 +5,9 @@ Usage:
   python -m bot.research.futures_agent migrate
   python -m bot.research.futures_agent ingest --text "BTC LONG ..."
   python -m bot.research.futures_agent process-pending
+  python -m bot.research.futures_agent snapshot --signal-id ID
+  python -m bot.research.futures_agent snapshot-pending --limit 50
+  python -m bot.research.futures_agent context-report --signal-id ID
 
 Does NOT modify Polymarket execution, bidirectional, ER, or MTF collectors.
 """
@@ -23,9 +26,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Futures Intelligence Agent (research only)")
     parser.add_argument(
         "command",
-        choices=("audit", "migrate", "ingest", "process-pending"),
+        choices=(
+            "audit", "migrate", "ingest", "process-pending",
+            "snapshot", "snapshot-pending", "context-report",
+        ),
     )
     parser.add_argument("--text", default=None, help="Signal text for ingest")
+    parser.add_argument("--signal-id", type=int, default=None, help="Signal id for snapshot/report")
     parser.add_argument("--limit", type=int, default=50, help="Max pending to process")
     parser.add_argument("--dry-run", action="store_true", help="Ingest without DB write")
     parser.add_argument("--notify", action="store_true", help="Send Telegram ack if configured")
@@ -100,6 +107,52 @@ def main() -> int:
                 f"status={r.processing_status} gate={r.passes_gate} tax={r.taxonomy}"
             )
         print(f"Processed: {len(results)}")
+        return 0
+
+    if args.command == "snapshot":
+        if args.signal_id is None:
+            print("ERROR: --signal-id required for snapshot", file=sys.stderr)
+            return 1
+        from bot.research.futures_agent.snapshot import snapshot_signal
+
+        with agent_connection() as conn:
+            apply_migrations(conn, postgres=cfg.is_postgres)
+            result = snapshot_signal(conn, args.signal_id)
+        if result.skipped:
+            print(f"Snapshot already exists for signal_id={args.signal_id}")
+            return 0
+        if not result.success:
+            print(f"Snapshot failed for signal_id={args.signal_id}: {result.error}", file=sys.stderr)
+            return 1
+        print(
+            f"Snapshot committed signal_id={args.signal_id} "
+            f"quality={result.data_quality} research={result.research_label} "
+            f"-> {cfg.backend}"
+        )
+        return 0
+
+    if args.command == "snapshot-pending":
+        from bot.research.futures_agent.snapshot import snapshot_pending
+
+        with agent_connection() as conn:
+            apply_migrations(conn, postgres=cfg.is_postgres)
+            results = snapshot_pending(conn, limit=args.limit)
+        print(f"Backend: {cfg.backend} ({cfg.config_source})")
+        for r in results:
+            status = "skipped" if r.skipped else ("ok" if r.success else f"fail:{r.error}")
+            print(f"signal={r.signal_id} {status} quality={r.data_quality}")
+        print(f"Snapshots processed: {len(results)}")
+        return 0
+
+    if args.command == "context-report":
+        if args.signal_id is None:
+            print("ERROR: --signal-id required for context-report", file=sys.stderr)
+            return 1
+        from bot.research.futures_agent.context_report import format_context_report
+
+        with agent_connection() as conn:
+            apply_migrations(conn, postgres=cfg.is_postgres)
+            print(format_context_report(conn, args.signal_id))
         return 0
 
     return 1

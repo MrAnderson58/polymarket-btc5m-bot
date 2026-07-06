@@ -134,7 +134,7 @@ class FuturesAgentConfigTestCase(unittest.TestCase):
                     n = conn.execute(
                         "SELECT COUNT(*) AS n FROM futures_agent_migrations"
                     ).fetchone()["n"]
-            self.assertEqual(n, 1)
+            self.assertEqual(n, 2)
             self.assertTrue(db_path.exists())
 
     def test_url_none_uses_configured_postgresql(self) -> None:
@@ -292,6 +292,7 @@ class FuturesAgentPostgresAdapterTestCase(unittest.TestCase):
             with agent_connection(url) as conn:
                 first = apply_migrations(conn, postgres=False)
                 second = apply_migrations(conn, postgres=False)
+                from bot.research.futures_agent.schema_validate import validate_stage1_schema
                 validation = validate_stage1_schema(conn, postgres=False)
             self.assertTrue(first)
             self.assertEqual(second, [])
