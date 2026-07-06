@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from bot.research.futures.parser import ENTRY_RE, SIDE_TOKEN, SL_RE, TP_LINE_RE
+
 
 class MessageType(StrEnum):
     EXPLICIT_SIGNAL = "EXPLICIT_SIGNAL"
@@ -70,16 +72,14 @@ _RE_UPDATE = re.compile(
     r"breakeven|безубыт|добавил|add(?:ed)? to|partial|частич)",
 )
 _RE_EXPLICIT = re.compile(
-    r"(?i)(?:^|\n)\s*(?:#?\$?[A-Z]{2,10}\s+(?:LONG|SHORT|BUY|SELL)|"
-    r"(?:LONG|SHORT|BUY|SELL)\s+#?\$?[A-Z]{2,10})",
+    rf"(?i)(?:^|\n)\s*(?:#?\$?[A-Z]{{2,10}}\s+({SIDE_TOKEN})|"
+    rf"({SIDE_TOKEN})\s+#?\$?[A-Z]{{2,10}})",
     re.MULTILINE,
 )
-_RE_HAS_ENTRY = re.compile(
-    r"(?i)(?:entry|enter|вход|buy zone|sell zone|limit)\s*[:@]?\s*\d",
-)
-_RE_HAS_SL = re.compile(r"(?i)(?:sl|stop\s*loss|stop|стоп)\s*[:@]?\s*\d")
-_RE_HAS_TP = re.compile(r"(?i)(?:tp\d*|take profit|target|цель|тейк)\s*[:@]?\s*\d")
-_RE_HAS_SIDE = re.compile(r"(?i)\b(LONG|SHORT|BUY|SELL)\b")
+_RE_HAS_ENTRY = ENTRY_RE
+_RE_HAS_SL = SL_RE
+_RE_HAS_TP = TP_LINE_RE
+_RE_HAS_SIDE = re.compile(rf"(?i)\b({SIDE_TOKEN})\b")
 
 
 @dataclass

@@ -7,12 +7,14 @@ from dataclasses import dataclass, field
 
 from bot.research.futures.parser import (
     CONF_RE,
-    LEV_RE,
+    SIDE_TOKEN,
+    SL_RE,
     TF_RE,
-    TP_RE,
     ParsedSignal,
     _normalize_side,
     _parse_entry_range,
+    _parse_leverage,
+    _parse_take_profits,
 )
 from bot.research.futures.taxonomy import MessageType, classify_message, is_trade_signal_type
 
@@ -43,15 +45,10 @@ _PAIR_RE = re.compile(
 _DOLLAR_TICKER_RE = re.compile(r"\$([A-Z]{2,10})\b")
 _HASH_TICKER_RE = re.compile(r"#([A-Z]{2,10})\b")
 _HEADER_SIGNAL_RE = re.compile(
-    r"(?im)^[^\n]{0,40}?(?:#?\$?([A-Z]{2,10})\s+(LONG|SHORT|BUY|SELL)|"
-    r"(LONG|SHORT|BUY|SELL)\s+#?\$?([A-Z]{2,10}))",
+    rf"(?im)^[^\n]{{0,40}}?(?:#?\$?([A-Z]{{2,10}})\s+({SIDE_TOKEN})|"
+    rf"({SIDE_TOKEN})\s+#?\$?([A-Z]{{2,10}}))",
 )
-_SIDE_NEAR_RE = re.compile(
-    r"(?i)\b(LONG|SHORT|BUY|SELL)\b",
-)
-_SL_RE = re.compile(
-    r"(?i)(?:sl|stop\s*loss|stop|стоп)\s*[:@]?\s*(\d+(?:\.\d+)?)",
-)
+_SIDE_NEAR_RE = re.compile(rf"(?i)\b({SIDE_TOKEN})\b")
 _NEGATIVE_URL = re.compile(r"https?://|t\.me/|bit\.ly/", re.I)
 _NEGATIVE_CORREL = re.compile(
     r"(?i)(correlat|коррел|(?:like|vs\.?|versus|против|compared to|как)\s+(?:btc|eth|bitcoin|ethereum)|"
@@ -235,7 +232,7 @@ def parse_signal_v2(text: str) -> ParseResultV2:
         out.entry_min, out.entry_max = emin, emax
         out.fields_found.append("entry")
 
-    sl = _SL_RE.search(text)
+    sl = SL_RE.search(text)
     if sl:
         try:
             out.stop_loss = float(sl.group(1))
@@ -243,21 +240,14 @@ def parse_signal_v2(text: str) -> ParseResultV2:
         except ValueError:
             out.errors.append("invalid_stop_loss")
 
-    for tp in TP_RE.finditer(text):
-        try:
-            out.take_profits.append(float(tp.group(1)))
-        except ValueError:
-            out.errors.append("invalid_take_profit")
+    out.take_profits = _parse_take_profits(text)
     if out.take_profits:
         out.fields_found.append("take_profit")
 
-    lev = LEV_RE.search(text)
-    if lev:
-        try:
-            out.leverage = float(lev.group(1))
-            out.fields_found.append("leverage")
-        except ValueError:
-            out.errors.append("invalid_leverage")
+    lev = _parse_leverage(text)
+    if lev is not None:
+        out.leverage = lev
+        out.fields_found.append("leverage")
 
     tf = TF_RE.search(text)
     if tf:

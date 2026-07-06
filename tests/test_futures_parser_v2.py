@@ -73,6 +73,22 @@ MALFORMED = (
     "numbers everywhere 123 456 but no symbol header"
 )
 
+UNI_RU_SIGNAL = (
+    "$UNI лонг\n"
+    "Вход: 3.099\n"
+    "Стоп: 2.925\n"
+    "Тейки: 3.179, 3.3\n"
+    "Плечо: 25x"
+)
+
+UNIUSDT_RU_SHORT_RANGE = (
+    "UNIUSDT шорт\n"
+    "Вход: 3.40-3.50\n"
+    "SL: 3.60\n"
+    "Цели: 3.20, 3.10\n"
+    "25x"
+)
+
 
 class TaxonomyTestCase(unittest.TestCase):
     def test_explicit_long_signal(self) -> None:
@@ -152,6 +168,30 @@ class ParserV2TestCase(unittest.TestCase):
     def test_malformed_fails_gate(self) -> None:
         r = parse_signal_v2(MALFORMED)
         self.assertFalse(r.passes_gate)
+
+    def test_russian_uni_signal_regression(self) -> None:
+        tax = classify_message(UNI_RU_SIGNAL)
+        self.assertEqual(tax.message_type, MessageType.EXPLICIT_SIGNAL)
+        r = parse_signal_v2(UNI_RU_SIGNAL)
+        self.assertTrue(r.passes_gate)
+        self.assertEqual(r.message_type, MessageType.EXPLICIT_SIGNAL)
+        self.assertEqual(r.parsed.symbol, "UNI")
+        self.assertEqual(r.parsed.side, "LONG")
+        self.assertEqual(r.parsed.entry_min, 3.099)
+        self.assertEqual(r.parsed.entry_max, 3.099)
+        self.assertEqual(r.parsed.stop_loss, 2.925)
+        self.assertEqual(r.parsed.take_profits, [3.179, 3.3])
+        self.assertEqual(r.parsed.leverage, 25.0)
+
+    def test_russian_uniusdt_short_entry_range(self) -> None:
+        r = parse_signal_v2(UNIUSDT_RU_SHORT_RANGE)
+        self.assertTrue(r.passes_gate)
+        self.assertEqual(r.parsed.symbol, "UNI")
+        self.assertEqual(r.parsed.side, "SHORT")
+        self.assertEqual(r.parsed.entry_min, 3.40)
+        self.assertEqual(r.parsed.entry_max, 3.50)
+        self.assertEqual(r.parsed.take_profits, [3.20, 3.10])
+        self.assertEqual(r.parsed.leverage, 25.0)
 
 
 class ParserV2PipelineTestCase(unittest.TestCase):

@@ -17,21 +17,31 @@ SYMBOL_RE = re.compile(
     r"(?:USDT|/USDT|-PERP)?)\b",
     re.IGNORECASE,
 )
-SIDE_RE = re.compile(r"\b(LONG|SHORT|BUY|SELL)\b", re.IGNORECASE)
+SIDE_TOKEN = r"LONG|SHORT|BUY|SELL|лонг|шорт"
+SIDE_RE = re.compile(rf"\b({SIDE_TOKEN})\b", re.IGNORECASE)
 ENTRY_RE = re.compile(
-    r"(?:entry|enter|buy(?:\s*zone)?|sell(?:\s*zone)?)\s*[:@]?\s*"
+    r"(?:entry|enter|вход|buy(?:\s*zone)?|sell(?:\s*zone)?)\s*[:@]?\s*"
     r"(\d+(?:\.\d+)?(?:\s*[-–—]\s*\d+(?:\.\d+)?)?)",
     re.IGNORECASE,
 )
 SL_RE = re.compile(
-    r"(?:sl|stop\s*loss|stop)\s*[:@]?\s*(\d+(?:\.\d+)?)",
+    r"(?:sl|stop\s*loss|stop|стоп)\s*[:@]?\s*(\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+TP_LINE_RE = re.compile(
+    r"(?:tp\d*|take\s*profits?(?:\s*\d+)?|targets?(?:\s*\d+)?|"
+    r"цел[ьи]|тейк(?:и)?)\s*[:@]?\s*([^\n]+)",
     re.IGNORECASE,
 )
 TP_RE = re.compile(
     r"(?:tp\d*|take\s*profit\s*\d*|target\s*\d*)\s*[:@]?\s*(\d+(?:\.\d+)?)",
     re.IGNORECASE,
 )
-LEV_RE = re.compile(r"(?:lev(?:erage)?|x)\s*[:@]?\s*(\d+(?:\.\d+)?)\s*x?", re.IGNORECASE)
+LEV_RE = re.compile(
+    r"(?:lev(?:erage)?|плечо)\s*[:@]?\s*(\d+(?:\.\d+)?)\s*x?"
+    r"|\b(\d+(?:\.\d+)?)\s*x\b",
+    re.IGNORECASE,
+)
 TF_RE = re.compile(r"\b(\d+\s*[mhdw]|scalp|intraday|swing)\b", re.IGNORECASE)
 CONF_RE = re.compile(r"(?:confidence|conf)\s*[:@]?\s*(\d+(?:\.\d+)?)\s*%?", re.IGNORECASE)
 
@@ -59,12 +69,12 @@ def _normalize_symbol(raw: str) -> str:
 
 
 def _normalize_side(raw: str) -> str:
-    s = raw.upper()
-    if s in ("BUY", "LONG"):
+    s = raw.lower()
+    if s in ("buy", "long", "лонг"):
         return "LONG"
-    if s in ("SELL", "SHORT"):
+    if s in ("sell", "short", "шорт"):
         return "SHORT"
-    return s
+    return raw.upper()
 
 
 def _parse_entry_range(text: str) -> tuple[float | None, float | None]:
@@ -85,6 +95,43 @@ def _parse_entry_range(text: str) -> tuple[float | None, float | None]:
         return v, v
     except ValueError:
         return None, None
+
+
+def _parse_take_profits(text: str) -> list[float]:
+    """Parse TP targets from labeled lines, including comma-separated lists."""
+    tps: list[float] = []
+    seen_spans: set[tuple[int, int]] = set()
+    for m in TP_LINE_RE.finditer(text):
+        span = (m.start(), m.end())
+        if span in seen_spans:
+            continue
+        seen_spans.add(span)
+        chunk = m.group(1).strip()
+        for nm in re.finditer(r"\d+(?:\.\d+)?", chunk):
+            try:
+                tps.append(float(nm.group(0)))
+            except ValueError:
+                pass
+    if not tps:
+        for m in TP_RE.finditer(text):
+            try:
+                tps.append(float(m.group(1)))
+            except ValueError:
+                pass
+    return tps
+
+
+def _parse_leverage(text: str) -> float | None:
+    m = LEV_RE.search(text)
+    if not m:
+        return None
+    raw = m.group(1) or m.group(2)
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
 
 
 def parse_signal_text(text: str) -> ParsedSignal:
@@ -117,21 +164,15 @@ def parse_signal_text(text: str) -> ParsedSignal:
         except ValueError:
             out.errors.append("invalid_stop_loss")
 
-    for tp in TP_RE.finditer(text):
-        try:
-            out.take_profits.append(float(tp.group(1)))
-        except ValueError:
-            out.errors.append("invalid_take_profit")
+    for tp in _parse_take_profits(text):
+        out.take_profits.append(tp)
     if out.take_profits:
         out.fields_found.append("take_profit")
 
-    lev = LEV_RE.search(text)
-    if lev:
-        try:
-            out.leverage = float(lev.group(1))
-            out.fields_found.append("leverage")
-        except ValueError:
-            out.errors.append("invalid_leverage")
+    lev = _parse_leverage(text)
+    if lev is not None:
+        out.leverage = lev
+        out.fields_found.append("leverage")
 
     tf = TF_RE.search(text)
     if tf:
