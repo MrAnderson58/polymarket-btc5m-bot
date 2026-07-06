@@ -361,6 +361,137 @@ class FuturesAgentPostgresAdapterTestCase(unittest.TestCase):
             conn.close()
 
 
+MARKET_REVIEW = (
+    "ATOM Technical Analysis / Review\n"
+    "Outlook neutral. BTC correlates with market."
+)
+
+
+class FuturesAgentBooleanPersistenceTestCase(unittest.TestCase):
+    def tearDown(self) -> None:
+        reset_bootstrap_for_tests()
+
+    def _sqlite_conn(self, db_path: Path):
+        return agent_connection(f"sqlite:///{db_path}")
+
+    def test_explicit_signal_writes_passes_gate_true_as_bool(self) -> None:
+        captured: list[tuple] = []
+        real_insert = insert_returning_id
+
+        def track_insert(conn, sql, params=None):
+            if "futures_agent_signals" in sql:
+                captured.append(tuple(params or ()))
+            return real_insert(conn, sql, params)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "bool.db"
+            with patch(
+                "bot.research.futures_agent.pipeline.insert_returning_id",
+                side_effect=track_insert,
+            ):
+                with self._sqlite_conn(db_path) as conn:
+                    apply_migrations(conn, postgres=False)
+                    ing = ingest_forwarded_signal(
+                        conn, raw_text=EXPLICIT_LONG, telegram_message_id="bool-true-1",
+                    )
+                    proc = process_input(conn, ing.input_id)
+            self.assertTrue(proc.passes_gate)
+            self.assertEqual(len(captured), 1)
+            self.assertIs(captured[0][12], True)
+            self.assertIsInstance(captured[0][12], bool)
+
+    def test_rejected_signal_writes_passes_gate_false_as_bool(self) -> None:
+        captured: list[tuple] = []
+        real_insert = insert_returning_id
+
+        def track_insert(conn, sql, params=None):
+            if "futures_agent_signals" in sql:
+                captured.append(tuple(params or ()))
+            return real_insert(conn, sql, params)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "bool.db"
+            with patch(
+                "bot.research.futures_agent.pipeline.insert_returning_id",
+                side_effect=track_insert,
+            ):
+                with self._sqlite_conn(db_path) as conn:
+                    apply_migrations(conn, postgres=False)
+                    ing = ingest_forwarded_signal(
+                        conn, raw_text=MARKET_REVIEW, telegram_message_id="bool-false-1",
+                    )
+                    proc = process_input(conn, ing.input_id)
+            self.assertFalse(proc.passes_gate)
+            self.assertEqual(len(captured), 1)
+            self.assertIs(captured[0][12], False)
+            self.assertIsInstance(captured[0][12], bool)
+
+    def test_full_ingest_process_signal_targets_transaction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "full.db"
+            with self._sqlite_conn(db_path) as conn:
+                apply_migrations(conn, postgres=False)
+                ing = ingest_forwarded_signal(
+                    conn, raw_text=EXPLICIT_LONG, telegram_message_id="full-tx-1",
+                )
+                proc = process_input(conn, ing.input_id)
+                sig = conn.execute(
+                    "SELECT passes_gate, input_id FROM futures_agent_signals WHERE id = ?",
+                    (proc.signal_id,),
+                ).fetchone()
+                tps = conn.execute(
+                    "SELECT COUNT(*) AS n FROM futures_agent_targets WHERE signal_id = ?",
+                    (proc.signal_id,),
+                ).fetchone()["n"]
+            self.assertEqual(sig["input_id"], ing.input_id)
+            self.assertEqual(sig["passes_gate"], 1)
+            self.assertEqual(tps, 2)
+
+    def test_signal_insert_failure_rolls_back_input_transaction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "rollback.db"
+            with patch(
+                "bot.research.futures_agent.pipeline.insert_returning_id",
+                side_effect=AgentDbError("simulated signal insert failure"),
+            ):
+                with self.assertRaises(AgentDbError):
+                    with self._sqlite_conn(db_path) as conn:
+                        apply_migrations(conn, postgres=False)
+                        ing = ingest_forwarded_signal(
+                            conn, raw_text=EXPLICIT_LONG, telegram_message_id="rb-1",
+                        )
+                        process_input(conn, ing.input_id)
+            with self._sqlite_conn(db_path) as conn:
+                n_inputs = conn.execute(
+                    "SELECT COUNT(*) AS n FROM futures_agent_inputs"
+                ).fetchone()["n"]
+            self.assertEqual(n_inputs, 0)
+
+    def test_postgres_adapter_receives_bool_passes_gate_param(self) -> None:
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_cur.fetchone.return_value = {"id": 1}
+        mock_conn.cursor.return_value = mock_cur
+        psycopg2, extras = _fake_psycopg2_modules()
+        with patch.dict(sys.modules, {"psycopg2": psycopg2, "psycopg2.extras": extras}):
+            wrapper = _PgConnWrapper(mock_conn)
+            insert_returning_id(
+                wrapper,
+                """
+                INSERT INTO futures_agent_signals (
+                    input_id, parser_version, taxonomy, symbol, direction,
+                    entry_low, entry_high, stop_loss, leverage, timeframe,
+                    explicit_confidence, parse_status, passes_gate, gate_reason, parse_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (1, "v2", "EXPLICIT_SIGNAL", "SUI", "LONG", 2.14, 2.18, 2.05,
+                 None, None, None, "SUCCESS", True, "ok", "{}"),
+            )
+        params = mock_cur.execute.call_args[0][1]
+        self.assertIs(params[12], True)
+        self.assertIsInstance(params[12], bool)
+
+
 class FuturesAgentCliConfigTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         reset_bootstrap_for_tests()

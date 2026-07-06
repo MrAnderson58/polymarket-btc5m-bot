@@ -66,15 +66,21 @@ def main() -> int:
         from bot.research.futures_agent.pipeline import process_input
         from bot.research.futures_agent.responses import format_signal_received, send_telegram_message
 
-        with agent_connection() as conn:
-            apply_migrations(conn, postgres=cfg.is_postgres)
-            ing = ingest_from_cli(conn, args.text)
-            if ing.duplicate:
-                print(f"Duplicate input id={ing.input_id}")
-            else:
-                print(f"Ingested input id={ing.input_id} -> {cfg.backend}")
-            proc = process_input(conn, ing.input_id)
-            msg = format_signal_received(conn, ing.input_id)
+        try:
+            with agent_connection() as conn:
+                apply_migrations(conn, postgres=cfg.is_postgres)
+                ing = ingest_from_cli(conn, args.text)
+                proc = process_input(conn, ing.input_id)
+                msg = format_signal_received(conn, ing.input_id)
+        except Exception as exc:
+            print(f"ERROR: ingest failed; transaction rolled back: {exc}", file=sys.stderr)
+            return 1
+
+        dup = " duplicate" if ing.duplicate else ""
+        print(
+            f"Committed input={ing.input_id} signal={proc.signal_id}{dup} "
+            f"-> {cfg.backend} gate={proc.passes_gate}"
+        )
         print(msg)
         if args.notify:
             sent = send_telegram_message(msg)

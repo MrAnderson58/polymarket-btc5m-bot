@@ -131,7 +131,7 @@ def process_input(conn: Any, input_id: int) -> ProcessResult:
             parsed.timeframe,
             parsed.confidence,
             parse_status,
-            1 if passes_gate else 0,
+            passes_gate,
             result.gate_reason,
             json.dumps(parse_json),
         ),
