@@ -130,7 +130,7 @@ class FuturesAgentConfigTestCase(unittest.TestCase):
                 reset_bootstrap_for_tests()
                 os.environ.pop("FUTURES_AGENT_DATABASE_URL", None)
                 with agent_connection(f"sqlite:///{db_path}") as conn:
-                    apply_migrations(conn, postgres=False)
+                    apply_migrations(conn)
                     n = conn.execute(
                         "SELECT COUNT(*) AS n FROM futures_agent_migrations"
                     ).fetchone()["n"]
@@ -221,7 +221,7 @@ class FuturesAgentPostgresAdapterTestCase(unittest.TestCase):
             ):
                 with self.assertRaises(RuntimeError):
                     with agent_connection() as conn:
-                        apply_migrations(conn, postgres=True)
+                        apply_migrations(conn)
             mock_pg.rollback.assert_called()
 
     def test_execute_does_not_append_returning_id(self) -> None:
@@ -257,7 +257,7 @@ class FuturesAgentPostgresAdapterTestCase(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".db") as f:
             conn = sqlite3.connect(f.name)
             conn.row_factory = sqlite3.Row
-            apply_migrations(conn, postgres=False)
+            apply_migrations(conn)
             row = conn.execute(
                 "SELECT version, description FROM futures_agent_migrations WHERE version = 1"
             ).fetchone()
@@ -268,7 +268,7 @@ class FuturesAgentPostgresAdapterTestCase(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".db") as f:
             url = f"sqlite:///{f.name}"
             with agent_connection(url) as conn:
-                apply_migrations(conn, postgres=False)
+                apply_migrations(conn)
                 ing = ingest_forwarded_signal(
                     conn, raw_text=EXPLICIT_LONG, telegram_message_id="pg-test-1",
                 )
@@ -278,7 +278,7 @@ class FuturesAgentPostgresAdapterTestCase(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".db") as f:
             url = f"sqlite:///{f.name}"
             with agent_connection(url) as conn:
-                apply_migrations(conn, postgres=False)
+                apply_migrations(conn)
                 ing = ingest_forwarded_signal(
                     conn, raw_text=EXPLICIT_LONG, telegram_message_id="sig-id-1",
                 )
@@ -290,10 +290,10 @@ class FuturesAgentPostgresAdapterTestCase(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".db") as f:
             url = f"sqlite:///{f.name}"
             with agent_connection(url) as conn:
-                first = apply_migrations(conn, postgres=False)
-                second = apply_migrations(conn, postgres=False)
+                first = apply_migrations(conn)
+                second = apply_migrations(conn)
                 from bot.research.futures_agent.schema_validate import validate_stage1_schema
-                validation = validate_stage1_schema(conn, postgres=False)
+                validation = validate_stage1_schema(conn)
             self.assertTrue(first)
             self.assertEqual(second, [])
             self.assertTrue(validation["valid"])
@@ -303,7 +303,7 @@ class FuturesAgentPostgresAdapterTestCase(unittest.TestCase):
             db_path = Path(tmp) / "agent.db"
             url = f"sqlite:///{db_path}"
             with agent_connection(url) as conn:
-                apply_migrations(conn, postgres=False)
+                apply_migrations(conn)
                 ing = ingest_forwarded_signal(
                     conn, raw_text=EXPLICIT_LONG, telegram_message_id="full-1",
                 )
@@ -325,7 +325,7 @@ class FuturesAgentPostgresAdapterTestCase(unittest.TestCase):
             db_path = Path(tmp) / "agent.db"
             url = f"sqlite:///{db_path}"
             with agent_connection(url) as conn:
-                apply_migrations(conn, postgres=False)
+                apply_migrations(conn)
                 ing = ingest_forwarded_signal(
                     conn, raw_text=EXPLICIT_LONG, telegram_message_id="persist-1",
                 )
@@ -340,7 +340,7 @@ class FuturesAgentPostgresAdapterTestCase(unittest.TestCase):
             db_path = Path(tmp) / "shared.db"
             url = f"sqlite:///{db_path}"
             with agent_connection(url) as conn:
-                apply_migrations(conn, postgres=False)
+                apply_migrations(conn)
                 ingest_forwarded_signal(
                     conn, raw_text=EXPLICIT_LONG, telegram_message_id="pending-1",
                 )
@@ -391,7 +391,7 @@ class FuturesAgentBooleanPersistenceTestCase(unittest.TestCase):
                 side_effect=track_insert,
             ):
                 with self._sqlite_conn(db_path) as conn:
-                    apply_migrations(conn, postgres=False)
+                    apply_migrations(conn)
                     ing = ingest_forwarded_signal(
                         conn, raw_text=EXPLICIT_LONG, telegram_message_id="bool-true-1",
                     )
@@ -417,7 +417,7 @@ class FuturesAgentBooleanPersistenceTestCase(unittest.TestCase):
                 side_effect=track_insert,
             ):
                 with self._sqlite_conn(db_path) as conn:
-                    apply_migrations(conn, postgres=False)
+                    apply_migrations(conn)
                     ing = ingest_forwarded_signal(
                         conn, raw_text=MARKET_REVIEW, telegram_message_id="bool-false-1",
                     )
@@ -431,7 +431,7 @@ class FuturesAgentBooleanPersistenceTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "full.db"
             with self._sqlite_conn(db_path) as conn:
-                apply_migrations(conn, postgres=False)
+                apply_migrations(conn)
                 ing = ingest_forwarded_signal(
                     conn, raw_text=EXPLICIT_LONG, telegram_message_id="full-tx-1",
                 )
@@ -457,7 +457,7 @@ class FuturesAgentBooleanPersistenceTestCase(unittest.TestCase):
             ):
                 with self.assertRaises(AgentDbError):
                     with self._sqlite_conn(db_path) as conn:
-                        apply_migrations(conn, postgres=False)
+                        apply_migrations(conn)
                         ing = ingest_forwarded_signal(
                             conn, raw_text=EXPLICIT_LONG, telegram_message_id="rb-1",
                         )
@@ -550,10 +550,10 @@ class FuturesAgentPostgresSmokeTest(unittest.TestCase):
         if not url.startswith(("postgres://", "postgresql://")):
             self.skipTest("FUTURES_AGENT_DATABASE_URL must be PostgreSQL")
         with agent_connection() as conn:
-            applied = apply_migrations(conn, postgres=True)
-            validation = validate_stage1_schema(conn, postgres=True)
+            applied = apply_migrations(conn)
+            validation = validate_stage1_schema(conn)
             if applied:
-                applied_again = apply_migrations(conn, postgres=True)
+                applied_again = apply_migrations(conn)
                 self.assertEqual(applied_again, [])
         self.assertTrue(validation["valid"])
 

@@ -80,18 +80,20 @@ class TelegramInboundTestCase(unittest.TestCase):
         reset_bootstrap_for_tests()
         self._tmpdir = tempfile.TemporaryDirectory()
         self.db_path = Path(self._tmpdir.name) / "tg.db"
-        os.environ["FUTURES_AGENT_SQLITE_PATH"] = str(self.db_path)
         os.environ.pop("FUTURES_AGENT_DATABASE_URL", None)
         os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
         os.environ["TELEGRAM_AGENT_ALLOWED_CHAT_IDS"] = "12345"
         reset_bootstrap_for_tests()
+
+    @property
+    def db_url(self) -> str:
+        return f"sqlite:///{self.db_path}"
 
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
         reset_bootstrap_for_tests()
         os.environ.pop("TELEGRAM_BOT_TOKEN", None)
         os.environ.pop("TELEGRAM_AGENT_ALLOWED_CHAT_IDS", None)
-        os.environ.pop("FUTURES_AGENT_SQLITE_PATH", None)
 
     def _message(self, text: str, *, msg_id: int = 1, forwarded: bool = False) -> dict:
         msg = {
@@ -111,7 +113,7 @@ class TelegramInboundTestCase(unittest.TestCase):
             )
             with patch("bot.research.futures_agent.snapshot.BinanceMarketProvider", MockProvider):
                 result = process_telegram_message(
-                    self._message(EXPLICIT_LONG), postgres=False,
+                    self._message(EXPLICIT_LONG), db_url=self.db_url,
                 )
         self.assertIsNotNone(result.reply_text)
         self.assertIn("SIGNAL ACCEPTED", result.reply_text)
@@ -122,32 +124,32 @@ class TelegramInboundTestCase(unittest.TestCase):
             mock_snap.return_value = SnapshotResult(signal_id=1, success=True)
             with patch("bot.research.futures_agent.snapshot.BinanceMarketProvider", MockProvider):
                 result = process_telegram_message(
-                    self._message(EXPLICIT_LONG, forwarded=True), postgres=False,
+                    self._message(EXPLICIT_LONG, forwarded=True), db_url=self.db_url,
                 )
         self.assertIn("SIGNAL ACCEPTED", result.reply_text or "")
 
     def test_unauthorized_chat_rejected(self) -> None:
         msg = self._message(EXPLICIT_LONG)
         msg["chat"]["id"] = 99999
-        result = process_telegram_message(msg, postgres=False)
+        result = process_telegram_message(msg, db_url=self.db_url)
         self.assertTrue(result.unauthorized)
 
     def test_duplicate_telegram_message_ignored(self) -> None:
         from bot.research.futures_agent.db import agent_connection
-        with agent_connection(f"sqlite:///{self.db_path}") as conn:
-            apply_migrations(conn, postgres=False)
+        with agent_connection(self.db_url) as conn:
+            apply_migrations(conn)
             ingest_from_telegram(
                 conn, raw_text=EXPLICIT_LONG, chat_id=12345, message_id=42,
             )
         with patch("bot.research.futures_agent.telegram_inbound.snapshot_signal"):
-            r1 = process_telegram_message(self._message(EXPLICIT_LONG, msg_id=42), postgres=False)
-            r2 = process_telegram_message(self._message(EXPLICIT_LONG, msg_id=42), postgres=False)
+            r1 = process_telegram_message(self._message(EXPLICIT_LONG, msg_id=42), db_url=self.db_url)
+            r2 = process_telegram_message(self._message(EXPLICIT_LONG, msg_id=42), db_url=self.db_url)
         self.assertIn("duplicate", (r2.reply_text or "").lower())
 
     def test_review_not_snapshotted(self) -> None:
         with patch("bot.research.futures_agent.telegram_inbound.snapshot_signal") as mock_snap:
             result = process_telegram_message(
-                self._message(MARKET_REVIEW), postgres=False,
+                self._message(MARKET_REVIEW), db_url=self.db_url,
             )
         mock_snap.assert_not_called()
         self.assertIn("MESSAGE RECEIVED", result.reply_text or "")
@@ -157,7 +159,7 @@ class TelegramInboundTestCase(unittest.TestCase):
         with patch("bot.research.futures_agent.telegram_inbound.snapshot_signal") as mock_snap:
             mock_snap.return_value = SnapshotResult(signal_id=1, success=True)
             with patch("bot.research.futures_agent.snapshot.BinanceMarketProvider", MockProvider):
-                process_telegram_message(self._message(EXPLICIT_LONG), postgres=False)
+                process_telegram_message(self._message(EXPLICIT_LONG), db_url=self.db_url)
         mock_snap.assert_called_once()
 
     def test_snapshot_failure_preserves_stage1(self) -> None:
@@ -167,8 +169,8 @@ class TelegramInboundTestCase(unittest.TestCase):
                 signal_id=1, success=False, error="api down",
             )
             with patch("bot.research.futures_agent.snapshot.BinanceMarketProvider", MockProvider):
-                result = process_telegram_message(self._message(EXPLICIT_LONG), postgres=False)
-        with agent_connection(f"sqlite:///{self.db_path}") as conn:
+                result = process_telegram_message(self._message(EXPLICIT_LONG), db_url=self.db_url)
+        with agent_connection(self.db_url) as conn:
             n = conn.execute("SELECT COUNT(*) AS n FROM futures_agent_signals").fetchone()["n"]
         self.assertEqual(n, 1)
         self.assertIn("SIGNAL ACCEPTED", result.reply_text or "")
@@ -178,7 +180,7 @@ class TelegramInboundTestCase(unittest.TestCase):
         with patch("bot.research.futures_agent.telegram_inbound.snapshot_signal") as mock_snap:
             mock_snap.return_value = SnapshotResult(signal_id=1, success=True, research_label="MIXED_CONTEXT")
             with patch("bot.research.futures_agent.snapshot.BinanceMarketProvider", MockProvider):
-                result = process_telegram_message(self._message(EXPLICIT_LONG), postgres=False)
+                result = process_telegram_message(self._message(EXPLICIT_LONG), db_url=self.db_url)
         text = (result.reply_text or "").lower()
         self.assertNotIn("buy now", text)
         self.assertIn("no order placed", text)
@@ -187,7 +189,7 @@ class TelegramInboundTestCase(unittest.TestCase):
         with self.assertLogs("bot.research.futures_agent.telegram_inbound", level="INFO") as cm:
             process_telegram_message(
                 {**self._message("x"), "chat": {"id": 99999}},
-                postgres=False,
+                db_url=self.db_url,
             )
         joined = " ".join(cm.output)
         self.assertNotIn("test-token", joined)
@@ -199,15 +201,15 @@ class TelegramInboundTestCase(unittest.TestCase):
         self.assertNotIn("bot.main", src)
 
     def test_config_fail_fast_missing_token(self) -> None:
-        os.environ.pop("TELEGRAM_BOT_TOKEN")
-        with self.assertRaises(TelegramInboundConfigError):
-            require_telegram_inbound_config()
+        with patch("bot.research.futures_agent.telegram_config.get_telegram_bot_token", return_value=""):
+            with self.assertRaises(TelegramInboundConfigError):
+                require_telegram_inbound_config()
 
     def test_ingest_preserves_raw_text(self) -> None:
         from bot.research.futures_agent.db import agent_connection
         text = "  SUI LONG\nEntry: 2.14  "
-        with agent_connection(f"sqlite:///{self.db_path}") as conn:
-            apply_migrations(conn, postgres=False)
+        with agent_connection(self.db_url) as conn:
+            apply_migrations(conn)
             ing = ingest_from_telegram(
                 conn, raw_text=text, chat_id=1, message_id=7,
             )
@@ -233,29 +235,130 @@ class TelegramInboundTestCase(unittest.TestCase):
         self.assertIn("MARKET_REVIEW", txt)
 
 
+class TelegramBackendIsolationTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        reset_bootstrap_for_tests()
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self._tmpdir.name) / "iso.db"
+        os.environ.pop("FUTURES_AGENT_SQLITE_PATH", None)
+        os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
+        os.environ["TELEGRAM_AGENT_ALLOWED_CHAT_IDS"] = "12345"
+        reset_bootstrap_for_tests()
+
+    @property
+    def db_url(self) -> str:
+        return f"sqlite:///{self.db_path}"
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+        reset_bootstrap_for_tests()
+        os.environ.pop("FUTURES_AGENT_DATABASE_URL", None)
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+        os.environ.pop("TELEGRAM_AGENT_ALLOWED_CHAT_IDS", None)
+
+    def _with_postgres_env(self) -> None:
+        os.environ["FUTURES_AGENT_DATABASE_URL"] = "postgresql:///trading_ai"
+        reset_bootstrap_for_tests()
+
+    def test_explicit_sqlite_url_with_postgres_env_uses_sqlite_migrations(self) -> None:
+        from bot.research.futures_agent.db import agent_connection, connection_is_postgres
+
+        self._with_postgres_env()
+        with agent_connection(self.db_url) as conn:
+            self.assertFalse(connection_is_postgres(conn))
+            apply_migrations(conn)
+        with agent_connection(self.db_url) as conn:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='futures_agent_inputs'",
+            ).fetchone()
+        self.assertIsNotNone(row)
+
+    def test_process_telegram_message_explicit_sqlite_never_calls_psycopg2(self) -> None:
+        from bot.research.futures_agent.db import agent_connection
+
+        self._with_postgres_env()
+        with patch(
+            "bot.research.futures_agent.telegram_inbound.agent_connection",
+            wraps=agent_connection,
+        ) as mock_ac, patch(
+            "bot.research.futures_agent.telegram_inbound.snapshot_signal",
+        ) as mock_snap:
+            mock_snap.return_value = SnapshotResult(signal_id=1, success=True)
+            with patch("bot.research.futures_agent.snapshot.BinanceMarketProvider", MockProvider):
+                process_telegram_message(
+                    {
+                        "message_id": 1,
+                        "date": 1_700_000_000,
+                        "chat": {"id": 12345, "type": "private"},
+                        "text": EXPLICIT_LONG,
+                    },
+                    db_url=self.db_url,
+                )
+        for call in mock_ac.call_args_list:
+            self.assertEqual(call.args[0], self.db_url)
+
+    def test_poll_loop_passes_configured_postgres_url(self) -> None:
+        from bot.research.futures_agent.env_bootstrap import AgentDbConfig
+
+        cfg = AgentDbConfig(
+            backend="postgresql",
+            url="postgresql:///trading_ai",
+            database_name="trading_ai",
+            sqlite_path=None,
+            config_source="project_dotenv",
+            postgres_url_configured=True,
+        )
+        calls = {"n": 0}
+
+        def fetch_side_effect(token, offset=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return []
+            raise KeyboardInterrupt()
+
+        root = Path(self._tmpdir.name)
+        with patch("bot.research.futures_agent.telegram_inbound.project_root", return_value=root), patch(
+            "bot.research.futures_agent.telegram_inbound._check_polling_conflicts",
+        ), patch(
+            "bot.research.futures_agent.telegram_inbound.resolve_agent_db_config",
+            return_value=cfg,
+        ), patch("fcntl.flock"), patch(
+            "bot.research.futures_agent.telegram_inbound._fetch_updates",
+            side_effect=fetch_side_effect,
+        ), patch(
+            "bot.research.futures_agent.telegram_inbound._commit_update_batch",
+        ) as mock_commit:
+            run_poll_loop()
+
+        mock_commit.assert_called_with([], start_offset=0, db_url="postgresql:///trading_ai")
+
+
 class TelegramPollResilienceTestCase(unittest.TestCase):
     def setUp(self) -> None:
         reset_bootstrap_for_tests()
         self._tmpdir = tempfile.TemporaryDirectory()
         self.root = Path(self._tmpdir.name)
         self.db_path = self.root / "tg.db"
-        os.environ["FUTURES_AGENT_SQLITE_PATH"] = str(self.db_path)
         os.environ.pop("FUTURES_AGENT_DATABASE_URL", None)
         os.environ["TELEGRAM_BOT_TOKEN"] = "test-token-secret"
         os.environ["TELEGRAM_AGENT_ALLOWED_CHAT_IDS"] = "12345"
         reset_bootstrap_for_tests()
+
+    @property
+    def db_url(self) -> str:
+        return f"sqlite:///{self.db_path}"
 
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
         reset_bootstrap_for_tests()
         os.environ.pop("TELEGRAM_BOT_TOKEN", None)
         os.environ.pop("TELEGRAM_AGENT_ALLOWED_CHAT_IDS", None)
-        os.environ.pop("FUTURES_AGENT_SQLITE_PATH", None)
 
     def _poll_patches(self):
         cfg = MagicMock()
         cfg.is_postgres = False
         cfg.backend = "sqlite"
+        cfg.url = self.db_url
         return (
             patch("bot.research.futures_agent.telegram_inbound.project_root", return_value=self.root),
             patch("bot.research.futures_agent.telegram_inbound._check_polling_conflicts"),
@@ -347,10 +450,10 @@ class TelegramPollResilienceTestCase(unittest.TestCase):
         with patch("bot.research.futures_agent.telegram_inbound.project_root", return_value=self.root), patch(
             "bot.research.futures_agent.telegram_inbound.send_telegram_reply",
         ):
-            _commit_update_batch([upd], start_offset=199, postgres=False)
-            _commit_update_batch([upd], start_offset=199, postgres=False)
+            _commit_update_batch([upd], start_offset=199, db_url=self.db_url)
+            _commit_update_batch([upd], start_offset=199, db_url=self.db_url)
 
-        with agent_connection(f"sqlite:///{self.db_path}") as conn:
+        with agent_connection(self.db_url) as conn:
             n = conn.execute(
                 "SELECT COUNT(*) AS n FROM futures_agent_inputs WHERE telegram_message_id = ?",
                 ("88",),

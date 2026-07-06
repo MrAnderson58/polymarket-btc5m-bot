@@ -57,14 +57,14 @@ class FuturesAgentStage1TestCase(unittest.TestCase):
 
     def test_migrations_idempotent(self) -> None:
         with self._conn() as conn:
-            a = apply_migrations(conn, postgres=False)
-            b = apply_migrations(conn, postgres=False)
+            a = apply_migrations(conn)
+            b = apply_migrations(conn)
         self.assertTrue(a)
         self.assertEqual(b, [])
 
     def test_raw_text_unchanged_after_processing(self) -> None:
         with self._conn() as conn:
-            apply_migrations(conn, postgres=False)
+            apply_migrations(conn)
             ing = ingest_forwarded_signal(conn, raw_text=EXPLICIT_LONG, telegram_message_id="t1")
             before = conn.execute(
                 "SELECT raw_text FROM futures_agent_inputs WHERE id = ?",
@@ -80,7 +80,7 @@ class FuturesAgentStage1TestCase(unittest.TestCase):
 
     def test_explicit_signal_ingestion_and_parse(self) -> None:
         with self._conn() as conn:
-            apply_migrations(conn, postgres=False)
+            apply_migrations(conn)
             ing = ingest_forwarded_signal(conn, raw_text=EXPLICIT_LONG, telegram_message_id="sig1")
             proc = process_input(conn, ing.input_id)
             sig = conn.execute(
@@ -101,7 +101,7 @@ class FuturesAgentStage1TestCase(unittest.TestCase):
 
     def test_market_review_rejected(self) -> None:
         with self._conn() as conn:
-            apply_migrations(conn, postgres=False)
+            apply_migrations(conn)
             ing = ingest_forwarded_signal(conn, raw_text=MARKET_REVIEW, telegram_message_id="rev1")
             proc = process_input(conn, ing.input_id)
         self.assertFalse(proc.passes_gate)
@@ -110,14 +110,14 @@ class FuturesAgentStage1TestCase(unittest.TestCase):
 
     def test_promo_rejected(self) -> None:
         with self._conn() as conn:
-            apply_migrations(conn, postgres=False)
+            apply_migrations(conn)
             ing = ingest_forwarded_signal(conn, raw_text=PROMO, telegram_message_id="promo1")
             proc = process_input(conn, ing.input_id)
         self.assertEqual(proc.processing_status, STATUS_REJECTED)
 
     def test_parser_does_not_invent_fields(self) -> None:
         with self._conn() as conn:
-            apply_migrations(conn, postgres=False)
+            apply_migrations(conn)
             text = "Random commentary about markets"
             ing = ingest_forwarded_signal(conn, raw_text=text, telegram_message_id="x1")
             proc = process_input(conn, ing.input_id)
@@ -131,7 +131,7 @@ class FuturesAgentStage1TestCase(unittest.TestCase):
 
     def test_duplicate_prevention(self) -> None:
         with self._conn() as conn:
-            apply_migrations(conn, postgres=False)
+            apply_migrations(conn)
             a = ingest_forwarded_signal(conn, raw_text=EXPLICIT_LONG, telegram_message_id="dup")
             b = ingest_forwarded_signal(conn, raw_text=EXPLICIT_LONG, telegram_message_id="dup")
         self.assertFalse(a.duplicate)
@@ -140,7 +140,7 @@ class FuturesAgentStage1TestCase(unittest.TestCase):
 
     def test_duplicate_analysis_prevention(self) -> None:
         with self._conn() as conn:
-            apply_migrations(conn, postgres=False)
+            apply_migrations(conn)
             ing = ingest_forwarded_signal(conn, raw_text=EXPLICIT_LONG, telegram_message_id="once")
             process_input(conn, ing.input_id)
             again = process_input(conn, ing.input_id)
@@ -148,7 +148,7 @@ class FuturesAgentStage1TestCase(unittest.TestCase):
 
     def test_process_pending(self) -> None:
         with self._conn() as conn:
-            apply_migrations(conn, postgres=False)
+            apply_migrations(conn)
             ingest_forwarded_signal(conn, raw_text=EXPLICIT_LONG, telegram_message_id="p1")
             ingest_forwarded_signal(conn, raw_text=MARKET_REVIEW, telegram_message_id="p2")
             pending = conn.execute(
@@ -162,7 +162,7 @@ class FuturesAgentStage1TestCase(unittest.TestCase):
     def test_no_execution_imports_in_agent(self) -> None:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        apply_migrations(conn, postgres=False)
+        apply_migrations(conn)
         mock_ctx = MagicMock()
         mock_ctx.__enter__.return_value = conn
         mock_ctx.__exit__.return_value = False
@@ -174,7 +174,7 @@ class FuturesAgentStage1TestCase(unittest.TestCase):
     def test_architecture_audit_runs(self) -> None:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        apply_migrations(conn, postgres=False)
+        apply_migrations(conn)
         mock_ctx = MagicMock()
         mock_ctx.__enter__.return_value = conn
         mock_ctx.__exit__.return_value = False

@@ -161,7 +161,7 @@ class FuturesAgentStage2PipelineTestCase(unittest.TestCase):
         })
 
     def _seed_gated_signal(self, conn) -> int:
-        apply_migrations(conn, postgres=False)
+        apply_migrations(conn)
         ing = ingest_forwarded_signal(
             conn, raw_text=EXPLICIT_LONG, telegram_message_id="st2-1",
         )
@@ -268,8 +268,8 @@ class FuturesAgentStage2PipelineTestCase(unittest.TestCase):
 
     def test_stage2_migration_applies(self) -> None:
         with agent_connection(self.db_url) as conn:
-            applied = apply_migrations(conn, postgres=False)
-            applied2 = apply_migrations(conn, postgres=False)
+            applied = apply_migrations(conn)
+            applied2 = apply_migrations(conn)
         self.assertTrue(any("stage2" in a for a in applied))
         self.assertEqual(applied2, [])
 

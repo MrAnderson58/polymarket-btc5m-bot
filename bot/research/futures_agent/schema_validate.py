@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from bot.research.futures_agent.db import connection_is_postgres
+
 STAGE1_TABLES = {
     "futures_agent_migrations": frozenset({"version", "applied_at", "description"}),
     "futures_agent_inputs": frozenset({
@@ -73,7 +75,8 @@ STAGE2_FK_EXPECTED = {
 }
 
 
-def validate_stage1_schema(conn: Any, *, postgres: bool) -> dict[str, Any]:
+def validate_stage1_schema(conn: Any) -> dict[str, Any]:
+    postgres = connection_is_postgres(conn)
     errors: list[str] = []
     tables_ok: list[str] = []
 
@@ -131,7 +134,8 @@ def _check_fk_postgres(conn: Any, errors: list[str]) -> None:
             errors.append(f"missing FK: {exp[0]}.{exp[1]} -> {exp[2]}")
 
 
-def validate_stage2_schema(conn: Any, *, postgres: bool) -> dict[str, Any]:
+def validate_stage2_schema(conn: Any) -> dict[str, Any]:
+    postgres = connection_is_postgres(conn)
     errors: list[str] = []
     tables_ok: list[str] = []
 

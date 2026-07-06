@@ -15,6 +15,11 @@ class AgentDbError(RuntimeError):
     pass
 
 
+def connection_is_postgres(conn: Any) -> bool:
+    """True when conn is a PostgreSQL agent wrapper."""
+    return isinstance(conn, _PgConnWrapper)
+
+
 def _is_postgres_dsn(dsn: str) -> bool:
     return dsn.startswith(("postgres://", "postgresql://"))
 

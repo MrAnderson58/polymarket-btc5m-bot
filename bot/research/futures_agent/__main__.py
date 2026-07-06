@@ -51,7 +51,7 @@ def main() -> int:
 
     if args.command == "migrate":
         with agent_connection() as conn:
-            applied = apply_migrations(conn, postgres=cfg.is_postgres)
+            applied = apply_migrations(conn)
         print(f"Backend: {cfg.backend} ({cfg.config_source})")
         if cfg.database_name:
             print(f"Database: {cfg.database_name}")
@@ -76,7 +76,7 @@ def main() -> int:
 
         try:
             with agent_connection() as conn:
-                apply_migrations(conn, postgres=cfg.is_postgres)
+                apply_migrations(conn)
                 ing = ingest_from_cli(conn, args.text)
                 proc = process_input(conn, ing.input_id)
                 msg = format_signal_received(conn, ing.input_id)
@@ -99,7 +99,7 @@ def main() -> int:
         from bot.research.futures_agent.pipeline import process_pending
 
         with agent_connection() as conn:
-            apply_migrations(conn, postgres=cfg.is_postgres)
+            apply_migrations(conn)
             results = process_pending(conn, limit=args.limit)
         print(f"Backend: {cfg.backend} ({cfg.config_source})")
         for r in results:
@@ -117,7 +117,7 @@ def main() -> int:
         from bot.research.futures_agent.snapshot import snapshot_signal
 
         with agent_connection() as conn:
-            apply_migrations(conn, postgres=cfg.is_postgres)
+            apply_migrations(conn)
             result = snapshot_signal(conn, args.signal_id)
         if result.skipped:
             print(f"Snapshot already exists for signal_id={args.signal_id}")
@@ -136,7 +136,7 @@ def main() -> int:
         from bot.research.futures_agent.snapshot import snapshot_pending
 
         with agent_connection() as conn:
-            apply_migrations(conn, postgres=cfg.is_postgres)
+            apply_migrations(conn)
             results = snapshot_pending(conn, limit=args.limit)
         print(f"Backend: {cfg.backend} ({cfg.config_source})")
         for r in results:
@@ -152,7 +152,7 @@ def main() -> int:
         from bot.research.futures_agent.context_report import format_context_report
 
         with agent_connection() as conn:
-            apply_migrations(conn, postgres=cfg.is_postgres)
+            apply_migrations(conn)
             print(format_context_report(conn, args.signal_id))
         return 0
 
@@ -163,7 +163,7 @@ def main() -> int:
         from bot.research.futures_agent.snapshot_audit import format_snapshot_audit
 
         with agent_connection() as conn:
-            apply_migrations(conn, postgres=cfg.is_postgres)
+            apply_migrations(conn)
             print(format_snapshot_audit(conn, args.signal_id))
         return 0
 

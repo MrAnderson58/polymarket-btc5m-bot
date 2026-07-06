@@ -39,7 +39,7 @@ def run_architecture_audit() -> dict[str, Any]:
     try:
         from bot.research.futures_agent.db import agent_connection
         with agent_connection() as conn:
-            schema_validation = validate_stage1_schema(conn, postgres=cfg.is_postgres)
+            schema_validation = validate_stage1_schema(conn)
     except Exception as exc:
         schema_validation = {"valid": False, "error": str(exc)}
 

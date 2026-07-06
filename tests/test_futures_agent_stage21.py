@@ -204,7 +204,7 @@ class Stage21IntegrationTestCase(unittest.TestCase):
 
     def test_snapshot_persists_canonical_alignment_not_inline(self) -> None:
         with agent_connection(self.db_url) as conn:
-            apply_migrations(conn, postgres=False)
+            apply_migrations(conn)
             ing = ingest_forwarded_signal(
                 conn, raw_text=EXPLICIT_LONG, telegram_message_id="s21-1",
             )
@@ -232,7 +232,7 @@ class Stage21IntegrationTestCase(unittest.TestCase):
 
     def test_snapshot_audit_command_output(self) -> None:
         with agent_connection(self.db_url) as conn:
-            apply_migrations(conn, postgres=False)
+            apply_migrations(conn)
             ing = ingest_forwarded_signal(
                 conn, raw_text=EXPLICIT_LONG, telegram_message_id="s21-audit",
             )

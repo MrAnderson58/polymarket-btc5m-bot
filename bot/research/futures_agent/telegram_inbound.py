@@ -85,7 +85,7 @@ def extract_forward_origin(message: dict[str, Any]) -> dict[str, Any] | None:
 def process_telegram_message(
     message: dict[str, Any],
     *,
-    postgres: bool,
+    db_url: str | None = None,
 ) -> InboundResult:
     """Full pipeline: ingest → parse → snapshot (if gated) → reply text."""
     chat = message.get("chat") or {}
@@ -103,8 +103,8 @@ def process_telegram_message(
     received_at = int(message.get("date", time.time()))
     forward_origin = extract_forward_origin(message)
 
-    with agent_connection() as conn:
-        apply_migrations(conn, postgres=postgres)
+    with agent_connection(db_url) as conn:
+        apply_migrations(conn)
         ing = ingest_from_telegram(
             conn,
             raw_text=text,
@@ -125,22 +125,26 @@ def process_telegram_message(
 
     snap: SnapshotResult | None = None
     if signal_id:
-        with agent_connection() as conn:
-            apply_migrations(conn, postgres=postgres)
+        with agent_connection(db_url) as conn:
+            apply_migrations(conn)
             snap = snapshot_signal(conn, signal_id)
 
-    with agent_connection() as conn:
+    with agent_connection(db_url) as conn:
         reply = format_telegram_accepted(
             conn, input_id=input_id, signal_id=signal_id or 0, snap=snap,
         )
     return InboundResult(chat_id, message_id, reply)
 
 
-def handle_update(update: dict[str, Any], *, postgres: bool) -> InboundResult | None:
+def handle_update(
+    update: dict[str, Any],
+    *,
+    db_url: str | None = None,
+) -> InboundResult | None:
     message = update.get("message") or update.get("edited_message")
     if not message:
         return None
-    result = process_telegram_message(message, postgres=postgres)
+    result = process_telegram_message(message, db_url=db_url)
     if result.unauthorized:
         return result
     if result.reply_text:
@@ -149,11 +153,11 @@ def handle_update(update: dict[str, Any], *, postgres: bool) -> InboundResult | 
     return result
 
 
-def poll_once(*, offset: int | None = None, postgres: bool = False) -> int:
+def poll_once(*, offset: int | None = None, db_url: str | None = None) -> int:
     """Fetch and process one batch. Returns committed offset."""
     token, _ = require_telegram_inbound_config()
     updates = _fetch_updates(token, offset=offset)
-    return _commit_update_batch(updates, start_offset=offset or 0, postgres=postgres)
+    return _commit_update_batch(updates, start_offset=offset or 0, db_url=db_url)
 
 
 def _fetch_updates(token: str, *, offset: int | None = None) -> list[dict[str, Any]]:
@@ -168,12 +172,12 @@ def _commit_update_batch(
     updates: list[dict[str, Any]],
     *,
     start_offset: int,
-    postgres: bool,
+    db_url: str | None = None,
 ) -> int:
     """Process updates; persist offset only after each update succeeds."""
     committed_offset = start_offset
     for upd in updates:
-        handle_update(upd, postgres=postgres)
+        handle_update(upd, db_url=db_url)
         next_offset = int(upd["update_id"]) + 1
         if next_offset > committed_offset:
             committed_offset = next_offset
@@ -185,6 +189,7 @@ def run_poll_loop() -> None:
     """Long-polling loop with file lock (single local consumer)."""
     require_telegram_inbound_config()
     cfg = resolve_agent_db_config()
+    db_url = cfg.url
     _check_polling_conflicts(get_telegram_bot_token())
 
     lock_path = project_root() / LOCK_FILE
@@ -212,7 +217,7 @@ def run_poll_loop() -> None:
                     token, _ = require_telegram_inbound_config()
                     updates = _fetch_updates(token, offset=offset or None)
                     offset = _commit_update_batch(
-                        updates, start_offset=offset or 0, postgres=cfg.is_postgres,
+                        updates, start_offset=offset or 0, db_url=db_url,
                     )
                     if connection_degraded:
                         logger.info("polling recovered")

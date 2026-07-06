@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from bot.research.futures_agent.db import connection_is_postgres
 from bot.research.futures_agent.schema_validate import validate_stage1_schema, validate_stage2_schema
 
 MIGRATIONS_TABLE = "futures_agent_migrations"
@@ -278,19 +279,20 @@ CREATE TABLE IF NOT EXISTS futures_agent_relative_strength (
 """
 
 
-def apply_migrations(conn: Any, *, postgres: bool = False) -> list[str]:
+def apply_migrations(conn: Any) -> list[str]:
     """Apply Stage 1 + Stage 2 migrations idempotently."""
+    postgres = connection_is_postgres(conn)
     applied: list[str] = []
 
     for stmt in _split_ddl(STAGE1_DDL_POSTGRES if postgres else STAGE1_DDL):
         conn.execute(stmt)
 
     if _has_migration(conn, STAGE1_VERSION):
-        validation = validate_stage1_schema(conn, postgres=postgres)
+        validation = validate_stage1_schema(conn)
         if not validation["valid"]:
             raise RuntimeError(f"Stage 1 schema validation failed: {validation['errors']}")
     else:
-        validation = validate_stage1_schema(conn, postgres=postgres)
+        validation = validate_stage1_schema(conn)
         if not validation["valid"]:
             raise RuntimeError(f"Stage 1 schema validation failed after DDL: {validation['errors']}")
         conn.execute(
@@ -303,11 +305,11 @@ def apply_migrations(conn: Any, *, postgres: bool = False) -> list[str]:
         conn.execute(stmt)
 
     if _has_migration(conn, STAGE2_VERSION):
-        validation2 = validate_stage2_schema(conn, postgres=postgres)
+        validation2 = validate_stage2_schema(conn)
         if not validation2["valid"]:
             raise RuntimeError(f"Stage 2 schema validation failed: {validation2['errors']}")
     else:
-        validation2 = validate_stage2_schema(conn, postgres=postgres)
+        validation2 = validate_stage2_schema(conn)
         if not validation2["valid"]:
             raise RuntimeError(f"Stage 2 schema validation failed after DDL: {validation2['errors']}")
         conn.execute(
