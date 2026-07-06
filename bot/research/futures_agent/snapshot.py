@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,17 +18,25 @@ from bot.research.futures_agent.config import (
     include_eth_context,
 )
 from bot.research.futures_agent.db import _PgConnWrapper, insert_returning_id, validate_write_table
-from bot.research.futures_agent.features import AssetSnapshot, build_asset_snapshot, correlation_beta
+from bot.research.futures_agent.features import (
+    AssetSnapshot,
+    build_asset_snapshot,
+    latest_candle_ts,
+    synchronized_minute_returns,
+    correlation_beta,
+)
 from bot.research.futures_agent.market_provider import BinanceMarketProvider, MarketDataProvider
 from bot.research.futures_agent.regime import (
     alignment_label,
     btc_market_regime,
     btc_trend_fields,
+    canonical_relative_strength_label,
+    ensure_canonical_alignment,
     momentum_regime,
     preliminary_research_label,
-    relative_strength_label,
     volatility_regime,
 )
+from bot.research.futures_agent.signal_sanity import compute_signal_market_sanity
 
 
 @dataclass
@@ -68,6 +77,7 @@ def snapshot_signal(
     row = conn.execute(
         """
         SELECT s.id, s.symbol, s.direction, s.passes_gate, s.input_id,
+               s.entry_low, s.entry_high, s.stop_loss,
                i.received_at, i.processing_status
         FROM futures_agent_signals s
         JOIN futures_agent_inputs i ON i.id = s.input_id
@@ -83,7 +93,9 @@ def snapshot_signal(
         return SnapshotResult(signal_id=signal_id, success=False, error="signal has no symbol")
 
     ts = int(row["received_at"])
+    requested_at = int(time.time())
     provider = provider or BinanceMarketProvider()
+    provider_name = getattr(provider, "__class__", type(provider)).__name__
 
     try:
         alt_snap = build_asset_snapshot(provider, row["symbol"], ts)
@@ -109,17 +121,44 @@ def snapshot_signal(
             if eth_snap.data_quality not in (DATA_QUALITY_API_UNAVAILABLE,):
                 eth_id = _persist_market_snapshot(conn, signal_id, eth_snap)
 
+        tps = conn.execute(
+            """
+            SELECT target_price FROM futures_agent_targets
+            WHERE signal_id = ? ORDER BY target_index
+            """,
+            (signal_id,),
+        ).fetchall()
+        tp_prices = [float(r["target_price"]) for r in tps]
+
+        market_price = alt_snap.futures_price or alt_snap.spot_price
+        sanity = compute_signal_market_sanity(
+            direction=row["direction"],
+            entry_low=row["entry_low"],
+            entry_high=row["entry_high"],
+            stop_loss=row["stop_loss"],
+            take_profits=tp_prices,
+            market_price=market_price,
+        )
+
+        alt_latest = latest_candle_ts(alt_snap.alt_candles_1m, ts)
+        btc_latest = latest_candle_ts(btc_snap.alt_candles_1m, ts)
+        lag_seconds = (ts - alt_latest) if alt_latest else None
+
+        alt_rets, btc_rets, sample_n = synchronized_minute_returns(
+            alt_snap.alt_candles_1m, btc_snap.alt_candles_1m, ts,
+        )
+        corr, beta, paired_n = correlation_beta(alt_rets, btc_rets)
+
         excess_5m = _excess(alt_snap.return_5m, btc_snap.return_5m)
         excess_15m = _excess(alt_snap.return_15m, btc_snap.return_15m)
         excess_1h = _excess(alt_snap.return_1h, btc_snap.return_1h)
-        corr, beta = correlation_beta(alt_snap.minute_returns_1m, btc_snap.minute_returns_1m)
-        align = alignment_label(
+        align = ensure_canonical_alignment(alignment_label(
             signal_direction=row["direction"],
             alt_snap=alt_snap,
             btc_snap=btc_snap,
             excess_1h=excess_1h,
-        )
-        rs_label = relative_strength_label(excess_5m, excess_1h)
+        ))
+        rs_label = canonical_relative_strength_label(excess_5m, excess_1h)
         btc_reg = btc_market_regime(btc_snap)
         vol_reg = volatility_regime(btc_snap)
         mom_reg = momentum_regime(btc_snap)
@@ -182,7 +221,21 @@ def snapshot_signal(
         )
 
         meta = alt_snap.raw_metadata_json
-        meta["alignment_label"] = align
+        meta.update({
+            "provider": provider_name,
+            "requested_at": requested_at,
+            "signal_timestamp": ts,
+            "latest_market_timestamp": alt_latest,
+            "btc_latest_market_timestamp": btc_latest,
+            "lag_seconds": lag_seconds,
+            "observations_used": meta.get("observations_used"),
+            "correlation_sample_n": paired_n,
+            "beta_sample_n": paired_n,
+            "alignment_label": align,
+            "relative_strength_label": rs_label,
+            **sanity,
+        })
+        alt_snap.raw_metadata_json = meta
         meta["research_label"] = research
         meta["eth_snapshot_id"] = eth_id
         if alt_id:

@@ -28,7 +28,8 @@ def main() -> int:
         "command",
         choices=(
             "audit", "migrate", "ingest", "process-pending",
-            "snapshot", "snapshot-pending", "context-report",
+            "snapshot", "snapshot-pending", "context-report", "snapshot-audit",
+            "telegram-poll", "telegram-diagnose",
         ),
     )
     parser.add_argument("--text", default=None, help="Signal text for ingest")
@@ -154,6 +155,35 @@ def main() -> int:
             apply_migrations(conn, postgres=cfg.is_postgres)
             print(format_context_report(conn, args.signal_id))
         return 0
+
+    if args.command == "snapshot-audit":
+        if args.signal_id is None:
+            print("ERROR: --signal-id required for snapshot-audit", file=sys.stderr)
+            return 1
+        from bot.research.futures_agent.snapshot_audit import format_snapshot_audit
+
+        with agent_connection() as conn:
+            apply_migrations(conn, postgres=cfg.is_postgres)
+            print(format_snapshot_audit(conn, args.signal_id))
+        return 0
+
+    if args.command == "telegram-diagnose":
+        from bot.research.futures_agent.telegram_inbound import render_diagnose, run_diagnose
+        print(render_diagnose(run_diagnose()))
+        return 0
+
+    if args.command == "telegram-poll":
+        import logging
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+        from bot.research.futures_agent.telegram_inbound import run_poll_loop
+        try:
+            run_poll_loop()
+        except KeyboardInterrupt:
+            print("\nTelegram poll stopped.")
+            return 0
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
 
     return 1
 

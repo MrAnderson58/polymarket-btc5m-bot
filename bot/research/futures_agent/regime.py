@@ -13,6 +13,7 @@ from bot.research.futures_agent.config import (
     BTC_REGIME_STRONG_DOWN,
     BTC_REGIME_STRONG_UP,
     BTC_REGIME_UP,
+    CANONICAL_ALIGNMENT_LABELS,
     RESEARCH_COUNTERTREND,
     RESEARCH_HIGH_RISK,
     RESEARCH_INSUFFICIENT,
@@ -102,16 +103,23 @@ def alignment_label(
     return ALIGNMENT_NEUTRAL
 
 
-def relative_strength_label(excess_5m: float | None, excess_1h: float | None) -> str:
+def canonical_relative_strength_label(excess_5m: float | None, excess_1h: float | None) -> str:
+    """Map excess returns to canonical alignment taxonomy (never INLINE)."""
     if excess_1h is not None and excess_1h > 0.5:
-        return "OUTPERFORMING"
+        return ALIGNMENT_ALT_RS
     if excess_1h is not None and excess_1h < -0.5:
-        return "UNDERPERFORMING"
+        return ALIGNMENT_ALT_RW
     if excess_5m is not None and excess_5m > 0.2:
-        return "SHORT_TERM_OUTPERFORM"
+        return ALIGNMENT_ALT_RS
     if excess_5m is not None and excess_5m < -0.2:
-        return "SHORT_TERM_UNDERPERFORM"
-    return "INLINE"
+        return ALIGNMENT_ALT_RW
+    return ALIGNMENT_NEUTRAL
+
+
+def ensure_canonical_alignment(label: str) -> str:
+    if label in CANONICAL_ALIGNMENT_LABELS:
+        return label
+    return ALIGNMENT_NEUTRAL
 
 
 def preliminary_research_label(
@@ -143,5 +151,5 @@ def btc_trend_fields(snap: AssetSnapshot) -> dict[str, str | None]:
     return {
         "trend_15m": trend_label(snap.return_15m),
         "trend_1h": trend_label(snap.return_1h),
-        "trend_4h": trend_label(snap.return_4h),
+        "trend_4h": trend_label(snap.return_4h) if snap.raw_metadata_json.get("return_4h_valid") else None,
     }

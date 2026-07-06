@@ -14,6 +14,7 @@ from bot.research.futures_agent.config import (
     DATA_QUALITY_PARTIAL,
     DATA_QUALITY_STALE,
     DATA_QUALITY_SYMBOL_UNAVAILABLE,
+    MIN_CORRELATION_SAMPLES,
 )
 from bot.research.futures_agent.market_provider import MarketDataProvider, symbol_pair
 
@@ -22,14 +23,24 @@ def candles_at_or_before(candles: list[list], ts: int) -> list[list]:
     return [c for c in candles if int(c[0] // 1000) <= ts]
 
 
-def close_at(candles: list[list], ts: int) -> float | None:
+def latest_candle_ts(candles: list[list], ts: int) -> int | None:
     eligible = candles_at_or_before(candles, ts)
     if not eligible:
         return None
-    return float(eligible[-1][4])
+    return int(eligible[-1][0] // 1000)
+
+
+def has_history_for_window(candles: list[list], ts: int, window_sec: int) -> bool:
+    eligible = candles_at_or_before(candles, ts)
+    if not eligible:
+        return False
+    earliest = int(eligible[0][0] // 1000)
+    return (ts - earliest) >= window_sec
 
 
 def return_over(candles: list[list], ts: int, window_sec: int) -> float | None:
+    if not has_history_for_window(candles, ts, window_sec):
+        return None
     p_now = close_at(candles, ts)
     p_then = close_at(candles, ts - window_sec)
     if p_now is None or p_then is None or p_then == 0:
@@ -84,6 +95,13 @@ def volume_ratio(candles: list[list], ts: int, window: int = 20) -> float | None
     return vols[-1] / avg
 
 
+def close_at(candles: list[list], ts: int) -> float | None:
+    eligible = candles_at_or_before(candles, ts)
+    if not eligible:
+        return None
+    return float(eligible[-1][4])
+
+
 def minute_returns(candles: list[list], ts: int, n: int) -> list[float]:
     window = candles_at_or_before(candles, ts)[-n - 1:]
     rets: list[float] = []
@@ -94,12 +112,46 @@ def minute_returns(candles: list[list], ts: int, n: int) -> list[float]:
     return rets
 
 
-def correlation_beta(
-    alt_rets: list[float], btc_rets: list[float],
-) -> tuple[float | None, float | None]:
+def synchronized_minute_returns(
+    alt_candles: list[list],
+    btc_candles: list[list],
+    ts: int,
+    *,
+    max_points: int = 60,
+) -> tuple[list[float], list[float], int]:
+    """Pair ALT/BTC 1m returns on matching candle timestamps (no look-ahead)."""
+    alt_closes: dict[int, float] = {}
+    for c in candles_at_or_before(alt_candles, ts):
+        alt_closes[int(c[0] // 1000)] = float(c[4])
+    btc_closes: dict[int, float] = {}
+    for c in candles_at_or_before(btc_candles, ts):
+        btc_closes[int(c[0] // 1000)] = float(c[4])
+
+    common = sorted(set(alt_closes) & set(btc_closes))
+    if len(common) < 2:
+        return [], [], 0
+
+    common = common[-(max_points + 1):]
+    alt_rets: list[float] = []
+    btc_rets: list[float] = []
+    for i in range(1, len(common)):
+        t0, t1 = common[i - 1], common[i]
+        a0, a1 = alt_closes[t0], alt_closes[t1]
+        b0, b1 = btc_closes[t0], btc_closes[t1]
+        if a0 > 0 and b0 > 0:
+            alt_rets.append((a1 - a0) / a0)
+            btc_rets.append((b1 - b0) / b0)
+
     n = min(len(alt_rets), len(btc_rets))
-    if n < 5:
-        return None, None
+    return alt_rets[-n:], btc_rets[-n:], n
+
+
+def correlation_beta(
+    alt_rets: list[float], btc_rets: list[float], *, min_samples: int = MIN_CORRELATION_SAMPLES,
+) -> tuple[float | None, float | None, int]:
+    n = min(len(alt_rets), len(btc_rets))
+    if n < min_samples:
+        return None, None, n
     a = alt_rets[-n:]
     b = btc_rets[-n:]
     mean_a = sum(a) / n
@@ -107,14 +159,14 @@ def correlation_beta(
     cov = sum((a[i] - mean_a) * (b[i] - mean_b) for i in range(n)) / n
     var_b = sum((x - mean_b) ** 2 for x in b) / n
     if var_b == 0:
-        return None, None
+        return None, None, n
     beta = cov / var_b
     std_a = math.sqrt(sum((x - mean_a) ** 2 for x in a) / n)
     std_b = math.sqrt(var_b)
     if std_a == 0 or std_b == 0:
-        return None, beta
+        return None, beta, n
     corr = cov / (std_a * std_b)
-    return corr, beta
+    return corr, beta, n
 
 
 def trend_label(return_pct: float | None) -> str | None:
@@ -156,6 +208,8 @@ class AssetSnapshot:
     data_quality: str = DATA_QUALITY_PARTIAL
     raw_metadata_json: dict[str, Any] = field(default_factory=dict)
     minute_returns_1m: list[float] = field(default_factory=list)
+    alt_candles_1m: list[list] = field(default_factory=list, repr=False)
+    btc_candles_1m: list[list] = field(default_factory=list, repr=False)
 
 
 def build_asset_snapshot(
@@ -180,12 +234,20 @@ def build_asset_snapshot(
         return snap
 
     use = spot_1m if spot_1m else fut_1m
+    snap.alt_candles_1m = use
     snap.spot_price = close_at(spot_1m, ts) if spot_1m else None
     snap.futures_price = close_at(fut_1m, ts) if fut_1m else close_at(use, ts)
 
     for label, sec in RETURN_WINDOWS.items():
         val = return_over(use, ts, sec)
         setattr(snap, f"return_{label}", val)
+        if label == "4h":
+            window_sec = RETURN_WINDOWS["4h"]
+            valid = has_history_for_window(use, ts, window_sec)
+            snap.raw_metadata_json["return_4h_valid"] = valid
+            if not valid:
+                setattr(snap, "return_4h", None)
+                snap.raw_metadata_json["return_4h_insufficient_history"] = True
 
     closes = [float(c[4]) for c in candles_at_or_before(use, ts)]
     price = snap.futures_price or snap.spot_price
@@ -215,6 +277,11 @@ def build_asset_snapshot(
     if snap.spot_price and snap.futures_price:
         snap.basis = snap.futures_price - snap.spot_price
 
+    snap.raw_metadata_json["realized_vol_units"] = "pct_per_1m_bar"
+    snap.raw_metadata_json["distance_from_local_high_note"] = "negative_pct_below_high"
+    snap.raw_metadata_json["distance_from_local_low_note"] = "positive_pct_above_low"
+    snap.raw_metadata_json["latest_market_timestamp"] = latest_candle_ts(use, ts)
+    snap.raw_metadata_json["observations_used"] = len(candles_at_or_before(use, ts))
     snap.raw_metadata_json["acceleration_5m"] = _acceleration(snap.return_5m, snap.return_15m)
     snap.raw_metadata_json["momentum_consistency"] = _momentum_consistency(snap)
 

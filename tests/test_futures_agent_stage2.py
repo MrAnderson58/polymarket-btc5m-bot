@@ -106,7 +106,7 @@ class FuturesAgentStage2FeatureTestCase(unittest.TestCase):
     def test_correlation_and_beta(self) -> None:
         alt = [0.01, 0.02, -0.01, 0.015, 0.005, 0.01]
         btc = [0.005, 0.01, -0.005, 0.008, 0.002, 0.005]
-        corr, beta = correlation_beta(alt, btc)
+        corr, beta, _ = correlation_beta(alt, btc)
         self.assertIsNotNone(corr)
         self.assertIsNotNone(beta)
         self.assertGreater(corr, 0.9)

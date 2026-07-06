@@ -63,12 +63,13 @@ def format_signal_received(conn: Any, input_id: int) -> str:
     return "\n".join(lines)
 
 
-def send_telegram_message(text: str) -> bool:
-    if not telegram_notify_enabled():
-        return False
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = get_telegram_chat_id()
-    if not token or not chat_id:
+from bot.research.futures_agent.telegram_config import get_telegram_bot_token
+
+
+def send_telegram_reply(chat_id: int | str, text: str) -> bool:
+    """Send reply to a specific chat (inbound ack). Never logs token."""
+    token = get_telegram_bot_token()
+    if not token:
         return False
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     try:
@@ -80,3 +81,13 @@ def send_telegram_message(text: str) -> bool:
         return resp.ok and resp.json().get("ok", False)
     except requests.RequestException:
         return False
+
+
+def send_telegram_message(text: str) -> bool:
+    if not telegram_notify_enabled():
+        return False
+    token = get_telegram_bot_token()
+    chat_id = get_telegram_chat_id()
+    if not token or not chat_id:
+        return False
+    return send_telegram_reply(chat_id, text)

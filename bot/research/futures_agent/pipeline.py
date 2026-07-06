@@ -70,7 +70,7 @@ def _map_processing_status(taxonomy: MessageType, passes_gate: bool, parse_statu
 def process_input(conn: Any, input_id: int) -> ProcessResult:
     validate_write_table("futures_agent_signals")
     row = conn.execute(
-        "SELECT id, raw_text, processing_status FROM futures_agent_inputs WHERE id = ?",
+        "SELECT id, raw_text, processing_status, status_detail FROM futures_agent_inputs WHERE id = ?",
         (input_id,),
     ).fetchone()
     if not row:
@@ -108,6 +108,9 @@ def process_input(conn: Any, input_id: int) -> ProcessResult:
         "parser_confidence": parsed.parser_confidence,
         "take_profits": parsed.take_profits,
     }
+    telegram_meta = _parse_telegram_meta(row["status_detail"])
+    if telegram_meta:
+        parse_json["telegram"] = telegram_meta
 
     signal_id = insert_returning_id(
         conn,
@@ -177,3 +180,15 @@ def process_pending(conn: Any, *, limit: int = 50) -> list[ProcessResult]:
         (STATUS_RECEIVED, limit),
     ).fetchall()
     return [process_input(conn, int(r["id"])) for r in rows]
+
+
+def _parse_telegram_meta(status_detail: str | None) -> dict | None:
+    if not status_detail:
+        return None
+    try:
+        data = json.loads(status_detail)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if isinstance(data, dict) and "telegram_chat_id" in data:
+        return data
+    return None

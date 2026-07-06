@@ -1,0 +1,23 @@
+[Unit]
+Description=Futures Intelligence Agent Telegram Inbound (observe-only)
+Documentation=bot/research/futures_agent — Stage 1b research signal ingestion
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=andrey
+Group=andrey
+WorkingDirectory=/Users/andrey/polymarket-bot/polymarket-btc5m-bot
+Environment=PYTHONUNBUFFERED=1
+# Load secrets from project .env (TELEGRAM_BOT_TOKEN, TELEGRAM_AGENT_ALLOWED_CHAT_IDS, FUTURES_AGENT_DATABASE_URL)
+EnvironmentFile=-/Users/andrey/polymarket-bot/polymarket-btc5m-bot/.env
+ExecStart=/usr/bin/env python3 -m bot.research.futures_agent telegram-poll
+Restart=on-failure
+RestartSec=10
+# Observe-only: never restart or signal the Polymarket trading bot
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target
