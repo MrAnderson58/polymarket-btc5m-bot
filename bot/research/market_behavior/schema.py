@@ -7,6 +7,7 @@ import sqlite3
 SUMMARY_TABLE = "mb_market_summary"
 LATE_WINDOW_TABLE = "mb_late_window"
 TP_PROBABILITY_TABLE = "mb_tp_probability"
+EDGE_STATISTICS_TABLE = "mb_edge_statistics"
 
 
 def ensure_tables(conn: sqlite3.Connection) -> None:
@@ -66,4 +67,38 @@ def ensure_tables(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_mb_tp_side_bucket
             ON {TP_PROBABILITY_TABLE}(side, entry_bucket);
+
+        CREATE TABLE IF NOT EXISTS {EDGE_STATISTICS_TABLE} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            direction TEXT NOT NULL,
+            entry_bucket TEXT NOT NULL,
+            btc_delta_bucket TEXT NOT NULL,
+            seconds_left_bucket TEXT NOT NULL,
+            spread_bucket TEXT NOT NULL,
+            samples INTEGER NOT NULL,
+            tp55_prob REAL,
+            tp60_prob REAL,
+            tp65_prob REAL,
+            tp70_prob REAL,
+            tp75_prob REAL,
+            avg_final_delta REAL,
+            avg_move_to_close REAL,
+            avg_spread REAL,
+            avg_max_excursion REAL,
+            avg_adverse_excursion REAL,
+            avg_entry_price REAL,
+            ev_tp55 REAL,
+            ev_tp60 REAL,
+            ev_tp65 REAL,
+            ev_tp70 REAL,
+            ev_tp75 REAL,
+            expected_profit_tp60 REAL,
+            expected_loss_tp60 REAL,
+            computed_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(direction, entry_bucket, btc_delta_bucket, seconds_left_bucket, spread_bucket)
+        );
+        CREATE INDEX IF NOT EXISTS idx_mb_edge_direction
+            ON {EDGE_STATISTICS_TABLE}(direction);
+        CREATE INDEX IF NOT EXISTS idx_mb_edge_samples
+            ON {EDGE_STATISTICS_TABLE}(samples DESC);
     """)

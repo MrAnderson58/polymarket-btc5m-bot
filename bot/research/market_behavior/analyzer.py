@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from bot.research.market_behavior.buckets import entry_price_bucket
 from bot.research.market_behavior.config import (
-    ENTRY_BUCKET_WIDTH,
     LATE_WINDOW_BUCKETS,
     MIN_SECONDS_LEFT_FOR_TP,
     TP_LEVELS,
@@ -62,15 +62,6 @@ def _obs_closest_to_seconds_left(
             best_diff = diff
             best = obs
     return best if best_diff <= 8 else None
-
-
-def entry_price_bucket(price: float, *, width: float = ENTRY_BUCKET_WIDTH) -> tuple[str, float]:
-    """Return label and bucket midpoint for an entry quote (0–1)."""
-    step = int(width * 100)
-    lo = int(price * 100 // step) * step
-    hi = lo + step
-    mid = (lo + hi) / 2 / 100.0
-    return f"{lo:02d}-{hi:02d}c", mid
 
 
 def analyze_market_summary(market_slug: str, observations: list[dict]) -> MarketSummary:
