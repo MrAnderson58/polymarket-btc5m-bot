@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import signal
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import requests
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import ReadTimeout
 
 from bot.research.futures_agent.db import agent_connection
 from bot.research.futures_agent.env_bootstrap import project_root, resolve_agent_db_config
@@ -38,6 +41,8 @@ POLL_TIMEOUT_SEC = 30
 API_BASE = "https://api.telegram.org/bot{token}/{method}"
 OFFSET_FILE = "data/futures_agent_telegram_offset.json"
 LOCK_FILE = "data/futures_agent_telegram_poll.lock"
+CONN_BACKOFF_INITIAL_SEC = 1
+CONN_BACKOFF_MAX_SEC = 60
 
 
 @dataclass
@@ -145,20 +150,35 @@ def handle_update(update: dict[str, Any], *, postgres: bool) -> InboundResult | 
 
 
 def poll_once(*, offset: int | None = None, postgres: bool = False) -> int:
-    """Fetch and process one batch. Returns new offset."""
+    """Fetch and process one batch. Returns committed offset."""
     token, _ = require_telegram_inbound_config()
+    updates = _fetch_updates(token, offset=offset)
+    return _commit_update_batch(updates, start_offset=offset or 0, postgres=postgres)
+
+
+def _fetch_updates(token: str, *, offset: int | None = None) -> list[dict[str, Any]]:
     params: dict[str, Any] = {"timeout": POLL_TIMEOUT_SEC, "allowed_updates": ["message"]}
     if offset is not None:
         params["offset"] = offset
     data = _api_call(token, "getUpdates", params, timeout=POLL_TIMEOUT_SEC + 10)
-    updates = data.get("result", [])
-    new_offset = offset or 0
+    return data.get("result", [])
+
+
+def _commit_update_batch(
+    updates: list[dict[str, Any]],
+    *,
+    start_offset: int,
+    postgres: bool,
+) -> int:
+    """Process updates; persist offset only after each update succeeds."""
+    committed_offset = start_offset
     for upd in updates:
-        new_offset = max(new_offset, int(upd["update_id"]) + 1)
         handle_update(upd, postgres=postgres)
-    if new_offset:
-        _save_offset(new_offset)
-    return new_offset
+        next_offset = int(upd["update_id"]) + 1
+        if next_offset > committed_offset:
+            committed_offset = next_offset
+            _save_offset(committed_offset)
+    return committed_offset
 
 
 def run_poll_loop() -> None:
@@ -180,10 +200,33 @@ def run_poll_loop() -> None:
                 "Only one getUpdates consumer per bot token."
             ) from None
 
+        signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
+
         offset = _load_offset()
+        backoff = CONN_BACKOFF_INITIAL_SEC
+        connection_degraded = False
         logger.info("Telegram poll started backend=%s offset=%s", cfg.backend, offset)
-        while True:
-            offset = poll_once(offset=offset or None, postgres=cfg.is_postgres)
+        try:
+            while True:
+                try:
+                    token, _ = require_telegram_inbound_config()
+                    updates = _fetch_updates(token, offset=offset or None)
+                    offset = _commit_update_batch(
+                        updates, start_offset=offset or 0, postgres=cfg.is_postgres,
+                    )
+                    if connection_degraded:
+                        logger.info("polling recovered")
+                        connection_degraded = False
+                    backoff = CONN_BACKOFF_INITIAL_SEC
+                except ReadTimeout:
+                    logger.info("poll timeout, continuing")
+                except RequestsConnectionError:
+                    logger.warning("connection error, retry in %ss", backoff)
+                    connection_degraded = True
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, CONN_BACKOFF_MAX_SEC)
+        except KeyboardInterrupt:
+            logger.info("Telegram poll stopped")
     finally:
         os.close(lock_fd)
 
@@ -270,6 +313,10 @@ def _api_call(token: str, method: str, params: dict | None = None, *, timeout: i
     if not data.get("ok"):
         raise RuntimeError(f"Telegram API {method} failed")
     return data
+
+
+def _raise_keyboard_interrupt(signum: int, frame: Any) -> None:
+    raise KeyboardInterrupt
 
 
 def _check_polling_conflicts(token: str) -> None:

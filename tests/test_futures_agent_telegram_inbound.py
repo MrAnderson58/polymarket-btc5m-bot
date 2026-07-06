@@ -10,6 +10,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import ReadTimeout
+
 from bot.research.futures_agent.config import INPUT_TYPE_TELEGRAM, STATUS_COMPLETE
 from bot.research.futures_agent.env_bootstrap import reset_bootstrap_for_tests
 from bot.research.futures_agent.ingestion import ingest_from_telegram
@@ -21,9 +24,13 @@ from bot.research.futures_agent.telegram_config import (
     require_telegram_inbound_config,
 )
 from bot.research.futures_agent.telegram_inbound import (
+    _commit_update_batch,
+    _load_offset,
+    _save_offset,
     extract_forward_origin,
     extract_message_text,
     process_telegram_message,
+    run_poll_loop,
 )
 from bot.research.futures_agent.telegram_replies import (
     format_telegram_accepted,
@@ -224,6 +231,164 @@ class TelegramInboundTestCase(unittest.TestCase):
             taxonomy="MARKET_REVIEW", gate_reason="not a signal",
         ))
         self.assertIn("MARKET_REVIEW", txt)
+
+
+class TelegramPollResilienceTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        reset_bootstrap_for_tests()
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmpdir.name)
+        self.db_path = self.root / "tg.db"
+        os.environ["FUTURES_AGENT_SQLITE_PATH"] = str(self.db_path)
+        os.environ.pop("FUTURES_AGENT_DATABASE_URL", None)
+        os.environ["TELEGRAM_BOT_TOKEN"] = "test-token-secret"
+        os.environ["TELEGRAM_AGENT_ALLOWED_CHAT_IDS"] = "12345"
+        reset_bootstrap_for_tests()
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+        reset_bootstrap_for_tests()
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+        os.environ.pop("TELEGRAM_AGENT_ALLOWED_CHAT_IDS", None)
+        os.environ.pop("FUTURES_AGENT_SQLITE_PATH", None)
+
+    def _poll_patches(self):
+        cfg = MagicMock()
+        cfg.is_postgres = False
+        cfg.backend = "sqlite"
+        return (
+            patch("bot.research.futures_agent.telegram_inbound.project_root", return_value=self.root),
+            patch("bot.research.futures_agent.telegram_inbound._check_polling_conflicts"),
+            patch("bot.research.futures_agent.telegram_inbound.resolve_agent_db_config", return_value=cfg),
+            patch("fcntl.flock"),
+        )
+
+    def _update(self, *, update_id: int = 100, msg_id: int = 55) -> dict:
+        return {
+            "update_id": update_id,
+            "message": {
+                "message_id": msg_id,
+                "date": 1_700_000_000,
+                "chat": {"id": 12345, "type": "private"},
+                "text": MARKET_REVIEW,
+            },
+        }
+
+    def test_read_timeout_loop_continues(self) -> None:
+        calls = {"n": 0}
+
+        def fetch_side_effect(token, offset=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ReadTimeout("read timed out")
+            raise KeyboardInterrupt()
+
+        patches = self._poll_patches()
+        with patches[0], patches[1], patches[2], patches[3], patch(
+            "bot.research.futures_agent.telegram_inbound._fetch_updates",
+            side_effect=fetch_side_effect,
+        ), self.assertLogs("bot.research.futures_agent.telegram_inbound", level="INFO") as cm:
+            run_poll_loop()
+
+        self.assertIn("poll timeout, continuing", " ".join(cm.output))
+        self.assertGreaterEqual(calls["n"], 2)
+
+    def test_connection_error_retries_and_recovers(self) -> None:
+        calls = {"n": 0}
+
+        def fetch_side_effect(token, offset=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RequestsConnectionError("connection reset")
+            if calls["n"] == 2:
+                return []
+            raise KeyboardInterrupt()
+
+        patches = self._poll_patches()
+        with patches[0], patches[1], patches[2], patches[3], patch(
+            "bot.research.futures_agent.telegram_inbound._fetch_updates",
+            side_effect=fetch_side_effect,
+        ), patch("bot.research.futures_agent.telegram_inbound.time.sleep") as mock_sleep, self.assertLogs(
+            "bot.research.futures_agent.telegram_inbound", level="INFO",
+        ) as cm:
+            run_poll_loop()
+
+        mock_sleep.assert_called_once_with(1)
+        joined = " ".join(cm.output)
+        self.assertIn("connection error, retry in 1s", joined)
+        self.assertIn("polling recovered", joined)
+
+    def test_offset_preserved_across_timeout(self) -> None:
+        with patch("bot.research.futures_agent.telegram_inbound.project_root", return_value=self.root):
+            _save_offset(638914597)
+
+        calls = {"n": 0}
+
+        def fetch_side_effect(token, offset=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ReadTimeout("read timed out")
+            raise KeyboardInterrupt()
+
+        patches = self._poll_patches()
+        with patches[0], patches[1], patches[2], patches[3], patch(
+            "bot.research.futures_agent.telegram_inbound._fetch_updates",
+            side_effect=fetch_side_effect,
+        ):
+            run_poll_loop()
+
+        with patch("bot.research.futures_agent.telegram_inbound.project_root", return_value=self.root):
+            self.assertEqual(_load_offset(), 638914597)
+
+    def test_duplicate_update_after_retry_does_not_create_duplicate_input(self) -> None:
+        from bot.research.futures_agent.db import agent_connection
+
+        upd = self._update(update_id=200, msg_id=88)
+        with patch("bot.research.futures_agent.telegram_inbound.project_root", return_value=self.root), patch(
+            "bot.research.futures_agent.telegram_inbound.send_telegram_reply",
+        ):
+            _commit_update_batch([upd], start_offset=199, postgres=False)
+            _commit_update_batch([upd], start_offset=199, postgres=False)
+
+        with agent_connection(f"sqlite:///{self.db_path}") as conn:
+            n = conn.execute(
+                "SELECT COUNT(*) AS n FROM futures_agent_inputs WHERE telegram_message_id = ?",
+                ("88",),
+            ).fetchone()["n"]
+        self.assertEqual(n, 1)
+
+    def test_poll_errors_never_log_token(self) -> None:
+        calls = {"n": 0}
+
+        def fetch_side_effect(token, offset=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ReadTimeout("read timed out")
+            if calls["n"] == 2:
+                raise RequestsConnectionError("boom")
+            raise KeyboardInterrupt()
+
+        patches = self._poll_patches()
+        with patches[0], patches[1], patches[2], patches[3], patch(
+            "bot.research.futures_agent.telegram_inbound._fetch_updates",
+            side_effect=fetch_side_effect,
+        ), patch("bot.research.futures_agent.telegram_inbound.time.sleep"), self.assertLogs(
+            "bot.research.futures_agent.telegram_inbound", level="DEBUG",
+        ) as cm:
+            run_poll_loop()
+
+        joined = " ".join(cm.output)
+        self.assertNotIn("test-token-secret", joined)
+
+    def test_keyboard_interrupt_exits_cleanly(self) -> None:
+        patches = self._poll_patches()
+        with patches[0], patches[1], patches[2], patches[3], patch(
+            "bot.research.futures_agent.telegram_inbound._fetch_updates",
+            side_effect=KeyboardInterrupt,
+        ), self.assertLogs("bot.research.futures_agent.telegram_inbound", level="INFO") as cm:
+            run_poll_loop()
+
+        self.assertIn("Telegram poll stopped", " ".join(cm.output))
 
 
 if __name__ == "__main__":
