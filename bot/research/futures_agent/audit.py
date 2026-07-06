@@ -1,0 +1,104 @@
+"""Architecture and infrastructure audit for futures agent."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from bot.research.futures.db_config import get_futures_source_database_url
+from bot.research.futures_agent.config import get_agent_database_url, telegram_notify_enabled
+from bot.research.futures_agent.db import resolve_agent_url
+
+
+def run_architecture_audit() -> dict[str, Any]:
+    repo = Path(__file__).resolve().parents[3]
+    report_path = repo / "reports" / "futures_agent_architecture_audit.md"
+
+    futures_pkg = repo / "bot" / "research" / "futures"
+    agent_pkg = repo / "bot" / "research" / "futures_agent"
+
+    modules = {
+        "parser_v2": (futures_pkg / "parser_v2.py").exists(),
+        "taxonomy": (futures_pkg / "taxonomy.py").exists(),
+        "source_reader": (futures_pkg / "source_reader.py").exists(),
+        "agent_db": (agent_pkg / "db.py").exists(),
+        "agent_ingestion": (agent_pkg / "ingestion.py").exists(),
+        "architecture_report": report_path.exists(),
+    }
+
+    return {
+        "repository": str(repo),
+        "architecture_report": str(report_path),
+        "agent_database_url_configured": bool(get_agent_database_url()),
+        "agent_database_resolved": resolve_agent_url(),
+        "source_database_url_configured": bool(get_futures_source_database_url()),
+        "telegram_notify_configured": telegram_notify_enabled(),
+        "telegram_inbound_bot": False,
+        "telegram_inbound_note": (
+            "No inbound bot in btc5m-bot; optional poller in futures_agent (Stage 1b). "
+            "polymarket-ai has outbound-only TelegramNotifier."
+        ),
+        "reusable_modules": modules,
+        "execution_isolation": _check_no_execution_imports(agent_pkg),
+        "integration_point": "bot/research/futures_agent/",
+        "stage1_tables": [
+            "futures_agent_inputs",
+            "futures_agent_signals",
+            "futures_agent_targets",
+            "futures_agent_migrations",
+        ],
+    }
+
+
+def _check_no_execution_imports(agent_pkg: Path) -> dict[str, bool]:
+    forbidden_imports = ("from bot.execution", "import bot.execution", "from bot.main", "import bot.main")
+    violations: list[str] = []
+    for py in agent_pkg.glob("*.py"):
+        if py.name == "audit.py":
+            continue
+        for line in py.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            for f in forbidden_imports:
+                if f in stripped:
+                    violations.append(f"{py.name}: {stripped}")
+    return {"clean": len(violations) == 0, "violations": violations}
+
+
+def render_audit(report: dict[str, Any]) -> str:
+    lines = [
+        "FUTURES AGENT ARCHITECTURE AUDIT",
+        "=" * 50,
+        f"Repository: {report['repository']}",
+        f"Report doc: {report['architecture_report']}",
+        "",
+        "DATABASE",
+        f"  Agent URL configured: {report['agent_database_url_configured']}",
+        f"  Agent URL resolved: {report['agent_database_resolved']}",
+        f"  Source (read-only) URL: {report['source_database_url_configured']}",
+        "",
+        "TELEGRAM",
+        f"  Outbound notify configured: {report['telegram_notify_configured']}",
+        f"  Inbound bot present: {report['telegram_inbound_bot']}",
+        f"  Note: {report['telegram_inbound_note']}",
+        "",
+        "REUSABLE MODULES",
+    ]
+    for k, v in report["reusable_modules"].items():
+        lines.append(f"  {k}: {'yes' if v else 'no'}")
+    lines.extend([
+        "",
+        "EXECUTION ISOLATION",
+        f"  Clean: {report['execution_isolation']['clean']}",
+    ])
+    if report["execution_isolation"]["violations"]:
+        for v in report["execution_isolation"]["violations"]:
+            lines.append(f"    VIOLATION: {v}")
+    lines.extend([
+        "",
+        "STAGE 1 TABLES",
+    ])
+    for t in report["stage1_tables"]:
+        lines.append(f"  - {t}")
+    return "\n".join(lines)

@@ -1,0 +1,93 @@
+"""Futures Intelligence Agent — observe-only research system.
+
+Usage:
+  python -m bot.research.futures_agent audit
+  python -m bot.research.futures_agent migrate
+  python -m bot.research.futures_agent ingest --text "BTC LONG ..."
+  python -m bot.research.futures_agent process-pending
+
+Does NOT modify Polymarket execution, bidirectional, ER, or MTF collectors.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Futures Intelligence Agent (research only)")
+    parser.add_argument(
+        "command",
+        choices=("audit", "migrate", "ingest", "process-pending"),
+    )
+    parser.add_argument("--text", default=None, help="Signal text for ingest")
+    parser.add_argument("--limit", type=int, default=50, help="Max pending to process")
+    parser.add_argument("--dry-run", action="store_true", help="Ingest without DB write")
+    parser.add_argument("--notify", action="store_true", help="Send Telegram ack if configured")
+    args = parser.parse_args()
+
+    if args.command == "audit":
+        from bot.research.futures_agent.audit import render_audit, run_architecture_audit
+        print(render_audit(run_architecture_audit()))
+        return 0
+
+    from bot.research.futures_agent.db import agent_connection, resolve_agent_url
+    from bot.research.futures_agent.schema import apply_migrations
+
+    postgres = resolve_agent_url().startswith("postgres")
+
+    if args.command == "migrate":
+        with agent_connection() as conn:
+            applied = apply_migrations(conn, postgres=postgres)
+        print(f"Migrations applied: {applied or ['already up to date']}")
+        return 0
+
+    if args.command == "ingest":
+        if not args.text:
+            print("ERROR: --text required for ingest", file=sys.stderr)
+            return 1
+        if args.dry_run:
+            from bot.research.futures.parser_v2 import parse_signal_v2
+            r = parse_signal_v2(args.text)
+            print(f"dry-run taxonomy={r.message_type.value} gate={r.passes_gate}")
+            print(f"symbol={r.parsed.symbol} side={r.parsed.side}")
+            return 0
+        from bot.research.futures_agent.ingestion import ingest_from_cli
+        from bot.research.futures_agent.pipeline import process_input
+        from bot.research.futures_agent.responses import format_signal_received, send_telegram_message
+
+        with agent_connection() as conn:
+            apply_migrations(conn, postgres=postgres)
+            ing = ingest_from_cli(conn, args.text)
+            if ing.duplicate:
+                print(f"Duplicate input id={ing.input_id}")
+            else:
+                print(f"Ingested input id={ing.input_id}")
+            proc = process_input(conn, ing.input_id)
+            msg = format_signal_received(conn, ing.input_id)
+        print(msg)
+        if args.notify:
+            sent = send_telegram_message(msg)
+            print(f"Telegram notify: {'sent' if sent else 'skipped/failed'}")
+        return 0
+
+    if args.command == "process-pending":
+        from bot.research.futures_agent.pipeline import process_pending
+
+        with agent_connection() as conn:
+            apply_migrations(conn, postgres=postgres)
+            results = process_pending(conn, limit=args.limit)
+        for r in results:
+            print(
+                f"input={r.input_id} signal={r.signal_id} "
+                f"status={r.processing_status} gate={r.passes_gate} tax={r.taxonomy}"
+            )
+        print(f"Processed: {len(results)}")
+        return 0
+
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
