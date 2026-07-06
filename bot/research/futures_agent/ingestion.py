@@ -11,7 +11,7 @@ from bot.research.futures_agent.config import (
     INPUT_TYPE_FORWARDED,
     STATUS_RECEIVED,
 )
-from bot.research.futures_agent.db import validate_write_table as _validate
+from bot.research.futures_agent.db import insert_returning_id, validate_write_table as _validate
 
 
 @dataclass
@@ -50,7 +50,8 @@ def ingest_forwarded_signal(
     if existing:
         return IngestResult(int(existing["id"]), True, tg_id)
 
-    cur = conn.execute(
+    input_id = insert_returning_id(
+        conn,
         """
         INSERT INTO futures_agent_inputs (
             source, telegram_message_id, raw_message_id, raw_text,
@@ -59,7 +60,6 @@ def ingest_forwarded_signal(
         """,
         (source, tg_id, raw_message_id, text, ts, input_type, STATUS_RECEIVED),
     )
-    input_id = int(cur.lastrowid) if getattr(cur, "lastrowid", None) else _fetch_last_id(conn)
     return IngestResult(input_id, False, tg_id)
 
 
@@ -67,8 +67,3 @@ def ingest_from_cli(conn: Any, raw_text: str) -> IngestResult:
     return ingest_forwarded_signal(
         conn, raw_text=raw_text, source="cli", input_type=INPUT_TYPE_CLI,
     )
-
-
-def _fetch_last_id(conn: Any) -> int:
-    row = conn.execute("SELECT MAX(id) AS id FROM futures_agent_inputs").fetchone()
-    return int(row["id"])

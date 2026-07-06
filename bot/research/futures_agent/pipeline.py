@@ -21,7 +21,7 @@ from bot.research.futures_agent.config import (
     STATUS_RECEIVED,
     STATUS_REJECTED,
 )
-from bot.research.futures_agent.db import validate_write_table
+from bot.research.futures_agent.db import insert_returning_id, validate_write_table
 
 
 @dataclass
@@ -109,7 +109,8 @@ def process_input(conn: Any, input_id: int) -> ProcessResult:
         "take_profits": parsed.take_profits,
     }
 
-    cur = conn.execute(
+    signal_id = insert_returning_id(
+        conn,
         """
         INSERT INTO futures_agent_signals (
             input_id, parser_version, taxonomy, symbol, direction,
@@ -135,7 +136,6 @@ def process_input(conn: Any, input_id: int) -> ProcessResult:
             json.dumps(parse_json),
         ),
     )
-    signal_id = int(cur.lastrowid) if cur.lastrowid else _last_signal_id(conn)
 
     for i, tp in enumerate(parsed.take_profits, start=1):
         conn.execute(
@@ -177,8 +177,3 @@ def process_pending(conn: Any, *, limit: int = 50) -> list[ProcessResult]:
         (STATUS_RECEIVED, limit),
     ).fetchall()
     return [process_input(conn, int(r["id"])) for r in rows]
-
-
-def _last_signal_id(conn: Any) -> int:
-    row = conn.execute("SELECT MAX(id) AS id FROM futures_agent_signals").fetchone()
-    return int(row["id"])

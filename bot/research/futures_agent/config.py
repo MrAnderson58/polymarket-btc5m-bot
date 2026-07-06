@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 
+from bot.research.futures_agent.env_bootstrap import bootstrap_config, resolve_agent_db_config
+
 PARSER_VERSION = "deterministic_v2"
 AGENT_SCHEMA_VERSION = 1
 
-# Tables the agent write adapter may touch
 AGENT_TABLE_ALLOWLIST = frozenset({
     "futures_agent_migrations",
     "futures_agent_inputs",
@@ -34,22 +35,17 @@ PARSE_STATUS_NEEDS_REVIEW = "NEEDS_REVIEW"
 
 
 def get_agent_database_url() -> str | None:
-    for key in (
-        "FUTURES_AGENT_DATABASE_URL",
-        "FUTURES_SOURCE_DATABASE_URL",
-        "TELEGRAM_DATABASE_URL",
-    ):
-        val = os.getenv(key)
-        if val:
-            return val
-    return None
+    bootstrap_config()
+    return os.getenv("FUTURES_AGENT_DATABASE_URL") or None
 
 
 def get_agent_sqlite_fallback_path() -> str | None:
-    return os.getenv("FUTURES_AGENT_SQLITE_PATH")
+    bootstrap_config()
+    return os.getenv("FUTURES_AGENT_SQLITE_PATH") or None
 
 
 def telegram_notify_enabled() -> bool:
+    bootstrap_config()
     return bool(
         os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
         and os.getenv("TELEGRAM_AGENT_CHAT_ID", os.getenv("TELEGRAM_CHAT_ID", "")).strip()
@@ -57,4 +53,5 @@ def telegram_notify_enabled() -> bool:
 
 
 def get_telegram_chat_id() -> str | None:
+    bootstrap_config()
     return os.getenv("TELEGRAM_AGENT_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID")

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from bot.research.futures_agent.env_bootstrap import reset_bootstrap_for_tests
 
 from bot.research.futures_agent.audit import run_architecture_audit
 from bot.research.futures_agent.config import (
@@ -40,12 +43,14 @@ PROMO = "Join t.me/vip for 20% discount on LINK trading course"
 
 class FuturesAgentStage1TestCase(unittest.TestCase):
     def setUp(self) -> None:
+        reset_bootstrap_for_tests()
         self._tmpdir = tempfile.TemporaryDirectory()
         self.db_path = Path(self._tmpdir.name) / "agent.db"
         self.db_url = f"sqlite:///{self.db_path}"
 
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
+        reset_bootstrap_for_tests()
 
     def _conn(self):
         return agent_connection(self.db_url)
@@ -155,14 +160,30 @@ class FuturesAgentStage1TestCase(unittest.TestCase):
         self.assertEqual(len(results), 2)
 
     def test_no_execution_imports_in_agent(self) -> None:
-        audit = run_architecture_audit()
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        apply_migrations(conn, postgres=False)
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__.return_value = conn
+        mock_ctx.__exit__.return_value = False
+        with patch("bot.research.futures_agent.db.agent_connection", return_value=mock_ctx):
+            audit = run_architecture_audit()
+        conn.close()
         self.assertTrue(audit["execution_isolation"]["clean"])
 
-    @patch.dict("os.environ", {"FUTURES_AGENT_SQLITE_PATH": ""}, clear=False)
     def test_architecture_audit_runs(self) -> None:
-        audit = run_architecture_audit()
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        apply_migrations(conn, postgres=False)
+        mock_ctx = MagicMock()
+        mock_ctx.__enter__.return_value = conn
+        mock_ctx.__exit__.return_value = False
+        with patch("bot.research.futures_agent.db.agent_connection", return_value=mock_ctx):
+            audit = run_architecture_audit()
+        conn.close()
         self.assertIn("repository", audit)
         self.assertTrue(audit["reusable_modules"]["parser_v2"])
+        self.assertIn("db_diagnostics", audit)
 
 
 if __name__ == "__main__":

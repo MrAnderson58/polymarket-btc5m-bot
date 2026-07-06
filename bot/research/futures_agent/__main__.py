@@ -16,6 +16,10 @@ import sys
 
 
 def main() -> int:
+    from bot.research.futures_agent.env_bootstrap import bootstrap_config, resolve_agent_db_config
+
+    bootstrap_config()
+
     parser = argparse.ArgumentParser(description="Futures Intelligence Agent (research only)")
     parser.add_argument(
         "command",
@@ -27,19 +31,24 @@ def main() -> int:
     parser.add_argument("--notify", action="store_true", help="Send Telegram ack if configured")
     args = parser.parse_args()
 
+    cfg = resolve_agent_db_config()
+
     if args.command == "audit":
         from bot.research.futures_agent.audit import render_audit, run_architecture_audit
         print(render_audit(run_architecture_audit()))
         return 0
 
-    from bot.research.futures_agent.db import agent_connection, resolve_agent_url
+    from bot.research.futures_agent.db import agent_connection
     from bot.research.futures_agent.schema import apply_migrations
-
-    postgres = resolve_agent_url().startswith("postgres")
 
     if args.command == "migrate":
         with agent_connection() as conn:
-            applied = apply_migrations(conn, postgres=postgres)
+            applied = apply_migrations(conn, postgres=cfg.is_postgres)
+        print(f"Backend: {cfg.backend} ({cfg.config_source})")
+        if cfg.database_name:
+            print(f"Database: {cfg.database_name}")
+        elif cfg.sqlite_path:
+            print(f"SQLite: {cfg.sqlite_path}")
         print(f"Migrations applied: {applied or ['already up to date']}")
         return 0
 
@@ -58,12 +67,12 @@ def main() -> int:
         from bot.research.futures_agent.responses import format_signal_received, send_telegram_message
 
         with agent_connection() as conn:
-            apply_migrations(conn, postgres=postgres)
+            apply_migrations(conn, postgres=cfg.is_postgres)
             ing = ingest_from_cli(conn, args.text)
             if ing.duplicate:
                 print(f"Duplicate input id={ing.input_id}")
             else:
-                print(f"Ingested input id={ing.input_id}")
+                print(f"Ingested input id={ing.input_id} -> {cfg.backend}")
             proc = process_input(conn, ing.input_id)
             msg = format_signal_received(conn, ing.input_id)
         print(msg)
@@ -76,8 +85,9 @@ def main() -> int:
         from bot.research.futures_agent.pipeline import process_pending
 
         with agent_connection() as conn:
-            apply_migrations(conn, postgres=postgres)
+            apply_migrations(conn, postgres=cfg.is_postgres)
             results = process_pending(conn, limit=args.limit)
+        print(f"Backend: {cfg.backend} ({cfg.config_source})")
         for r in results:
             print(
                 f"input={r.input_id} signal={r.signal_id} "

@@ -7,11 +7,20 @@ from typing import Any
 
 from bot.research.futures.db_config import get_futures_source_database_url
 from bot.research.futures_agent.config import get_agent_database_url, telegram_notify_enabled
+from bot.research.futures_agent.env_bootstrap import (
+    bootstrap_config,
+    db_config_diagnostics,
+    project_root,
+    resolve_agent_db_config,
+)
 from bot.research.futures_agent.db import resolve_agent_url
+from bot.research.futures_agent.schema_validate import validate_stage1_schema
 
 
 def run_architecture_audit() -> dict[str, Any]:
-    repo = Path(__file__).resolve().parents[3]
+    bootstrap_config()
+    cfg = resolve_agent_db_config()
+    repo = project_root()
     report_path = repo / "reports" / "futures_agent_architecture_audit.md"
 
     futures_pkg = repo / "bot" / "research" / "futures"
@@ -26,12 +35,22 @@ def run_architecture_audit() -> dict[str, Any]:
         "architecture_report": report_path.exists(),
     }
 
+    schema_validation: dict[str, Any] | None = None
+    try:
+        from bot.research.futures_agent.db import agent_connection
+        with agent_connection() as conn:
+            schema_validation = validate_stage1_schema(conn, postgres=cfg.is_postgres)
+    except Exception as exc:
+        schema_validation = {"valid": False, "error": str(exc)}
+
     return {
         "repository": str(repo),
         "architecture_report": str(report_path),
         "agent_database_url_configured": bool(get_agent_database_url()),
         "agent_database_resolved": resolve_agent_url(),
+        "db_diagnostics": db_config_diagnostics(cfg),
         "source_database_url_configured": bool(get_futures_source_database_url()),
+        "schema_validation": schema_validation,
         "telegram_notify_configured": telegram_notify_enabled(),
         "telegram_inbound_bot": False,
         "telegram_inbound_note": (
@@ -73,10 +92,30 @@ def render_audit(report: dict[str, Any]) -> str:
         f"Repository: {report['repository']}",
         f"Report doc: {report['architecture_report']}",
         "",
-        "DATABASE",
-        f"  Agent URL configured: {report['agent_database_url_configured']}",
-        f"  Agent URL resolved: {report['agent_database_resolved']}",
+        "DATABASE BACKEND (active)",
+    ]
+    diag = report.get("db_diagnostics", {})
+    lines.append(f"  Backend: {diag.get('backend')}")
+    lines.append(f"  Config source: {diag.get('config_source')}")
+    lines.append(f"  Database name: {diag.get('database_name')}")
+    lines.append(f"  SQLite path: {diag.get('sqlite_path')}")
+    lines.append(f"  Postgres URL configured: {diag.get('postgres_url_configured')}")
+    lines.append(f"  Resolved URL scheme: {diag.get('url_scheme')}")
+    lines.extend([
+        "",
+        "LEGACY FIELDS",
+        f"  Agent URL in env: {report['agent_database_url_configured']}",
+        f"  Resolved URL: {report['agent_database_resolved']}",
         f"  Source (read-only) URL: {report['source_database_url_configured']}",
+    ])
+    sv = report.get("schema_validation")
+    if sv:
+        lines.extend(["", "SCHEMA VALIDATION"])
+        if sv.get("valid"):
+            lines.append(f"  Valid: yes ({sv.get('tables_ok')})")
+        else:
+            lines.append(f"  Valid: no — {sv.get('errors') or sv.get('error')}")
+    lines.extend([
         "",
         "TELEGRAM",
         f"  Outbound notify configured: {report['telegram_notify_configured']}",
@@ -84,7 +123,7 @@ def render_audit(report: dict[str, Any]) -> str:
         f"  Note: {report['telegram_inbound_note']}",
         "",
         "REUSABLE MODULES",
-    ]
+    ])
     for k, v in report["reusable_modules"].items():
         lines.append(f"  {k}: {'yes' if v else 'no'}")
     lines.extend([
@@ -95,10 +134,7 @@ def render_audit(report: dict[str, Any]) -> str:
     if report["execution_isolation"]["violations"]:
         for v in report["execution_isolation"]["violations"]:
             lines.append(f"    VIOLATION: {v}")
-    lines.extend([
-        "",
-        "STAGE 1 TABLES",
-    ])
+    lines.extend(["", "STAGE 1 TABLES"])
     for t in report["stage1_tables"]:
         lines.append(f"  - {t}")
     return "\n".join(lines)

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from bot.research.futures_agent.schema_validate import validate_stage1_schema
+
 MIGRATIONS_TABLE = "futures_agent_migrations"
+STAGE1_VERSION = 1
 
 STAGE1_DDL = """
 CREATE TABLE IF NOT EXISTS futures_agent_migrations (
@@ -122,22 +125,31 @@ CREATE TABLE IF NOT EXISTS futures_agent_targets (
 
 
 def apply_migrations(conn: Any, *, postgres: bool = False) -> list[str]:
+    """Create schema atomically; record migration only after DDL + validation."""
     ddl = STAGE1_DDL_POSTGRES if postgres else STAGE1_DDL
-    applied: list[str] = []
+
     for stmt in _split_ddl(ddl):
         conn.execute(stmt)
-    version = 1
+
     row = conn.execute(
         f"SELECT version FROM {MIGRATIONS_TABLE} WHERE version = ?",
-        (version,),
+        (STAGE1_VERSION,),
     ).fetchone()
-    if not row:
-        conn.execute(
-            f"INSERT INTO {MIGRATIONS_TABLE} (version, description) VALUES (?, ?)",
-            (version, "stage1_core_inputs_signals_targets"),
-        )
-        applied.append(f"v{version}: stage1_core")
-    return applied
+    if row:
+        validation = validate_stage1_schema(conn, postgres=postgres)
+        if not validation["valid"]:
+            raise RuntimeError(f"Schema validation failed: {validation['errors']}")
+        return []
+
+    validation = validate_stage1_schema(conn, postgres=postgres)
+    if not validation["valid"]:
+        raise RuntimeError(f"Schema validation failed after DDL: {validation['errors']}")
+
+    conn.execute(
+        f"INSERT INTO {MIGRATIONS_TABLE} (version, description) VALUES (?, ?)",
+        (STAGE1_VERSION, "stage1_core_inputs_signals_targets"),
+    )
+    return [f"v{STAGE1_VERSION}: stage1_core"]
 
 
 def _split_ddl(ddl: str) -> list[str]:

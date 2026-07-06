@@ -7,53 +7,55 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 from urllib.parse import urlparse
 
-from bot.research.futures_agent.config import AGENT_TABLE_ALLOWLIST, get_agent_database_url, get_agent_sqlite_fallback_path
+from bot.research.futures_agent.config import AGENT_TABLE_ALLOWLIST
+from bot.research.futures_agent.env_bootstrap import AgentDbConfig, resolve_agent_db_config
 
 
 class AgentDbError(RuntimeError):
     pass
 
 
-def _is_postgres_url(url: str) -> bool:
-    return url.startswith(("postgres://", "postgresql://"))
-
-
-def _is_sqlite_url(url: str) -> bool:
-    return url.startswith("sqlite:")
-
-
 def resolve_agent_url() -> str:
-    url = get_agent_database_url()
-    if url:
-        return url
-    fallback = get_agent_sqlite_fallback_path()
-    if fallback:
-        return f"sqlite:///{fallback}"
-    return "sqlite:///data/futures_agent.db"
+    return resolve_agent_db_config().url
 
 
 @contextmanager
 def agent_connection(url: str | None = None) -> Iterator[Any]:
-    """Yield a DB connection (psycopg2 or sqlite3)."""
-    dsn = url or resolve_agent_url()
-    if _is_postgres_url(dsn):
+    """Yield a DB connection. PostgreSQL failures fail fast — no silent SQLite fallback."""
+    cfg = resolve_agent_db_config()
+    dsn = url or cfg.url
+
+    if cfg.postgres_url_configured and not dsn.startswith(("postgres://", "postgresql://")):
+        raise AgentDbError(
+            "FUTURES_AGENT_DATABASE_URL is configured for PostgreSQL but resolved to non-PostgreSQL URL. "
+            f"Resolved: {dsn!r}"
+        )
+
+    if dsn.startswith(("postgres://", "postgresql://")):
         try:
             import psycopg2
             import psycopg2.extras
         except ImportError as exc:
             raise AgentDbError("psycopg2 required for PostgreSQL agent DB") from exc
         parsed = urlparse(dsn)
-        conn = psycopg2.connect(
-            host=parsed.hostname,
-            port=parsed.port or 5432,
-            user=parsed.username,
-            password=parsed.password,
-            dbname=(parsed.path or "/").lstrip("/") or "trading_ai",
-            connect_timeout=5,
-        )
-        conn.autocommit = False
         try:
-            yield _PgConnWrapper(conn)
+            conn = psycopg2.connect(
+                host=parsed.hostname,
+                port=parsed.port or 5432,
+                user=parsed.username,
+                password=parsed.password,
+                dbname=(parsed.path or "/").lstrip("/") or "trading_ai",
+                connect_timeout=5,
+            )
+        except Exception as exc:
+            raise AgentDbError(
+                f"PostgreSQL connection failed for database "
+                f"{(parsed.path or '/').lstrip('/') or 'trading_ai'}: {exc}"
+            ) from exc
+        conn.autocommit = False
+        wrapper = _PgConnWrapper(conn)
+        try:
+            yield wrapper
             conn.commit()
         except Exception:
             conn.rollback()
@@ -75,7 +77,7 @@ def agent_connection(url: str | None = None) -> Iterator[Any]:
 
 
 class _PgConnWrapper:
-    """Normalize psycopg2 to sqlite-like execute(fetchone) interface."""
+    """PostgreSQL wrapper — execute() never auto-appends RETURNING."""
 
     def __init__(self, conn) -> None:
         import psycopg2.extras
@@ -85,14 +87,19 @@ class _PgConnWrapper:
     def execute(self, sql: str, params: tuple | list | None = None):
         cur = self._conn.cursor(cursor_factory=self._extras.RealDictCursor)
         pg_sql = sql.replace("?", "%s")
-        upper = sql.strip().upper()
-        if upper.startswith("INSERT INTO") and "RETURNING" not in upper:
-            pg_sql = pg_sql.rstrip().rstrip(";") + " RETURNING id"
-            cur.execute(pg_sql, params or ())
-            row = cur.fetchone()
-            return _PgCursor(cur, lastrowid=int(row["id"]) if row else None)
         cur.execute(pg_sql, params or ())
         return _PgCursor(cur)
+
+    def insert_returning_id(self, sql: str, params: tuple | list | None = None) -> int:
+        pg_sql = sql.replace("?", "%s").rstrip().rstrip(";")
+        if "RETURNING" not in pg_sql.upper():
+            pg_sql += " RETURNING id"
+        cur = self._conn.cursor(cursor_factory=self._extras.RealDictCursor)
+        cur.execute(pg_sql, params or ())
+        row = cur.fetchone()
+        if not row or row.get("id") is None:
+            raise AgentDbError("INSERT RETURNING id did not return a row")
+        return int(row["id"])
 
     def commit(self) -> None:
         self._conn.commit()
@@ -102,15 +109,26 @@ class _PgConnWrapper:
 
 
 class _PgCursor:
-    def __init__(self, cur, lastrowid: int | None = None) -> None:
+    def __init__(self, cur) -> None:
         self._cur = cur
-        self.lastrowid = lastrowid
+        self.lastrowid: int | None = None
 
     def fetchone(self):
         return self._cur.fetchone()
 
     def fetchall(self):
         return self._cur.fetchall()
+
+
+def insert_returning_id(conn: Any, sql: str, params: tuple | list | None = None) -> int:
+    """Insert row and return generated id (PostgreSQL or SQLite)."""
+    if isinstance(conn, _PgConnWrapper):
+        return conn.insert_returning_id(sql, params)
+    cur = conn.execute(sql, params or ())
+    lid = getattr(cur, "lastrowid", None)
+    if lid is None:
+        raise AgentDbError("SQLite INSERT did not set lastrowid")
+    return int(lid)
 
 
 def validate_write_table(table_name: str) -> None:
