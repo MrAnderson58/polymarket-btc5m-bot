@@ -18,9 +18,28 @@ from bot.research.strategy_simulator.config import DEFAULT_TP, MIN_TRADES_FOR_RA
 from bot.research.strategy_simulator.market_filter import add_market_filter_args, market_filter_from_args
 from bot.research.strategy_simulator.strategies import Strategy
 
+MARKET_FILTER_OPTIONS = (
+    "--market-start-ts",
+    "--market-end-ts",
+    "--min-obs-per-market",
+    "--max-median-gap",
+    "--min-coverage-span",
+    "--completed-only",
+)
 
-def _add_filter_args(parser: argparse.ArgumentParser) -> None:
-    add_market_filter_args(parser)
+
+def _add_filter_args(parser: argparse.ArgumentParser, **kwargs) -> None:
+    add_market_filter_args(parser, **kwargs)
+
+
+def _add_strategy_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--direction", choices=("YES", "NO"), default="YES")
+    parser.add_argument("--max-entry", type=float, default=0.30)
+    parser.add_argument("--min-delta", type=float, default=25.0)
+    parser.add_argument("--max-delta", type=float, default=None)
+    parser.add_argument("--max-spread", type=float, default=0.02)
+    parser.add_argument("--min-seconds", type=int, default=60)
+    parser.add_argument("--tp", type=float, default=DEFAULT_TP)
 
 
 def _parse_strategy(args: argparse.Namespace) -> Strategy:
@@ -35,17 +54,8 @@ def _parse_strategy(args: argparse.Namespace) -> Strategy:
     )
 
 
-def _add_strategy_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--direction", choices=("YES", "NO"), default="YES")
-    parser.add_argument("--max-entry", type=float, default=0.30)
-    parser.add_argument("--min-delta", type=float, default=25.0)
-    parser.add_argument("--max-delta", type=float, default=None)
-    parser.add_argument("--max-spread", type=float, default=0.02)
-    parser.add_argument("--min-seconds", type=int, default=60)
-    parser.add_argument("--tp", type=float, default=DEFAULT_TP)
-
-
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """Construct the strategy simulator CLI parser (for tests and main)."""
     parser = argparse.ArgumentParser(
         description="Observe-only strategy simulation from historical snapshots",
     )
@@ -129,18 +139,17 @@ def main() -> int:
         "forward-track",
         help="Record observe-only forward signals for registered candidates",
     )
-    _add_filter_args(fwd_p)
-    fwd_p.add_argument(
-        "--market-start-ts",
-        type=int,
-        default=None,
-        help="Only markets on/after this window_start (default: dense-era boundary)",
+    _add_filter_args(
+        fwd_p,
+        market_start_ts_help=(
+            "Only markets on/after this window_start (default: dense-era boundary)"
+        ),
     )
 
     audit_p = sub.add_parser("quote-audit", help="Bid/ask semantics audit on v4 observations")
     audit_p.add_argument("--sample-markets", type=int, default=50)
 
-    fin_p = sub.add_parser("finalists", help="List shadow candidate finalists")
+    sub.add_parser("finalists", help="List shadow candidate finalists")
 
     sh_p = sub.add_parser("shadow-enable", help="Enable/disable shadow candidate by id")
     sh_p.add_argument("--strategy-id", type=int, required=True)
@@ -151,7 +160,11 @@ def main() -> int:
         help="Bypass diagnostics gate (not recommended before split-diagnostics)",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     from bot.database import connect, init_db
     from bot.research.strategy_simulator.config import (
@@ -340,6 +353,7 @@ def main() -> int:
                 return 2
             track_filter = MarketFilter(
                 market_start_ts=start_ts,
+                market_end_ts=filt.market_end_ts if filt else None,
                 min_obs_per_market=filt.min_obs_per_market if filt else 60,
                 max_median_gap=filt.max_median_gap if filt else 5.0,
                 min_coverage_span=filt.min_coverage_span if filt else 240,
