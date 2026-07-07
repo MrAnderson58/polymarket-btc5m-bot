@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -19,6 +20,7 @@ from bot.config import (
     ENABLE_YES_C_SHADOW,
     ER_SUMMARY_INTERVAL_SEC,
     ER_V3_POLL_INTERVAL_SEC,
+    MTF_POLL_INTERVAL_SEC,
     V4_POLL_INTERVAL_SEC,
     ENABLED_STRATEGIES,
     ENABLED_STRATEGIES_V2,
@@ -168,8 +170,19 @@ def run() -> None:
 
     last_full_cycle = 0.0
     last_v3_cycle = 0.0
-    last_v4_cycle = 0.0
+    last_mtf_collect = 0.0
     last_er_summary = 0.0
+
+    if ENABLE_V4_SHADOW:
+        threading.Thread(
+            target=_v4_collector_loop,
+            name="v4-collector",
+            daemon=True,
+        ).start()
+        logger.info(
+            "V4 collector thread started (poll %.1fs, decoupled from main cycle)",
+            V4_POLL_INTERVAL_SEC,
+        )
 
     while True:
         now = time.time()
@@ -187,14 +200,13 @@ def run() -> None:
                     if ENABLE_NO_C_FILTER_SHADOW:
                         log_no_c_filter_shadow_report(conn)
                 last_er_summary = now
-            if ENABLE_V4_SHADOW and now - last_v4_cycle >= V4_POLL_INTERVAL_SEC:
-                _v4_cycle()
-                last_v4_cycle = now
             if ENABLE_V3 and now - last_v3_cycle >= ER_V3_POLL_INTERVAL_SEC:
                 _v3_cycle()
                 last_v3_cycle = now
             if now - last_full_cycle >= POLL_INTERVAL_SEC:
-                _cycle()
+                _cycle(mtf_due=now - last_mtf_collect >= MTF_POLL_INTERVAL_SEC)
+                if now - last_mtf_collect >= MTF_POLL_INTERVAL_SEC:
+                    last_mtf_collect = now
                 last_full_cycle = now
         except KeyboardInterrupt:
             logger.info("Stopped by user")
@@ -204,7 +216,25 @@ def run() -> None:
         time.sleep(0.05)
 
 
+def _v4_collector_loop() -> None:
+    """Dedicated V4 shadow collector — not blocked by heavy main _cycle() work."""
+    while True:
+        try:
+            _v4_cycle()
+        except Exception:
+            logger.exception("V4 collector loop error")
+        time.sleep(V4_POLL_INTERVAL_SEC)
+
+
 def _v4_cycle() -> None:
+    cycle_started = time.time()
+    btc_price_ms: float | None = None
+    strike_ms: float | None = None
+    quotes_ms: float | None = None
+    process_ms: float | None = None
+    market_slug: str | None = None
+    observation_inserted = False
+
     now_ts = int(time.time())
     with connect() as conn:
         closed = close_due_v4_shadow_trades(conn, now_ts)
@@ -216,23 +246,46 @@ def _v4_cycle() -> None:
     if not market:
         return
 
+    market_slug = market.slug
     _log_new_window_check(market)
 
     try:
+        t0 = time.perf_counter()
         btc_price = get_current_btc_price()
+        btc_price_ms = (time.perf_counter() - t0) * 1000.0
+        t0 = time.perf_counter()
         strike = get_strike_price(market.window_start_ts)
+        strike_ms = (time.perf_counter() - t0) * 1000.0
     except BtcPriceError as exc:
         logger.error("[%s] V4 price/strike fetch failed: %s", _ts(), exc)
         return
 
+    t0 = time.perf_counter()
     quotes = get_best_bid_ask(market)
+    quotes_ms = (time.perf_counter() - t0) * 1000.0
+
     with connect() as conn:
-        process_v4_shadow(
+        t0 = time.perf_counter()
+        observation_inserted = process_v4_shadow(
             conn,
             market,
             quotes,
             btc_price=btc_price,
             strike=strike,
+        )
+        process_ms = (time.perf_counter() - t0) * 1000.0
+        from bot.collector_diagnostics import record_v4_cycle
+
+        record_v4_cycle(
+            conn,
+            cycle_started_at=cycle_started,
+            cycle_finished_at=time.time(),
+            market_slug=market_slug,
+            observation_inserted=observation_inserted,
+            btc_price_ms=btc_price_ms,
+            strike_ms=strike_ms,
+            quotes_ms=quotes_ms,
+            process_ms=process_ms,
         )
         conn.commit()
 
@@ -264,7 +317,11 @@ def _v3_cycle() -> None:
     _log_cycle_strategy_status()
 
 
-def _cycle() -> None:
+def _cycle(*, mtf_due: bool = True) -> None:
+    cycle_started = time.time()
+    market_slug: str | None = None
+    mtf_collected = False
+
     try:
         btc_price = get_current_btc_price()
     except BtcPriceError as exc:
@@ -322,6 +379,7 @@ def _cycle() -> None:
         logger.warning("[%s] No active BTC 5m market found", _ts())
         return
 
+    market_slug = market.slug
     _log_new_window_check(market)
 
     try:
@@ -429,28 +487,54 @@ def _cycle() -> None:
         except Exception as exc:
             logger.debug("bidirectional v12 shadow skipped: %s", exc)
 
-        # MTF context snapshot collector — observe-only research
-        try:
-            from bot.research.mtf.collector import collect_mtf_snapshot
-            collect_mtf_snapshot(
-                conn,
-                market_5m_slug=market.slug,
-                btc_price=btc_price,
-                yes_bid=quotes["yes_bid"] or 0,
-                yes_ask=quotes["yes_ask"] or 0,
-                no_bid=quotes["no_bid"] or 0,
-                no_ask=quotes["no_ask"] or 0,
-                strike=strike,
-                seconds_left=int(seconds_left),
-            )
-        except Exception as exc:
-            logger.debug("mtf snapshot skipped: %s", exc)
+        # MTF context snapshot collector — observe-only research (decoupled interval)
+        if mtf_due:
+            try:
+                from bot.research.mtf.collector import collect_mtf_snapshot
+
+                collect_mtf_snapshot(
+                    conn,
+                    market_5m_slug=market.slug,
+                    btc_price=btc_price,
+                    yes_bid=quotes["yes_bid"] or 0,
+                    yes_ask=quotes["yes_ask"] or 0,
+                    no_bid=quotes["no_bid"] or 0,
+                    no_ask=quotes["no_ask"] or 0,
+                    strike=strike,
+                    seconds_left=int(seconds_left),
+                )
+                mtf_collected = True
+            except Exception as exc:
+                logger.debug("mtf snapshot skipped: %s", exc)
 
         conn.commit()
 
     _cycle_signal_status["v2"] = v2_status
     _cycle_signal_status["v2.5"] = v25_status
     _log_cycle_strategy_status()
+
+    cycle_ms = (time.time() - cycle_started) * 1000.0
+    if cycle_ms > max(POLL_INTERVAL_SEC, V4_POLL_INTERVAL_SEC) * 3000:
+        logger.warning(
+            "Main cycle slow: %.0fms (V4 poll=%.1fs); MTF collected=%s",
+            cycle_ms,
+            V4_POLL_INTERVAL_SEC,
+            mtf_collected,
+        )
+    try:
+        with connect() as conn:
+            from bot.collector_diagnostics import record_main_cycle
+
+            record_main_cycle(
+                conn,
+                cycle_started_at=cycle_started,
+                cycle_finished_at=time.time(),
+                market_slug=market_slug,
+                mtf_collected=mtf_collected,
+            )
+            conn.commit()
+    except Exception:
+        logger.debug("main cycle diagnostics skipped", exc_info=True)
 
 
 def main() -> None:

@@ -120,6 +120,8 @@ ER_V3_TIME_STOP_SEC = int(os.getenv("ER_V3_TIME_STOP_SEC", "90"))
 ER_SUMMARY_INTERVAL_SEC = float(os.getenv("ER_SUMMARY_INTERVAL_SEC", "300"))
 
 V4_POLL_INTERVAL_SEC = float(os.getenv("V4_POLL_INTERVAL_SEC", "1"))
+# MTF HTF snapshot collector — decoupled from main POLL_INTERVAL_SEC to avoid blocking V4
+MTF_POLL_INTERVAL_SEC = float(os.getenv("MTF_POLL_INTERVAL_SEC", "60"))
 V4_OBSERVE_SECONDS = int(os.getenv("V4_OBSERVE_SECONDS", "120"))
 V4_MIN_PROBABILITY = float(os.getenv("V4_MIN_PROBABILITY", "0.70"))
 V4_MIN_SCORE = float(os.getenv("V4_MIN_SCORE", "8"))

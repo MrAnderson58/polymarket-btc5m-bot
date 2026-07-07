@@ -394,36 +394,19 @@ def _manage_open_shadow_trade(
         runtime.phase = "SHADOW_BUY"
 
 
-def process_v4_shadow(
+def record_v4_observation_tick(
     conn: sqlite3.Connection,
     market: Btc5mMarket,
     quotes: dict[str, float | None],
     *,
     btc_price: float,
     strike: float | None,
-) -> None:
-    """Run one V4 Shadow tick (intended at 1 Hz)."""
-    now_ts = int(time.time())
-    runtime = _get_runtime(market)
-
-    open_trade = get_open_v4_shadow_trade(conn, market_slug=market.slug)
-    if open_trade is not None:
-        _manage_open_shadow_trade(
-            conn,
-            open_trade,
-            market=market,
-            quotes=quotes,
-            now_ts=now_ts,
-            runtime=runtime,
-        )
-        return
-
-    if has_v4_shadow_trade(conn, market.slug):
-        if runtime.last_logged_phase != "EXIT":
-            _enter_phase(runtime, "EXIT")
-        else:
-            runtime.phase = "EXIT"
-        return
+    runtime: V4WindowRuntime | None = None,
+    now_ts: int | None = None,
+) -> bool:
+    """Persist one observation row for research density (independent of trade FSM)."""
+    now_ts = int(time.time()) if now_ts is None else now_ts
+    runtime = runtime or _get_runtime(market)
 
     trend_score: float | None = None
     trend_side: str | None = None
@@ -442,14 +425,62 @@ def process_v4_shadow(
         trend_side=trend_side,
     )
 
-    if snapshot.timestamp != runtime.last_observation_ts:
-        _persist_observation(conn, snapshot)
-        runtime.last_observation_ts = snapshot.timestamp
-        runtime.history.append(snapshot)
-        if len(runtime.history) > 180:
-            runtime.history = runtime.history[-180:]
+    if snapshot.timestamp == runtime.last_observation_ts:
+        return False
+
+    _persist_observation(conn, snapshot)
+    runtime.last_observation_ts = snapshot.timestamp
+    runtime.history.append(snapshot)
+    if len(runtime.history) > 180:
+        runtime.history = runtime.history[-180:]
+    return True
+
+
+def process_v4_shadow(
+    conn: sqlite3.Connection,
+    market: Btc5mMarket,
+    quotes: dict[str, float | None],
+    *,
+    btc_price: float,
+    strike: float | None,
+) -> bool:
+    """Run one V4 Shadow tick (intended at 1 Hz). Returns True if observation inserted."""
+    now_ts = int(time.time())
+    runtime = _get_runtime(market)
+
+    inserted = record_v4_observation_tick(
+        conn,
+        market,
+        quotes,
+        btc_price=btc_price,
+        strike=strike,
+        runtime=runtime,
+        now_ts=now_ts,
+    )
+
+    open_trade = get_open_v4_shadow_trade(conn, market_slug=market.slug)
+    if open_trade is not None:
+        _manage_open_shadow_trade(
+            conn,
+            open_trade,
+            market=market,
+            quotes=quotes,
+            now_ts=now_ts,
+            runtime=runtime,
+        )
+        return inserted
+
+    if has_v4_shadow_trade(conn, market.slug):
+        if runtime.last_logged_phase != "EXIT":
+            _enter_phase(runtime, "EXIT")
+        else:
+            runtime.phase = "EXIT"
+        return inserted
 
     if runtime.phase == "OBSERVE":
+        if not runtime.history:
+            return inserted
+        snapshot = runtime.history[-1]
         log_observe(snapshot)
         elapsed = snapshot.seconds_from_start
         if in_observe_phase(elapsed, V4_OBSERVE_SECONDS):
@@ -463,7 +494,7 @@ def process_v4_shadow(
                     samples=len(runtime.history),
                     need_samples=10,
                 )
-                return
+                return inserted
 
             score, probability = compute_trend_score(signal)
             log_state_transition(
@@ -482,7 +513,7 @@ def process_v4_shadow(
                     score=score,
                     need=V4_MIN_SCORE,
                 )
-                return
+                return inserted
 
             if probability < V4_MIN_PROBABILITY:
                 _maybe_log_blocked(
@@ -492,7 +523,7 @@ def process_v4_shadow(
                         f"probability\n\n{probability:.2f} < {V4_MIN_PROBABILITY:.2f}"
                     ),
                 )
-                return
+                return inserted
 
             if meets_entry_threshold(
                 score,
@@ -519,7 +550,7 @@ def process_v4_shadow(
                     current=runtime.peak_ask,
                     need=(runtime.peak_ask or 0) - V4_PULLBACK,
                 )
-            return
+            return inserted
 
         _maybe_log_blocked(
             runtime,
@@ -528,7 +559,7 @@ def process_v4_shadow(
             elapsed=elapsed,
             observe_seconds=V4_OBSERVE_SECONDS,
         )
-        return
+        return inserted
 
     if runtime.phase in {"TREND_FOUND", "WAIT_PULLBACK"} and runtime.trend is not None:
         side = runtime.trend.side
@@ -557,7 +588,7 @@ def process_v4_shadow(
                 current=ask,
                 need=need,
             )
-            return
+            return inserted
 
         if ask is None:
             _maybe_log_blocked(
@@ -566,7 +597,7 @@ def process_v4_shadow(
                 reason="missing ask quote",
                 side=side,
             )
-            return
+            return inserted
 
         reason = f"trend_{side.lower()}_pullback_{V4_PULLBACK:.2f}"
         runtime.trade_id = _open_shadow_trade(
@@ -580,7 +611,9 @@ def process_v4_shadow(
             reason=reason,
         )
         _enter_phase(runtime, "SHADOW_BUY", entry=f"{ask:.2f}")
-        return
+        return inserted
+
+    return inserted
 
 
 def close_due_v4_shadow_trades(conn: sqlite3.Connection, now_ts: int) -> int:
