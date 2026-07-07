@@ -47,20 +47,24 @@ def main() -> int:
     _add_strategy_args(sim_p)
     sim_p.add_argument("--min-obs", type=int, default=None)
     sim_p.add_argument("--limit", type=int, default=None)
+    sim_p.add_argument("--max-markets", type=int, default=None)
     sim_p.add_argument("--one-per-market", action="store_true")
     sim_p.add_argument("--no-persist", action="store_true")
 
     disc_p = sub.add_parser("discover", help="Grid search historical strategies")
     disc_p.add_argument("--min-obs", type=int, default=None)
     disc_p.add_argument("--limit", type=int, default=None)
+    disc_p.add_argument("--max-markets", type=int, default=None)
     disc_p.add_argument("--min-trades", type=int, default=None)
     disc_p.add_argument("--top", type=int, default=20)
     disc_p.add_argument("--no-persist", action="store_true")
+    disc_p.add_argument("--no-progress", action="store_true")
+    disc_p.add_argument("--profile", action="store_true", help="Profile and print top slow functions")
 
     args = parser.parse_args()
 
     from bot.database import connect, init_db
-    from bot.research.strategy_simulator.engine import run_discovery, run_simulation
+    from bot.research.strategy_simulator.engine import profile_discovery, run_discovery, run_simulation
     from bot.research.strategy_simulator.report import render_discovery_report, render_simulation_report
     from bot.research.strategy_simulator.storage import ensure_tables
 
@@ -76,6 +80,7 @@ def main() -> int:
                 strategy,
                 min_obs=args.min_obs,
                 market_limit=args.limit,
+                max_markets=args.max_markets,
                 one_trade_per_market=args.one_per_market,
                 persist=not args.no_persist,
             )
@@ -86,13 +91,22 @@ def main() -> int:
         with connect() as conn:
             ensure_tables(conn)
             conn.commit()
+            if args.profile:
+                profile_discovery(
+                    conn,
+                    max_markets=args.max_markets or args.limit or 3,
+                    top_n=args.top,
+                )
+                return 0
             ranked = run_discovery(
                 conn,
                 min_obs=args.min_obs,
                 market_limit=args.limit,
+                max_markets=args.max_markets,
                 min_trades=args.min_trades,
                 top_n=args.top,
                 persist=not args.no_persist,
+                show_progress=not args.no_progress,
             )
         print(render_discovery_report(
             ranked,

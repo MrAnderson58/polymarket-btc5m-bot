@@ -245,5 +245,43 @@ class StrategySimulatorQcTest(unittest.TestCase):
         self.assertFalse(qc.ok)
 
 
+class PathIndexTest(unittest.TestCase):
+    def test_bisect_matches_linear_scan(self) -> None:
+        from bot.research.strategy_simulator.path_index import find_idx_at_or_before
+
+        timestamps = [100, 108, 116, 124, 132, 140, 148, 156]
+        for idx in range(len(timestamps)):
+            for target in (100, 110, 116, 130, 156, 200):
+                pos = find_idx_at_or_before(timestamps, idx, target)
+                best = None
+                for i in range(idx, -1, -1):
+                    ts = timestamps[i]
+                    if ts <= target:
+                        best = i
+                    if ts < target - 5:
+                        break
+                self.assertEqual(pos, best)
+
+    def test_context_matches_direct_simulation(self) -> None:
+        from bot.research.strategy_simulator.simulator import build_market_context, simulate_strategy_on_context
+
+        path = _make_path(yes_ask_start=0.28)
+        strategy = Strategy(
+            direction="YES",
+            max_entry=0.30,
+            min_delta=0,
+            max_spread=0.03,
+            min_seconds_left=60,
+            tp=0.60,
+        )
+        ctx = build_market_context("m", path)
+        direct = simulate_strategy_on_market("m", path, strategy, one_trade_per_market=True)
+        cached = simulate_strategy_on_context(ctx, strategy, one_trade_per_market=True)
+        self.assertEqual(len(direct), len(cached))
+        for a, b in zip(direct, cached):
+            self.assertAlmostEqual(a.pnl, b.pnl)
+            self.assertEqual(a.won, b.won)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from bot.research.market_behavior.analyzer import _resolve_strike
 from bot.research.strategy_simulator.config import BTC_VELOCITY_WINDOWS, SPREAD_LOOKBACK_WINDOWS
+from bot.research.strategy_simulator.path_index import find_idx_at_or_before
 
 
 @dataclass
@@ -43,14 +44,9 @@ def _side_spread(obs: dict, side: str) -> float | None:
 
 
 def _find_obs_at_or_before(observations: list[dict], idx: int, target_ts: int) -> dict | None:
-    best: dict | None = None
-    for i in range(idx, -1, -1):
-        ts = int(observations[i]["timestamp"])
-        if ts <= target_ts:
-            best = observations[i]
-        if ts < target_ts - 5:
-            break
-    return best
+    timestamps = [int(o["timestamp"]) for o in observations]
+    past_idx = find_idx_at_or_before(timestamps, idx, target_ts)
+    return observations[past_idx] if past_idx is not None else None
 
 
 def build_snapshot_features(
@@ -65,6 +61,7 @@ def build_snapshot_features(
     if sl is None:
         return None
 
+    timestamps = [int(o["timestamp"]) for o in observations]
     strike = _resolve_strike(observations[: idx + 1])
     btc = float(obs["btc_price"])
     ts = int(obs["timestamp"])
