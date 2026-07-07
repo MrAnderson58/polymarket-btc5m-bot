@@ -26,6 +26,7 @@ from bot.research.strategy_simulator.discovery_core import (
     evaluate_strategies_on_paths,
 )
 from bot.research.strategy_simulator.grid import generate_discovery_grid
+from bot.research.strategy_simulator.market_filter import MarketFilter, list_filtered_market_paths
 from bot.research.strategy_simulator.splits import MarketSplit, split_markets_chronological
 from bot.research.strategy_simulator.statistics import SimulationStats, compute_stats
 from bot.research.strategy_simulator.strategies import Strategy
@@ -152,13 +153,18 @@ def run_walk_forward(
     min_test_trades: int = MIN_FINALIST_TEST_TRADES,
     min_prob_ev_positive: float = BOOTSTRAP_MIN_PROB_EV_POSITIVE,
     show_progress: bool = True,
+    market_filter: MarketFilter | None = None,
 ) -> tuple[MarketSplit, list[WalkForwardResult]]:
     floor_obs = min_obs or MIN_OBS_PER_MARKET
-    slugs = list_markets(conn, min_obs=floor_obs)
-    if max_markets:
-        slugs = slugs[:max_markets]
-
-    all_paths = _load_paths(conn, slugs, min_obs=floor_obs)
+    if market_filter is not None:
+        all_paths = list_filtered_market_paths(conn, market_filter, base_min_obs=floor_obs)
+        if max_markets:
+            all_paths = dict(list(all_paths.items())[:max_markets])
+    else:
+        slugs = list_markets(conn, min_obs=floor_obs)
+        if max_markets:
+            slugs = slugs[:max_markets]
+        all_paths = _load_paths(conn, slugs, min_obs=floor_obs)
     split = split_markets_chronological(
         all_paths,
         train_ratio=train_ratio,

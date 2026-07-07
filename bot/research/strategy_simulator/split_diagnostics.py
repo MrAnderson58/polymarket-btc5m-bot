@@ -20,6 +20,7 @@ from bot.research.strategy_simulator.discovery_core import (
     evaluate_strategies_on_paths,
 )
 from bot.research.strategy_simulator.grid import generate_discovery_grid
+from bot.research.strategy_simulator.market_filter import MarketFilter, list_filtered_market_paths
 from bot.research.strategy_simulator.opportunity import OpportunityFunnel, analyze_split_opportunity
 from bot.research.strategy_simulator.regime import (
     RegimeDiagnostics,
@@ -90,13 +91,18 @@ def run_split_diagnostics(
     min_trades: int | None = None,
     n_rolling_folds: int = 5,
     show_progress: bool = False,
+    market_filter: MarketFilter | None = None,
 ) -> SplitDiagnosticsReport:
     floor = min_obs or MIN_OBS_PER_MARKET
-    slugs = list_markets(conn, min_obs=floor)
-    if max_markets:
-        slugs = slugs[:max_markets]
-
-    all_paths = _load_paths(conn, slugs, min_obs=floor)
+    if market_filter is not None:
+        all_paths = list_filtered_market_paths(conn, market_filter, base_min_obs=floor)
+        if max_markets:
+            all_paths = dict(list(all_paths.items())[:max_markets])
+    else:
+        slugs = list_markets(conn, min_obs=floor)
+        if max_markets:
+            slugs = slugs[:max_markets]
+        all_paths = _load_paths(conn, slugs, min_obs=floor)
     split = split_markets_chronological(
         all_paths,
         train_ratio=train_ratio,

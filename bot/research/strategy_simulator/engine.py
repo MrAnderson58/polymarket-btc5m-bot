@@ -10,6 +10,7 @@ from bot.research.strategy_simulator.config import MIN_OBS_PER_MARKET
 from bot.research.strategy_simulator.discovery_core import discover_on_paths
 from bot.research.strategy_simulator.deduplication import StrategyFamily
 from bot.research.strategy_simulator.grid import generate_discovery_grid
+from bot.research.strategy_simulator.market_filter import MarketFilter, list_filtered_market_paths
 from bot.research.strategy_simulator.simulator import (
     VirtualTrade,
     build_market_context,
@@ -37,15 +38,21 @@ def run_simulation(
     max_markets: int | None = None,
     one_trade_per_market: bool = False,
     persist: bool = True,
+    market_filter: MarketFilter | None = None,
 ) -> tuple[SimulationStats, list[VirtualTrade]]:
     cap = market_limit or max_markets
-    slugs = list_markets(conn, min_obs=min_obs or MIN_OBS_PER_MARKET)
+    if market_filter is not None:
+        paths = list_filtered_market_paths(conn, market_filter, base_min_obs=min_obs)
+        slugs = list(paths.keys())
+    else:
+        slugs = list_markets(conn, min_obs=min_obs or MIN_OBS_PER_MARKET)
+        paths = None
     if cap:
         slugs = slugs[:cap]
 
     all_trades: list[VirtualTrade] = []
     for slug in slugs:
-        path = load_market_path(conn, slug)
+        path = paths[slug] if paths is not None else load_market_path(conn, slug)
         if len(path) < (min_obs or MIN_OBS_PER_MARKET):
             continue
         ctx = build_market_context(slug, path, tp_levels=(strategy.tp,))
@@ -70,17 +77,22 @@ def run_discovery(
     persist: bool = True,
     show_progress: bool = True,
     dedupe: bool = True,
+    market_filter: MarketFilter | None = None,
 ) -> tuple[list[SimulationStats], list[StrategyFamily]]:
     cap = market_limit or max_markets
-    slugs = list_markets(conn, min_obs=min_obs or MIN_OBS_PER_MARKET)
-    if cap:
-        slugs = slugs[:cap]
-
-    paths: dict[str, list[dict]] = {}
-    for slug in slugs:
-        path = load_market_path(conn, slug)
-        if len(path) >= (min_obs or MIN_OBS_PER_MARKET):
-            paths[slug] = path
+    if market_filter is not None:
+        paths = list_filtered_market_paths(conn, market_filter, base_min_obs=min_obs)
+        if cap:
+            paths = dict(list(paths.items())[:cap])
+    else:
+        slugs = list_markets(conn, min_obs=min_obs or MIN_OBS_PER_MARKET)
+        if cap:
+            slugs = slugs[:cap]
+        paths = {}
+        for slug in slugs:
+            path = load_market_path(conn, slug)
+            if len(path) >= (min_obs or MIN_OBS_PER_MARKET):
+                paths[slug] = path
 
     ranked, _, families = discover_on_paths(
         paths,

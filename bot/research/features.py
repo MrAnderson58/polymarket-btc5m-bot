@@ -202,13 +202,23 @@ def _find_price_at(observations: list[dict], current_idx: int, target_ts: int) -
     return best
 
 
-def load_market_observations(conn: sqlite3.Connection, market_slug: str) -> list[dict]:
+def load_market_observations(
+    conn: sqlite3.Connection,
+    market_slug: str,
+    *,
+    normalize_quotes: bool = True,
+) -> list[dict]:
     """Load all v4 observations for a market, ordered by timestamp."""
     rows = conn.execute(
         "SELECT * FROM v4_shadow_observations WHERE market_slug = ? ORDER BY timestamp ASC",
         (market_slug,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    if normalize_quotes:
+        from bot.research.quote_semantics import normalize_observation_path
+
+        return normalize_observation_path(out)
+    return out
 
 
 def get_research_markets(conn: sqlite3.Connection, min_obs: int = 30) -> list[str]:
