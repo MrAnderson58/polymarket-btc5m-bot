@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import sqlite3
 from dataclasses import dataclass
 from statistics import median
@@ -9,6 +10,11 @@ from statistics import median
 from bot.collector_diagnostics import _slug_window_start, analyze_market_gaps
 from bot.research.features import get_research_markets, load_market_observations
 from bot.research.strategy_simulator.config import MIN_OBS_PER_MARKET
+
+MARKET_START_TS_HELP_DEFAULT = "Include markets with window_start_ts >= value"
+FORWARD_TRACK_MARKET_START_TS_HELP = (
+    "Only markets on/after this window_start (default: dense-era boundary)"
+)
 
 
 @dataclass(frozen=True)
@@ -79,12 +85,17 @@ def list_filtered_market_paths(
     return paths
 
 
-def add_market_filter_args(parser) -> None:
+def add_market_filter_args(
+    parser: argparse.ArgumentParser,
+    *,
+    market_start_ts_help: str | None = None,
+) -> None:
+    """Register shared market-quality filter flags on a subcommand parser."""
     parser.add_argument(
         "--market-start-ts",
         type=int,
         default=None,
-        help="Include markets with window_start_ts >= value",
+        help=market_start_ts_help or MARKET_START_TS_HELP_DEFAULT,
     )
     parser.add_argument(
         "--market-end-ts",

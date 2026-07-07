@@ -15,7 +15,11 @@ from __future__ import annotations
 import argparse
 
 from bot.research.strategy_simulator.config import DEFAULT_TP, MIN_TRADES_FOR_RANK
-from bot.research.strategy_simulator.market_filter import add_market_filter_args, market_filter_from_args
+from bot.research.strategy_simulator.market_filter import (
+    FORWARD_TRACK_MARKET_START_TS_HELP,
+    add_market_filter_args,
+    market_filter_from_args,
+)
 from bot.research.strategy_simulator.strategies import Strategy
 
 MARKET_FILTER_OPTIONS = (
@@ -28,8 +32,12 @@ MARKET_FILTER_OPTIONS = (
 )
 
 
-def _add_filter_args(parser: argparse.ArgumentParser, **kwargs) -> None:
-    add_market_filter_args(parser, **kwargs)
+def _add_filter_args(
+    parser: argparse.ArgumentParser,
+    *,
+    market_start_ts_help: str | None = None,
+) -> None:
+    add_market_filter_args(parser, market_start_ts_help=market_start_ts_help)
 
 
 def _add_strategy_args(parser: argparse.ArgumentParser) -> None:
@@ -139,12 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
         "forward-track",
         help="Record observe-only forward signals for registered candidates",
     )
-    _add_filter_args(
-        fwd_p,
-        market_start_ts_help=(
-            "Only markets on/after this window_start (default: dense-era boundary)"
-        ),
-    )
+    _add_filter_args(fwd_p, market_start_ts_help=FORWARD_TRACK_MARKET_START_TS_HELP)
 
     audit_p = sub.add_parser("quote-audit", help="Bid/ask semantics audit on v4 observations")
     audit_p.add_argument("--sample-markets", type=int, default=50)
