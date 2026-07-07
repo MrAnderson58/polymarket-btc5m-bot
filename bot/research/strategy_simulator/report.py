@@ -6,8 +6,11 @@ from statistics import mean
 
 from bot.research.market_behavior.quality_control import QcReport, render_qc_warnings
 from bot.research.strategy_simulator.config import MIN_TRADES_FOR_RANK
+from bot.research.strategy_simulator.deduplication import StrategyFamily
 from bot.research.strategy_simulator.simulator import VirtualTrade
+from bot.research.strategy_simulator.splits import MarketSplit
 from bot.research.strategy_simulator.statistics import SimulationStats
+from bot.research.strategy_simulator.walk_forward import WalkForwardResult
 
 
 def validate_simulation(
@@ -48,16 +51,7 @@ def validate_simulation(
 
 
 def _format_strategy_lines(stats: SimulationStats) -> list[str]:
-    s = stats.strategy
-    lines = [s.direction, f"entry <={s.max_entry:.2f}"]
-    if s.min_delta is not None:
-        lines.append(f"delta >{s.min_delta:.0f}$")
-    if s.max_delta is not None:
-        lines.append(f"delta <{s.max_delta:.0f}$")
-    lines.append(f"spread <{s.max_spread * 100:.0f}c")
-    lines.append(f"seconds >{s.min_seconds_left}")
-    lines.append(f"tp={s.tp:.2f}")
-    return lines
+    return stats.strategy.predicate_lines()
 
 
 def render_simulation_report(
@@ -70,7 +64,7 @@ def render_simulation_report(
     lines = [
         "SIMULATION",
         "=" * 40,
-        stats.strategy.label,
+        *stats.strategy.predicate_lines(),
         "",
         f"Trades {stats.trades}",
         f"WinRate {stats.win_rate:.1%}",
@@ -99,9 +93,12 @@ def render_discovery_report(
     ranked: list[SimulationStats],
     *,
     min_trades: int | None = None,
+    families: list[StrategyFamily] | None = None,
 ) -> str:
     floor = min_trades or MIN_TRADES_FOR_RANK
     lines = ["TOP HISTORICAL STRATEGIES", "=" * 40, ""]
+
+    family_by_fp = {f.representative.fingerprint: f for f in (families or [])}
 
     accepted: list[SimulationStats] = []
     qc_all = QcReport()
@@ -119,6 +116,9 @@ def render_discovery_report(
     for i, stats in enumerate(accepted, start=1):
         lines.append(f"#{i}")
         lines.extend(_format_strategy_lines(stats))
+        family = family_by_fp.get(stats.fingerprint)
+        if family and family.family_size > 1:
+            lines.append(f"Family size {family.family_size} (equiv. spreads {family.spread_range})")
         lines.extend([
             f"Trades {stats.trades}",
             f"WinRate {stats.win_rate:.0%}",
@@ -131,5 +131,74 @@ def render_discovery_report(
     if not accepted:
         lines.append(f"No strategies passed QC with trades >= {floor}")
 
+    lines.append("Observe-only. No execution impact.")
+    return "\n".join(lines)
+
+
+def _split_block(name: str, m) -> list[str]:
+    return [
+        name,
+        f"  trades {m.trades}",
+        f"  win_rate {m.win_rate:.1%}",
+        f"  PF {m.profit_factor:.2f}",
+        f"  EV {m.expected_value:+.4f}",
+        f"  max_drawdown {m.max_drawdown:.2f}",
+    ]
+
+
+def render_walk_forward_report(
+    split: MarketSplit,
+    results: list[WalkForwardResult],
+) -> str:
+    lines = [
+        "WALK-FORWARD VALIDATION",
+        "=" * 40,
+        f"Train markets {len(split.train)} | Validation {len(split.validation)} | Test {len(split.test)}",
+        "",
+    ]
+    for i, r in enumerate(results, start=1):
+        lines.append(f"#{i} {'QUALIFIED' if r.qualified else 'REJECTED'}")
+        lines.extend(r.strategy.predicate_lines())
+        if r.family and r.family.family_size > 1:
+            lines.append(
+                f"Family {r.family.family_size} equiv. spreads {r.family.spread_range}"
+            )
+        lines.append("")
+        lines.extend(_split_block("TRAIN", r.train))
+        lines.extend(_split_block("VALIDATION", r.validation))
+        lines.extend(_split_block("TEST", r.test))
+        lines.append("STABILITY")
+        lines.append(f"  EV retention val/train {r.stability.ev_retention_validation_train}")
+        lines.append(f"  EV retention test/train {r.stability.ev_retention_test_train}")
+        lines.append(f"  PF retention val {r.stability.pf_retention_validation}")
+        lines.append(f"  PF retention test {r.stability.pf_retention_test}")
+        lines.append("BOOTSTRAP (test markets)")
+        lines.append(f"  EV mean {r.bootstrap.ev_mean:+.4f}")
+        lines.append(f"  EV 95% CI [{r.bootstrap.ev_ci_low:+.4f}, {r.bootstrap.ev_ci_high:+.4f}]")
+        lines.append(f"  WinRate 95% CI [{r.bootstrap.win_rate_ci_low:.1%}, {r.bootstrap.win_rate_ci_high:.1%}]")
+        lines.append(f"  PF median {r.bootstrap.pf_median:.2f} CI [{r.bootstrap.pf_ci_low:.2f}, {r.bootstrap.pf_ci_high:.2f}]")
+        lines.append(f"  P(EV>0) {r.bootstrap.prob_ev_positive:.1%}")
+        lines.append("COST STRESS (test)")
+        for name, cm in r.cost_metrics.items():
+            lines.append(f"  {name}: EV {cm.expected_value:+.4f} PF {cm.profit_factor:.2f}")
+        if r.reject_reasons:
+            lines.append(f"Reject: {'; '.join(r.reject_reasons)}")
+        lines.extend(["", "-" * 20, ""])
+    lines.append("Observe-only. No execution impact.")
+    return "\n".join(lines)
+
+
+def render_finalists_report(rows: list[dict]) -> str:
+    lines = ["SHADOW CANDIDATES", "=" * 40, ""]
+    if not rows:
+        lines.append("No shadow candidates stored.")
+        return "\n".join(lines)
+    for row in rows:
+        lines.append(
+            f"#{row['id']} fp={row['strategy_fp']} "
+            f"qualified={row['qualified']} shadow={row['enabled_shadow']} "
+            f"created={row['created_at']}"
+        )
+    lines.append("")
     lines.append("Observe-only. No execution impact.")
     return "\n".join(lines)

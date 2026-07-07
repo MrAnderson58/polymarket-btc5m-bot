@@ -18,3 +18,9 @@ DISCOVER_DIRECTIONS: tuple[str, ...] = ("YES", "NO")
 # BTC velocity / delta lookback windows (seconds).
 BTC_VELOCITY_WINDOWS: tuple[int, ...] = (5, 10, 20, 30)
 SPREAD_LOOKBACK_WINDOWS: tuple[int, ...] = (5, 10, 20)
+
+# Walk-forward / bootstrap thresholds (configurable).
+BOOTSTRAP_SAMPLES: int = 1000
+BOOTSTRAP_SEED: int = 42
+MIN_FINALIST_TEST_TRADES: int = 30
+BOOTSTRAP_MIN_PROB_EV_POSITIVE: float = 0.95

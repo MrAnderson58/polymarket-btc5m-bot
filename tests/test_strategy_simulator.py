@@ -9,7 +9,8 @@ from pathlib import Path
 from statistics import mean
 
 from bot.database import connect, init_db
-from bot.research.strategy_simulator.engine import generate_discovery_grid, run_discovery, run_simulation
+from bot.research.strategy_simulator.engine import run_discovery, run_simulation
+from bot.research.strategy_simulator.grid import generate_discovery_grid
 from bot.research.strategy_simulator.features import build_snapshot_features
 from bot.research.strategy_simulator.report import render_discovery_report, render_simulation_report, validate_simulation
 from bot.research.strategy_simulator.simulator import simulate_strategy_on_market
@@ -224,7 +225,7 @@ class StrategySimulatorEngineTest(unittest.TestCase):
             conn.commit()
             ensure_tables(conn)
             conn.commit()
-            ranked = run_discovery(
+            ranked, _families = run_discovery(
                 conn, min_obs=20, min_trades=1, top_n=5, persist=True,
             )
         text = render_discovery_report(ranked, min_trades=1)

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 from bot.research.strategy_simulator.statistics import SimulationStats
 
+
 SIM_RESULTS_TABLE = "ss_simulation_results"
 DISCOVERED_TABLE = "ss_discovered_strategies"
+SHADOW_CANDIDATES_TABLE = "ss_shadow_candidates"
 
 
 def ensure_tables(conn: sqlite3.Connection) -> None:
@@ -57,6 +60,20 @@ def ensure_tables(conn: sqlite3.Connection) -> None:
             expected_value REAL NOT NULL,
             computed_at TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(strategy_fp)
+        );
+
+        CREATE TABLE IF NOT EXISTS {SHADOW_CANDIDATES_TABLE} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            strategy_fp TEXT NOT NULL UNIQUE,
+            parameters_json TEXT NOT NULL,
+            train_metrics_json TEXT NOT NULL,
+            validation_metrics_json TEXT NOT NULL,
+            test_metrics_json TEXT NOT NULL,
+            bootstrap_metrics_json TEXT NOT NULL,
+            cost_stress_metrics_json TEXT NOT NULL,
+            qualified INTEGER NOT NULL DEFAULT 1,
+            enabled_shadow INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
     """)
 
@@ -115,4 +132,69 @@ def store_discovered(conn: sqlite3.Connection, ranked: list[SimulationStats]) ->
                 stats.trades, stats.win_rate, stats.profit_factor, stats.expected_value,
             ),
         )
+    conn.commit()
+
+
+def store_shadow_candidates(
+    conn: sqlite3.Connection,
+    results: list,
+    *,
+    replace: bool = True,
+) -> list[int]:
+    if replace:
+        conn.execute(f"DELETE FROM {SHADOW_CANDIDATES_TABLE}")
+    ids: list[int] = []
+    for r in results:
+        cost_json = {k: v.to_dict() for k, v in r.cost_metrics.items()}
+        cur = conn.execute(
+            f"""
+            INSERT INTO {SHADOW_CANDIDATES_TABLE} (
+                strategy_fp, parameters_json,
+                train_metrics_json, validation_metrics_json, test_metrics_json,
+                bootstrap_metrics_json, cost_stress_metrics_json,
+                qualified, enabled_shadow, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, datetime('now'))
+            ON CONFLICT(strategy_fp) DO UPDATE SET
+                parameters_json=excluded.parameters_json,
+                train_metrics_json=excluded.train_metrics_json,
+                validation_metrics_json=excluded.validation_metrics_json,
+                test_metrics_json=excluded.test_metrics_json,
+                bootstrap_metrics_json=excluded.bootstrap_metrics_json,
+                cost_stress_metrics_json=excluded.cost_stress_metrics_json,
+                qualified=1,
+                created_at=datetime('now')
+            """,
+            (
+                r.fingerprint,
+                r.strategy.to_json(),
+                json.dumps(r.train.to_dict()),
+                json.dumps(r.validation.to_dict()),
+                json.dumps(r.test.to_dict()),
+                json.dumps(r.bootstrap.to_dict()),
+                json.dumps(cost_json),
+            ),
+        )
+        row_id = cur.lastrowid
+        if row_id:
+            ids.append(int(row_id))
+    conn.commit()
+    return ids
+
+
+def list_shadow_candidates(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        f"""
+        SELECT id, strategy_fp, parameters_json, qualified, enabled_shadow, created_at
+        FROM {SHADOW_CANDIDATES_TABLE}
+        ORDER BY id
+        """,
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def enable_shadow_candidate(conn: sqlite3.Connection, strategy_id: int, *, enabled: bool) -> None:
+    conn.execute(
+        f"UPDATE {SHADOW_CANDIDATES_TABLE} SET enabled_shadow=? WHERE id=?",
+        (1 if enabled else 0, strategy_id),
+    )
     conn.commit()
