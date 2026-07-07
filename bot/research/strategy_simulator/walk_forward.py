@@ -14,7 +14,11 @@ from bot.research.strategy_simulator.config import (
     MIN_FINALIST_TEST_TRADES,
     MIN_OBS_PER_MARKET,
 )
-from bot.research.strategy_simulator.cost_model import COST_SCENARIOS, apply_cost_model
+from bot.research.strategy_simulator.cost_model import (
+    COST_SCENARIOS,
+    apply_cost_model_filtered,
+    apply_costs_same_trade_set,
+)
 from bot.research.strategy_simulator.deduplication import StrategyFamily
 from bot.research.strategy_simulator.discovery_core import (
     build_contexts,
@@ -85,6 +89,8 @@ class WalkForwardResult:
     stability: StabilityMetrics
     bootstrap: BootstrapResult
     cost_metrics: dict[str, SplitMetrics] = field(default_factory=dict)
+    cost_metrics_same_set: dict[str, SplitMetrics] = field(default_factory=dict)
+    cost_trade_counts: dict[str, dict[str, int]] = field(default_factory=dict)
     qualified: bool = False
     reject_reasons: list[str] = field(default_factory=list)
 
@@ -220,11 +226,22 @@ def run_walk_forward(
         )
 
         cost_metrics: dict[str, SplitMetrics] = {}
+        cost_metrics_same_set: dict[str, SplitMetrics] = {}
+        cost_trade_counts: dict[str, dict[str, int]] = {}
         for scenario in COST_SCENARIOS:
-            adjusted = apply_cost_model(test_trade_list, scenario, seed=bootstrap_seed)
-            cost_metrics[scenario.name] = SplitMetrics.from_stats(
-                compute_stats(strategy, adjusted),
+            same_trades = apply_costs_same_trade_set(test_trade_list, scenario)
+            filtered = apply_cost_model_filtered(test_trade_list, scenario, seed=bootstrap_seed)
+            cost_metrics_same_set[scenario.name] = SplitMetrics.from_stats(
+                compute_stats(strategy, same_trades),
             )
+            cost_metrics[scenario.name] = SplitMetrics.from_stats(
+                compute_stats(strategy, filtered),
+            )
+            cost_trade_counts[scenario.name] = {
+                "in": len(test_trade_list),
+                "same_set": len(same_trades),
+                "filtered": len(filtered),
+            }
 
         wf = WalkForwardResult(
             strategy=strategy,
@@ -235,6 +252,8 @@ def run_walk_forward(
             stability=stability,
             bootstrap=bootstrap,
             cost_metrics=cost_metrics,
+            cost_metrics_same_set=cost_metrics_same_set,
+            cost_trade_counts=cost_trade_counts,
         )
         qualified, reasons = _qualify_finalist(
             wf,

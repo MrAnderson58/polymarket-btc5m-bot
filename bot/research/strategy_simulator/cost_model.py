@@ -46,13 +46,36 @@ STRESS_COSTS = ExecutionCostModel(
 COST_SCENARIOS: tuple[ExecutionCostModel, ...] = (IDEAL_COSTS, BASE_COSTS, STRESS_COSTS)
 
 
-def apply_cost_model(
+def _apply_slippage_fees(trade: VirtualTrade, model: ExecutionCostModel) -> VirtualTrade:
+    entry = trade.entry_price + model.entry_slippage
+    exit_price = trade.exit_price - model.exit_slippage
+    fee = model.taker_fee * (entry + exit_price)
+    pnl = exit_price - entry - fee
+    return replace(
+        trade,
+        entry_price=entry,
+        exit_price=exit_price,
+        pnl=pnl,
+        won=pnl > 0,
+    )
+
+
+def apply_costs_same_trade_set(
+    trades: list[VirtualTrade],
+    model: ExecutionCostModel,
+) -> list[VirtualTrade]:
+    """Apply slippage/fees only — same trades, monotonic EV degradation."""
+    model.validate()
+    return [_apply_slippage_fees(t, model) for t in trades]
+
+
+def apply_cost_model_filtered(
     trades: list[VirtualTrade],
     model: ExecutionCostModel,
     *,
     seed: int = 42,
 ) -> list[VirtualTrade]:
-    """Return adjusted trades; EV never improves vs ideal without costs."""
+    """Apply costs with optional fill filtering (spread cap, missed fills)."""
     model.validate()
     adjusted: list[VirtualTrade] = []
     for trade in trades:
@@ -65,15 +88,32 @@ def apply_cost_model(
         if model.missed_fill_prob > 0 and (h % 1_000_000) < int(model.missed_fill_prob * 1_000_000):
             continue
 
-        entry = trade.entry_price + model.entry_slippage
-        exit_price = trade.exit_price - model.exit_slippage
-        fee = model.taker_fee * (entry + exit_price)
-        pnl = exit_price - entry - fee
-        adjusted.append(replace(
-            trade,
-            entry_price=entry,
-            exit_price=exit_price,
-            pnl=pnl,
-            won=pnl > 0,
-        ))
+        adjusted.append(_apply_slippage_fees(trade, model))
     return adjusted
+
+
+def apply_cost_model(
+    trades: list[VirtualTrade],
+    model: ExecutionCostModel,
+    *,
+    seed: int = 42,
+) -> list[VirtualTrade]:
+    """Backward-compatible: filtered application."""
+    return apply_cost_model_filtered(trades, model, seed=seed)
+
+
+@dataclass
+class CostScenarioResult:
+    name: str
+    trades_in: int
+    trades_out: int
+    trades_filtered: int
+    expected_value: float
+    profit_factor: float
+    same_trade_set: bool
+
+    @property
+    def fill_rate(self) -> float:
+        if self.trades_in == 0:
+            return 0.0
+        return self.trades_out / self.trades_in

@@ -79,12 +79,36 @@ def main() -> int:
     wf_p.add_argument("--min-prob-ev-positive", type=float, default=None)
     wf_p.add_argument("--no-progress", action="store_true")
     wf_p.add_argument("--export-shadow", action="store_true")
+    wf_p.add_argument(
+        "--force-export-shadow",
+        action="store_true",
+        help="Bypass diagnostics gate (not recommended)",
+    )
+
+    diag_p = sub.add_parser(
+        "split-diagnostics",
+        help="Diagnose walk-forward test collapse (data + opportunity funnel)",
+    )
+    diag_p.add_argument("--min-obs", type=int, default=None)
+    diag_p.add_argument("--max-markets", type=int, default=None)
+    diag_p.add_argument("--top", type=int, default=20)
+    diag_p.add_argument("--min-trades", type=int, default=None)
+    diag_p.add_argument("--train-ratio", type=float, default=0.60)
+    diag_p.add_argument("--validation-ratio", type=float, default=0.20)
+    diag_p.add_argument("--test-ratio", type=float, default=0.20)
+    diag_p.add_argument("--rolling-folds", type=int, default=5)
+    diag_p.add_argument("--no-progress", action="store_true")
 
     fin_p = sub.add_parser("finalists", help="List shadow candidate finalists")
 
     sh_p = sub.add_parser("shadow-enable", help="Enable/disable shadow candidate by id")
     sh_p.add_argument("--strategy-id", type=int, required=True)
     sh_p.add_argument("--disable", action="store_true")
+    sh_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass diagnostics gate (not recommended before split-diagnostics)",
+    )
 
     args = parser.parse_args()
 
@@ -105,8 +129,10 @@ def main() -> int:
         render_discovery_report,
         render_finalists_report,
         render_simulation_report,
+        render_split_diagnostics_report,
         render_walk_forward_report,
     )
+    from bot.research.strategy_simulator.split_diagnostics import run_split_diagnostics
     from bot.research.strategy_simulator.storage import ensure_tables
     from bot.research.strategy_simulator.walk_forward import run_walk_forward
 
@@ -178,8 +204,34 @@ def main() -> int:
                 show_progress=not args.no_progress,
             )
             if args.export_shadow:
+                if not args.force_export_shadow:
+                    print(
+                        "ERROR: --export-shadow blocked. Run split-diagnostics first.\n"
+                        "Use --force-export-shadow only if diagnostics passed.",
+                        file=__import__("sys").stderr,
+                    )
+                    return 2
                 export_qualified_finalists(conn, results)
         print(render_walk_forward_report(split, results))
+        return 0
+
+    if args.command == "split-diagnostics":
+        with connect() as conn:
+            ensure_tables(conn)
+            conn.commit()
+            diag = run_split_diagnostics(
+                conn,
+                min_obs=args.min_obs,
+                max_markets=args.max_markets,
+                train_ratio=args.train_ratio,
+                validation_ratio=args.validation_ratio,
+                test_ratio=args.test_ratio,
+                top_n=args.top,
+                min_trades=args.min_trades,
+                n_rolling_folds=args.rolling_folds,
+                show_progress=not args.no_progress,
+            )
+        print(render_split_diagnostics_report(diag))
         return 0
 
     if args.command == "finalists":
@@ -190,6 +242,13 @@ def main() -> int:
         return 0
 
     if args.command == "shadow-enable":
+        if not args.disable and not args.force:
+            print(
+                "ERROR: shadow-enable blocked until split-diagnostics passes. "
+                "Use --force to override.",
+                file=__import__("sys").stderr,
+            )
+            return 2
         with connect() as conn:
             ensure_tables(conn)
             shadow_enable(conn, args.strategy_id, enabled=not args.disable)

@@ -11,7 +11,11 @@ from pathlib import Path
 
 from bot.database import connect, init_db
 from bot.research.strategy_simulator.bootstrap import bootstrap_market_metrics
-from bot.research.strategy_simulator.cost_model import BASE_COSTS, IDEAL_COSTS, apply_cost_model
+from bot.research.strategy_simulator.cost_model import (
+    BASE_COSTS,
+    IDEAL_COSTS,
+    apply_costs_same_trade_set,
+)
 from bot.research.strategy_simulator.deduplication import deduplicate_by_trade_set, trade_set_identity
 from bot.research.strategy_simulator.grid import generate_discovery_grid
 from bot.research.strategy_simulator.simulator import VirtualTrade
@@ -140,7 +144,7 @@ class CostModelTest(unittest.TestCase):
         ideal = compute_stats(Strategy(direction="YES", max_entry=0.30, tp=0.60), trades)
         stressed = compute_stats(
             Strategy(direction="YES", max_entry=0.30, tp=0.60),
-            apply_cost_model(trades, BASE_COSTS, seed=1),
+            apply_costs_same_trade_set(trades, BASE_COSTS),
         )
         self.assertLessEqual(stressed.expected_value, ideal.expected_value)
 
