@@ -5,12 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from statistics import mean
 
+from bot.research.strategy_simulator.archetype_context import ArchetypeMarketContext, build_archetype_contexts
+from bot.research.strategy_simulator.archetype_simulator import simulate_archetype_on_context
+from bot.research.strategy_simulator.archetype_statistics import compute_archetype_stats
+from bot.research.strategy_simulator.archetypes import ArchetypeStrategy
 from bot.research.strategy_simulator.discovery_core import (
     build_contexts,
     discover_on_paths,
     evaluate_strategies_on_paths,
 )
 from bot.research.strategy_simulator.grid import generate_discovery_grid
+from bot.research.strategy_simulator.grid_v2 import grid_exit_specs
 from bot.research.strategy_simulator.splits import sort_markets_chronologically
 from bot.research.strategy_simulator.statistics import SimulationStats, compute_stats
 from bot.research.strategy_simulator.strategies import Strategy
@@ -159,3 +164,76 @@ def discover_families_for_rolling(
         show_progress=False,
     )
     return [s.strategy for s in reps]
+
+
+@dataclass
+class ArchetypeRollingSummary:
+    strategy: ArchetypeStrategy
+    folds: list[RollingFoldResult] = field(default_factory=list)
+    positive_test_folds: int = 0
+    weighted_oos_ev: float = 0.0
+    total_oos_trades: int = 0
+    distinct_markets: int = 0
+    worst_fold_ev: float = 0.0
+
+
+def run_archetype_rolling_oos(
+    all_paths: dict[str, list[dict]],
+    strategies: list[ArchetypeStrategy],
+    *,
+    n_folds: int = 5,
+    contexts: dict[str, ArchetypeMarketContext] | None = None,
+) -> list[ArchetypeRollingSummary]:
+    """Rolling OOS for archetype strategies (fixed strategy, expanding train)."""
+    folds = build_rolling_folds(all_paths, n_folds=n_folds)
+    if not folds:
+        return []
+
+    exit_specs = grid_exit_specs()
+    ctx_map = contexts or build_archetype_contexts(all_paths, exit_specs=exit_specs)
+    summaries: list[ArchetypeRollingSummary] = []
+
+    for strategy in strategies:
+        summary = ArchetypeRollingSummary(strategy=strategy)
+        test_pnls: list[float] = []
+        weighted_ev_num = 0.0
+        weighted_ev_den = 0.0
+        market_slugs: set[str] = set()
+
+        for fi, (train_slugs, test_slugs) in enumerate(folds, start=1):
+            test_paths = {s: all_paths[s] for s in test_slugs}
+            test_trades: list = []
+            for slug in test_paths:
+                ctx = ctx_map[slug]
+                test_trades.extend(
+                    simulate_archetype_on_context(ctx, strategy, one_trade_per_market=True),
+                )
+            test_stats = compute_archetype_stats(strategy, test_trades)
+            summary.folds.append(RollingFoldResult(
+                fold=fi,
+                train_markets=len(train_slugs),
+                test_markets=len(test_paths),
+                test_trades=test_stats.trades,
+                test_ev=test_stats.expected_value,
+                test_pf=test_stats.profit_factor,
+            ))
+            if test_stats.expected_value > 0:
+                summary.positive_test_folds += 1
+            if test_trades:
+                pnls = [t.pnl for t in test_trades]
+                test_pnls.extend(pnls)
+                weighted_ev_num += test_stats.expected_value * len(test_trades)
+                weighted_ev_den += len(test_trades)
+                market_slugs.update(t.market_slug for t in test_trades)
+
+        summary.total_oos_trades = len(test_pnls)
+        summary.weighted_oos_ev = (
+            weighted_ev_num / weighted_ev_den if weighted_ev_den else 0.0
+        )
+        fold_evs = [f.test_ev for f in summary.folds if f.test_trades > 0]
+        summary.worst_fold_ev = min(fold_evs) if fold_evs else 0.0
+        summary.distinct_markets = len(market_slugs)
+        summaries.append(summary)
+
+    return summaries
+

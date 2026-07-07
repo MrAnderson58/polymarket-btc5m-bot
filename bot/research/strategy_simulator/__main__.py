@@ -149,6 +149,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_filter_args(fwd_p, market_start_ts_help=FORWARD_TRACK_MARKET_START_TS_HELP)
 
+    disc_v2_p = sub.add_parser(
+        "discover-v2",
+        help="Leakage-safe archetype discovery (train rank, val gate, test once)",
+    )
+    disc_v2_p.add_argument("--min-obs", type=int, default=None)
+    disc_v2_p.add_argument("--max-markets", type=int, default=None)
+    disc_v2_p.add_argument("--top", type=int, default=20)
+    disc_v2_p.add_argument("--min-train-trades", type=int, default=30)
+    disc_v2_p.add_argument("--min-val-trades", type=int, default=10)
+    disc_v2_p.add_argument("--max-per-family", type=int, default=3)
+    disc_v2_p.add_argument("--train-ratio", type=float, default=0.60)
+    disc_v2_p.add_argument("--validation-ratio", type=float, default=0.20)
+    disc_v2_p.add_argument("--test-ratio", type=float, default=0.20)
+    disc_v2_p.add_argument("--rolling-folds", type=int, default=5)
+    disc_v2_p.add_argument("--no-progress", action="store_true")
+    disc_v2_p.add_argument("--no-legacy", action="store_true")
+    disc_v2_p.add_argument(
+        "--archetypes",
+        type=str,
+        default=None,
+        help="Comma-separated: momentum,mean_reversion,late_convergence,spread_dislocation,legacy_cheap",
+    )
+    _add_filter_args(disc_v2_p)
+
+    sub.add_parser(
+        "archetype-report",
+        help="Archetype grid audit and v1 collapse analysis (no DB)",
+    )
+
     audit_p = sub.add_parser("quote-audit", help="Bid/ask semantics audit on v4 observations")
     audit_p.add_argument("--sample-markets", type=int, default=50)
 
@@ -367,6 +396,43 @@ def main(argv: list[str] | None = None) -> int:
             status = render_forward_status(conn)
         print(f"Recorded {len(new_recs)} new forward signal(s).")
         print(status)
+        return 0
+
+    if args.command == "archetype-report":
+        from bot.research.strategy_simulator.archetype_report import render_archetype_report
+
+        print(render_archetype_report())
+        return 0
+
+    if args.command == "discover-v2":
+        from bot.research.strategy_simulator.discovery_v2 import run_discover_v2
+        from bot.research.strategy_simulator.archetype_report import render_discover_v2_report
+
+        archetypes = None
+        if args.archetypes:
+            archetypes = tuple(a.strip() for a in args.archetypes.split(",") if a.strip())
+
+        with connect() as conn:
+            ensure_tables(conn)
+            conn.commit()
+            report = run_discover_v2(
+                conn,
+                min_obs=args.min_obs,
+                max_markets=args.max_markets,
+                train_ratio=args.train_ratio,
+                validation_ratio=args.validation_ratio,
+                test_ratio=args.test_ratio,
+                top_n=args.top,
+                min_train_trades=args.min_train_trades,
+                min_val_trades=args.min_val_trades,
+                max_per_family=args.max_per_family,
+                rolling_folds=args.rolling_folds,
+                show_progress=not args.no_progress,
+                market_filter=filt,
+                include_legacy=not args.no_legacy,
+                archetypes=archetypes,
+            )
+        print(render_discover_v2_report(report))
         return 0
 
     if args.command == "quote-audit":
