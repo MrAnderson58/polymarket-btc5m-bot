@@ -29,7 +29,7 @@ def main() -> int:
         choices=(
             "audit", "migrate", "ingest", "process-pending",
             "snapshot", "snapshot-pending", "context-report", "snapshot-audit",
-            "telegram-poll", "telegram-diagnose",
+            "telegram-poll", "telegram-diagnose", "stage3-audit",
         ),
     )
     parser.add_argument("--text", default=None, help="Signal text for ingest")
@@ -37,9 +37,26 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=50, help="Max pending to process")
     parser.add_argument("--dry-run", action="store_true", help="Ingest without DB write")
     parser.add_argument("--notify", action="store_true", help="Send Telegram ack if configured")
+    parser.add_argument(
+        "--write",
+        type=str,
+        default=None,
+        help="Write stage3-audit markdown to path",
+    )
+    parser.add_argument("--json", type=str, default=None, help="Write stage3-audit raw JSON")
     args = parser.parse_args()
 
     cfg = resolve_agent_db_config()
+
+    if args.command == "stage3-audit":
+        from bot.research.futures_agent.env_bootstrap import project_root
+        from bot.research.futures_agent.stage3_data_audit import main as stage3_audit_main
+        argv = []
+        out = args.write or str(project_root() / "docs" / "research" / "STAGE3_DATA_AUDIT.md")
+        argv.extend(["--write", out])
+        if args.json:
+            argv.extend(["--json", args.json])
+        return stage3_audit_main(argv)
 
     if args.command == "audit":
         from bot.research.futures_agent.audit import render_audit, run_architecture_audit
