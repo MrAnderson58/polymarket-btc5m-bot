@@ -4,19 +4,28 @@ from __future__ import annotations
 
 import random
 import re
+import sys
+import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
+from bot.research.futures.parser import ENTRY_RE, SIDE_TOKEN, SL_RE, TP_LINE_RE, TP_RE
 from bot.research.futures.source_reader import SourceReader
 from bot.research.futures_agent.source_requirements import open_stage3_source_reader
 from bot.research.futures_agent.research_ingest import iter_source_messages
 from bot.research.futures_agent.research_taxonomy import (
     ResearchContentType,
+    _RE_MARKET_ENTRY_LANGUAGE,
+    _RE_NON_TRADE_UPDATE,
+    _RE_URL,
+    _has_technical_levels_context,
     classify_research_content,
 )
 from bot.research.futures_agent.research_utils import extract_symbols
 from bot.research.futures_agent.thesis_extract import _extract_levels, _infer_direction
+
+_SIDE_RE = re.compile(rf"\b({SIDE_TOKEN})\b", re.IGNORECASE)
 
 _RE_THIRD_PARTY_MARKERS = re.compile(
     r"(?i)\b(?:whale|0x[a-f0-9]{8,}|wallet\s+0x|borrowed\s+\w+\s+to\s+sell)\b",
@@ -32,6 +41,52 @@ _RE_WHALE_ACTION = re.compile(
 
 _RE_DEBANK_PROFILE = re.compile(r"(?i)debank\.com/profile")
 
+_SUSPICIOUS_CLASS_MAP = {
+    "EXPLICIT_SIGNAL": "suspicious_explicit",
+    "TRADER_THESIS": "suspicious_trader_thesis",
+    "WHALE_FLOW": "suspicious_whale_flow",
+    "NEWS_EVENT": "suspicious_news_event",
+    "TRADE_UPDATE": "suspicious_trade_update",
+    "TECHNICAL_LEVELS": "suspicious_technical_levels",
+}
+
+
+def is_structural_explicit_candidate(text: str) -> bool:
+    """Audit-only: detect signal-like structure from raw text (no future info)."""
+    if not text or not text.strip():
+        return False
+    t = _RE_URL.sub(" ", text.strip())
+    if not _SIDE_RE.search(t):
+        return False
+    has_entry = bool(
+        ENTRY_RE.search(t)
+        or _RE_MARKET_ENTRY_LANGUAGE.search(t)
+        or re.search(r"(?i)\b(?:market\s+entry|entry|enter|вход)\b", t),
+    )
+    has_sl = bool(
+        SL_RE.search(t)
+        or re.search(r"(?i)\b(?:sl|stop|стоп)\s*[:@]?\s*\d", t),
+    )
+    tp_line_m = TP_LINE_RE.search(t)
+    has_tp = bool(
+        TP_RE.search(t)
+        or re.search(r"(?i)\b(?:tp\d*|target|цел)\s*[:@]?\s*\d", t)
+        or (tp_line_m is not None and re.search(r"\d+(?:\.\d+)?", tp_line_m.group(1))),
+    )
+    return has_entry and has_sl and has_tp
+
+
+@dataclass
+class ExplicitRecallAuditReport:
+    scanned: int = 0
+    structural_candidates: int = 0
+    classified_explicit: int = 0
+    true_positives: int = 0
+    missed_explicit: list[dict] = field(default_factory=list)
+    precision_review: list[dict] = field(default_factory=list)
+    recall_review: list[dict] = field(default_factory=list)
+    channel: str | None = None
+
 
 @dataclass
 class ClassifyAuditReport:
@@ -43,6 +98,8 @@ class ClassifyAuditReport:
     suspicious_trader_thesis: list[dict] = field(default_factory=list)
     suspicious_whale_flow: list[dict] = field(default_factory=list)
     suspicious_news_event: list[dict] = field(default_factory=list)
+    suspicious_trade_update: list[dict] = field(default_factory=list)
+    suspicious_technical_levels: list[dict] = field(default_factory=list)
     symbol_rate: float = 0.0
     direction_rate: float = 0.0
     level_rate: float = 0.0
@@ -56,6 +113,7 @@ def run_classify_audit(
     channel: str | None = None,
     seed: int = 42,
     stratified: bool = False,
+    suspicious_class: str | None = None,
 ) -> ClassifyAuditReport:
     reader = open_stage3_source_reader()
     report = ClassifyAuditReport()
@@ -186,6 +244,24 @@ def run_classify_audit(
                             "note": "hackers_noise",
                         })
 
+            if cls.content_type == ResearchContentType.TRADE_UPDATE:
+                if _RE_NON_TRADE_UPDATE.search(text):
+                    if len(report.suspicious_trade_update) < 25:
+                        report.suspicious_trade_update.append({
+                            "channel": row["channel_name"],
+                            "preview": text[:240].replace("\n", " "),
+                            "note": "non_position_update",
+                        })
+
+            if cls.content_type == ResearchContentType.TECHNICAL_LEVELS:
+                if not _has_technical_levels_context(text):
+                    if len(report.suspicious_technical_levels) < 25:
+                        report.suspicious_technical_levels.append({
+                            "channel": row["channel_name"],
+                            "preview": text[:240].replace("\n", " "),
+                            "note": "bare_support_resistance",
+                        })
+
         n = max(report.sample_size, 1)
         report.symbol_rate = symbols_found / n
         report.direction_rate = directions_found / n
@@ -195,7 +271,124 @@ def run_classify_audit(
     return report
 
 
-def render_classify_audit(report: ClassifyAuditReport) -> str:
+def run_explicit_recall_audit(
+    *,
+    channel: str | None = "signalyp",
+    limit: int | None = None,
+    progress_every: int = 500,
+) -> ExplicitRecallAuditReport:
+    """Scan source rows for structural explicit-signal candidates vs taxonomy."""
+    reader = open_stage3_source_reader()
+    report = ExplicitRecallAuditReport(channel=channel)
+    t0 = time.monotonic()
+    try:
+        for i, row in enumerate(
+            iter_source_messages(reader, channel=channel, chunk_size=5000),
+            start=1,
+        ):
+            if limit is not None and i > limit:
+                break
+            report.scanned += 1
+            text = row["raw_text"]
+            structural = is_structural_explicit_candidate(text)
+            cls = classify_research_content(text)
+            is_explicit = cls.content_type == ResearchContentType.EXPLICIT_SIGNAL
+
+            if structural:
+                report.structural_candidates += 1
+            if is_explicit:
+                report.classified_explicit += 1
+            if structural and is_explicit:
+                report.true_positives += 1
+            elif structural and not is_explicit:
+                if len(report.missed_explicit) < 50:
+                    report.missed_explicit.append({
+                        "channel": row["channel_name"],
+                        "classified": cls.content_type.value,
+                        "preview": text[:240].replace("\n", " "),
+                    })
+                if len(report.recall_review) < 25:
+                    report.recall_review.append({
+                        "channel": row["channel_name"],
+                        "classified": cls.content_type.value,
+                        "preview": text[:240].replace("\n", " "),
+                    })
+            elif is_explicit and not structural:
+                if len(report.precision_review) < 25:
+                    report.precision_review.append({
+                        "channel": row["channel_name"],
+                        "preview": text[:240].replace("\n", " "),
+                    })
+
+            if progress_every > 0 and i % progress_every == 0:
+                elapsed = max(time.monotonic() - t0, 0.001)
+                rate = i / elapsed
+                print(
+                    f"Processed: {i:,} | structural={report.structural_candidates:,} "
+                    f"| explicit={report.classified_explicit:,} "
+                    f"| tp={report.true_positives:,} | {rate:.0f} msg/s",
+                    file=sys.stderr,
+                    flush=True,
+                )
+    finally:
+        reader.close()
+    return report
+
+
+def render_explicit_recall_audit(report: ExplicitRecallAuditReport) -> str:
+    missed = report.structural_candidates - report.true_positives
+    false_explicit = report.classified_explicit - report.true_positives
+    recall = (
+        report.true_positives / report.structural_candidates
+        if report.structural_candidates
+        else 0.0
+    )
+    precision = (
+        report.true_positives / report.classified_explicit
+        if report.classified_explicit
+        else 0.0
+    )
+    lines = [
+        "EXPLICIT SIGNAL RECALL AUDIT (structural candidates vs taxonomy)",
+        f"channel: {report.channel or 'all'}",
+        f"scanned: {report.scanned:,}",
+        "",
+        "Confusion summary:",
+        f"  structural explicit candidates: {report.structural_candidates:,}",
+        f"  classified EXPLICIT_SIGNAL:     {report.classified_explicit:,}",
+        f"  true positives (both):          {report.true_positives:,}",
+        f"  missed explicit (structural, not classified): {missed:,}",
+        f"  precision review (classified, not structural): {false_explicit:,}",
+        f"  recall (tp / structural):       {recall:.1%}",
+        f"  precision (tp / classified):    {precision:.1%}",
+    ]
+    if report.missed_explicit:
+        lines.append("")
+        lines.append("Missed explicit examples (structural candidate, not EXPLICIT_SIGNAL):")
+        for ex in report.missed_explicit[:25]:
+            lines.append(
+                f"  [{ex['classified']}] {ex['channel']}: {ex['preview']}",
+            )
+    if report.precision_review:
+        lines.append("")
+        lines.append("Precision review sample (EXPLICIT_SIGNAL without full structure):")
+        for ex in report.precision_review:
+            lines.append(f"  {ex['channel']}: {ex['preview']}")
+    if report.recall_review:
+        lines.append("")
+        lines.append("Recall review sample (structural candidate missed):")
+        for ex in report.recall_review:
+            lines.append(
+                f"  [{ex['classified']}] {ex['channel']}: {ex['preview']}",
+            )
+    return "\n".join(lines)
+
+
+def render_classify_audit(
+    report: ClassifyAuditReport,
+    *,
+    suspicious_class: str | None = None,
+) -> str:
     lines = [
         "RESEARCH CLASSIFY AUDIT (dry-run)",
         f"sample_size: {report.sample_size}",
@@ -246,5 +439,17 @@ def render_classify_audit(report: ClassifyAuditReport) -> str:
     _render_suspicious("Suspicious TRADER_THESIS examples:", report.suspicious_trader_thesis)
     _render_suspicious("Suspicious WHALE_FLOW examples:", report.suspicious_whale_flow)
     _render_suspicious("Suspicious NEWS_EVENT examples:", report.suspicious_news_event)
+    _render_suspicious("Suspicious TRADE_UPDATE examples:", report.suspicious_trade_update)
+    _render_suspicious("Suspicious TECHNICAL_LEVELS examples:", report.suspicious_technical_levels)
+
+    if suspicious_class:
+        key = _SUSPICIOUS_CLASS_MAP.get(suspicious_class.upper())
+        if key:
+            items = getattr(report, key, [])
+            lines.append("")
+            lines.append(f"Filtered suspicious audit for {suspicious_class.upper()}:")
+            lines.append(f"  count: {len(items)}")
+            for ex in items:
+                lines.append(f"  {ex['channel']}: {ex['preview']}")
 
     return "\n".join(lines)

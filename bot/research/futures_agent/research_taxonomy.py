@@ -50,12 +50,33 @@ _RE_SL_HIT = re.compile(
     r"стоп\s*(?:выбит|сработал))",
 )
 _RE_CLOSE = re.compile(
-    r"(?i)(close(?:d)?\s+(?:the\s+)?(?:position|trade|long|short)|position closed|"
+    r"(?i)(close(?:d)?\s+(?:the\s+)?(?:my\s+)?(?:position|trade|long|short)|"
+    r"close\s+my\s+(?:long|short)|position closed|"
     r"закрыли|закрыт(?:ие|a)?\s+поз|manual close|early exit)",
 )
-_RE_TRADE_UPDATE = re.compile(
-    r"(?i)(update|обновлен|перенос\s+sl|move sl|sl to breakeven|"
-    r"breakeven|безубыт|добавил|add(?:ed)? to|partial|частич)",
+_RE_POSITION_MGMT = re.compile(
+    r"(?i)(?:"
+    r"my\s+(?:long|short|position|trade)\b|"
+    r"(?:waiting|wait)\s+(?:to\s+)?close\s+(?:my\s+)?(?:long|short|position)|"
+    r"close\s+my\s+(?:long|short|position)|"
+    r"exited?\s+(?:my\s+)?(?:long|short|position)|"
+    r"took\s+(?:partial\s+)?profit|take\s+profit\s+on\s+my|"
+    r"reduce[d]?\s+(?:my\s+)?(?:long|short|position)|"
+    r"partial\s+(?:close|exit|profit)|"
+    r"перенос\s+sl|move\s+sl|sl\s+to\s+breakeven|"
+    r"breakeven|безубыт|"
+    r"add(?:ed)?\s+to\s+(?:my\s+)?(?:long|short|position)|"
+    r"adjust(?:ed)?\s+(?:my\s+)?(?:sl|stop|tp|target)|"
+    r"частич"
+    r")",
+)
+_RE_NON_TRADE_UPDATE = re.compile(
+    r"(?i)(?:"
+    r"files?\s+updated|updated\s+s-?1|application\s+for\s+spot|"
+    r"price\s+updates?|market\s+update|news\s+update|"
+    r"\betf\b|sec\s+files|filing\s+for|"
+    r"bitcoin\s+.{0,40}price\s+update"
+    r")",
 )
 _RE_WHALE_FLOW = re.compile(
     r"\b(?:whale|mega\s+whale|smart\s+money)\b.*?"
@@ -94,10 +115,29 @@ _RE_THESIS_LANGUAGE = re.compile(
     r"retest|reclaim|invalidat(?:e|ion)|if\s+.+\s+then|interested\s+(?:after|in)|"
     r"weaker\s+than|stronger\s+than|outlook|scenario|прогноз|ожида)",
 )
-_RE_TECH_LEVELS = re.compile(
-    r"(?i)\b(?:support|resistance|liquidity\s+zone|supply\s+zone|demand\s+zone|"
+_RE_TECH_LEVELS_OTHER = re.compile(
+    r"(?i)\b(?:liquidity\s+zone|supply\s+zone|demand\s+zone|"
     r"breakout\s+level|consolidation|range\s+bound|key\s+level|"
     r"поддержк|сопротивлен)",
+)
+_RE_TECH_SUPPORT = re.compile(
+    r"(?i)(?:"
+    r"support\s+(?:loss|break|hold|zone|level|retest|reclaim|flip|at|@|around|near)\b|"
+    r"loss\s+of\s+support|"
+    r"support\s+(?:and|/)\s*resistance|"
+    r"\b(?:at|on|near|above|below)\s+support\b|"
+    r"\d+(?:\.\d+)?\s+support\b|"
+    r"support\s+@\s*\d|"
+    r"support\s+level"
+    r")",
+)
+_RE_TECH_RESISTANCE = re.compile(
+    r"(?i)(?:"
+    r"resistance\s+(?:zone|level|break|hold|at|@|around|near)\b|"
+    r"\b(?:at|on|near|above|below)\s+resistance\b|"
+    r"\d+(?:\.\d+)?\s+resistance\b|"
+    r"resistance\s+level"
+    r")",
 )
 _RE_COMMENTARY = re.compile(
     r"(?i)(market\s+(?:update|outlook)|рынок|btc\s+(?:is|at|holds)|"
@@ -105,7 +145,8 @@ _RE_COMMENTARY = re.compile(
 )
 _RE_QUESTION_OR_META = re.compile(
     r"(?i)(\?|how to\b|training\b|learn\b|tutorial\b|course\b|guide\b|"
-    r"what do you think|should i\b|кто\s+знает|как\s+шортить|как\s+лонговать)",
+    r"what do you think|should i\b|кто\s+знает|как\s+шортить|как\s+лонговать|"
+    r"^is\s+\w+|^are\s+\w+\s+buy)",
 )
 _RE_HAS_LEVELS = re.compile(
     r"(?i)(?:entry|enter|вход|sl|stop|стоп|tp|target|цел)\s*[:@]?\s*\d",
@@ -122,6 +163,20 @@ _RE_WHALE_ECON_ACTION = re.compile(
 _RE_MARKET_ENTRY_LANGUAGE = re.compile(
     r"(?i)\b(?:entry|enter|вход|market\s+(?:buy|sell)|buy\s+at|sell\s+at)\b",
 )
+_RE_BEARISH_THESIS = re.compile(
+    r"(?i)\b(?:lower|bearish|drop|dump|fall|decline|sell.?off|continuation\s+lower)\b",
+)
+_RE_BULLISH_THESIS = re.compile(
+    r"(?i)\b(?:higher|bullish|rise|rally|pump|continuation\s+higher)\b",
+)
+_BARE_TICKER_LINE_RE = re.compile(r"(?im)^([A-Z]{2,10})\b")
+_TICKER_STOPWORDS = frozenset({
+    "THE", "AND", "FOR", "ARE", "BUT", "NOT", "YOU", "ALL", "CAN", "HAD", "HER",
+    "WAS", "ONE", "OUR", "OUT", "HAS", "HIS", "HOW", "ITS", "MAY", "NEW", "NOW",
+    "OLD", "SEE", "WAY", "WHO", "DID", "GET", "LET", "PUT", "SAY", "SHE", "TOO",
+    "USE", "WHY", "YES", "YET", "ANY", "DAY", "FEW", "MAN", "MEN", "RUN", "SET",
+    "TRY", "ASK", "OWN", "OFF", "PER", "TOP", "VIA", "WAR", "WIN", "WON",
+})
 _RE_THIRD_PARTY_OBSERVED = re.compile(
     r"(?i)\b(?:whale|0x[a-f0-9]{8,}|wallet\s+0x|address\s+0x|"
     r"(?:trader|investor|fund)\s+\w+\s+opened|someone\s+opened|"
@@ -146,6 +201,60 @@ def _has_trade_levels(text: str) -> bool:
     )
 
 
+def _has_technical_levels_context(text: str) -> bool:
+    """Support/resistance only when numeric or explicit technical-market context."""
+    if _RE_TECH_LEVELS_OTHER.search(text):
+        return True
+    if _RE_TECH_SUPPORT.search(text) or _RE_TECH_RESISTANCE.search(text):
+        return True
+    return False
+
+
+def _infer_direction(text: str) -> str | None:
+    m = _SIDE_RE.search(text[:400])
+    if not m:
+        return None
+    s = m.group(1).lower()
+    if s in ("long", "buy", "лонг"):
+        return "LONG"
+    if s in ("short", "sell", "шорт"):
+        return "SHORT"
+    return None
+
+
+def _thesis_symbols(text: str) -> list[str]:
+    syms = extract_symbols(text)
+    if syms:
+        return syms
+    m = _BARE_TICKER_LINE_RE.search(text)
+    if m:
+        token = m.group(1).upper()
+        if len(token) >= 3 and token not in _TICKER_STOPWORDS:
+            from bot.research.futures_agent.research_utils import normalize_symbol
+            sym = normalize_symbol(token)
+            if sym:
+                return [sym]
+    return []
+
+
+def _infer_thesis_direction(text: str) -> str | None:
+    d = _infer_direction(text)
+    if d in ("LONG", "SHORT"):
+        return d
+    if _RE_BEARISH_THESIS.search(text):
+        return "SHORT"
+    if _RE_BULLISH_THESIS.search(text):
+        return "LONG"
+    return None
+
+
+def _has_thesis_evidence(text: str) -> bool:
+    """Require symbol + directional thesis evidence (precision-first)."""
+    if not _thesis_symbols(text):
+        return False
+    return _infer_thesis_direction(text) is not None
+
+
 def _has_author_intent(text: str) -> bool:
     return bool(_RE_AUTHOR_INTENT.search(text))
 
@@ -167,11 +276,12 @@ def classify_research_content(text: str) -> ResearchClassification:
     t = _RE_URL.sub(" ", text.strip())
     reasons: list[str] = []
 
+    if _RE_POSITION_MGMT.search(t) and not _RE_NON_TRADE_UPDATE.search(t):
+        if not (_RE_TP_HIT.search(t) or _RE_SL_HIT.search(t)):
+            return ResearchClassification(ResearchContentType.TRADE_UPDATE, ["position_mgmt"], 0.80)
+
     if _RE_TP_HIT.search(t) or _RE_SL_HIT.search(t) or _RE_CLOSE.search(t):
         return ResearchClassification(ResearchContentType.RESULT_UPDATE, ["result"], 0.88)
-
-    if _RE_TRADE_UPDATE.search(t):
-        return ResearchClassification(ResearchContentType.TRADE_UPDATE, ["update"], 0.78)
 
     is_onchain = bool(_RE_ONCHAIN.search(t) and not _has_author_intent(t))
     is_whale = bool(
@@ -201,21 +311,10 @@ def classify_research_content(text: str) -> ResearchClassification:
     author = _has_author_intent(t)
     third_party = _is_third_party_observed(t)
 
-    def _infer_direction() -> str | None:
-        m = _SIDE_RE.search(t[:400])
-        if not m:
-            return None
-        s = m.group(1).lower()
-        if s in ("long", "buy", "лонг"):
-            return "LONG"
-        if s in ("short", "sell", "шорт"):
-            return "SHORT"
-        return None
-
     def _is_precise_explicit_signal() -> bool:
         # Precision-first: require symbol + direction + actionable structure.
         syms = extract_symbols(t)
-        direction = _infer_direction()
+        direction = _infer_direction(t)
         if not syms or direction not in ("LONG", "SHORT"):
             return False
 
@@ -257,7 +356,13 @@ def classify_research_content(text: str) -> ResearchClassification:
             suspicious_explicit=True,
         )
 
-    if _RE_THESIS_LANGUAGE.search(t) and not _RE_QUESTION_OR_META.search(t) and not (is_whale or is_onchain):
+    if (
+        _RE_THESIS_LANGUAGE.search(t)
+        and _has_thesis_evidence(t)
+        and not _RE_QUESTION_OR_META.search(t)
+        and not _RE_POSITION_MGMT.search(t)
+        and not (is_whale or is_onchain)
+    ):
         reasons.append("thesis_language")
         return ResearchClassification(
             ResearchContentType.TRADER_THESIS,
@@ -265,7 +370,7 @@ def classify_research_content(text: str) -> ResearchClassification:
             0.76,
         )
 
-    if _RE_TECH_LEVELS.search(t) and not _SIDE_RE.search(t[:500]):
+    if _has_technical_levels_context(t) and not _SIDE_RE.search(t[:500]):
         return ResearchClassification(
             ResearchContentType.TECHNICAL_LEVELS,
             ["technical_levels"],
@@ -287,11 +392,17 @@ def classify_research_content(text: str) -> ResearchClassification:
             suspicious_explicit=False,
         )
 
-    # SIDE tokens without numeric levels should only count as TRADER_THESIS when not clearly third-party flow.
-    if _SIDE_RE.search(t[:400]) and not _RE_QUESTION_OR_META.search(t) and not third_party:
+    # SIDE tokens without full signal: require symbol + direction evidence.
+    if (
+        _SIDE_RE.search(t[:400])
+        and _has_thesis_evidence(t)
+        and not _RE_QUESTION_OR_META.search(t)
+        and not _RE_POSITION_MGMT.search(t)
+        and not third_party
+    ):
         return ResearchClassification(
             ResearchContentType.TRADER_THESIS,
-            ["side_without_full_signal"],
+            ["side_with_symbol_direction"],
             0.55,
         )
 

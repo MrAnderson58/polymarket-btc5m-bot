@@ -6,6 +6,8 @@ Usage:
   python -m bot.research.futures_agent stage3-migrate
   python -m bot.research.futures_agent ingest-research --source-table telegram_messages
   python -m bot.research.futures_agent research-classify-audit --sample-size 500
+  python -m bot.research.futures_agent research-classify-audit --sample-size 1000 --stratified
+  python -m bot.research.futures_agent research-explicit-audit --channel signalyp --limit 5000
   python -m bot.research.futures_agent thesis-extract
   python -m bot.research.futures_agent research-stats
   python -m bot.research.futures_agent evaluate-theses
@@ -40,7 +42,7 @@ def main() -> int:
             "snapshot", "snapshot-pending", "context-report", "snapshot-audit",
             "telegram-poll", "telegram-diagnose", "stage3-audit",
             "stage3-migrate", "ingest-research", "research-stats",
-            "thesis-extract", "research-classify-audit",
+            "thesis-extract", "research-classify-audit", "research-explicit-audit",
             "evaluate-theses", "evaluate-sources", "source-report", "symbol-report",
         ),
     )
@@ -77,6 +79,17 @@ def main() -> int:
         "--stratified",
         action="store_true",
         help="Stratified sampling across channels for research-classify-audit",
+    )
+    parser.add_argument(
+        "--explicit-recall",
+        action="store_true",
+        help="Run explicit-signal recall audit (use with --channel signalyp)",
+    )
+    parser.add_argument(
+        "--suspicious-class",
+        type=str,
+        default=None,
+        help="Highlight suspicious examples for one class in classify audit",
     )
     parser.add_argument(
         "--max-per-source",
@@ -178,20 +191,55 @@ def main() -> int:
     if args.command == "research-classify-audit":
         from bot.research.futures_agent.research_classify_audit import (
             render_classify_audit,
+            render_explicit_recall_audit,
             run_classify_audit,
+            run_explicit_recall_audit,
         )
         from bot.research.futures_agent.source_requirements import Stage3SourceRequiredError
 
         try:
-            report = run_classify_audit(
-                sample_size=args.sample_size,
-                channel=args.channel,
-                stratified=args.stratified,
+            if args.explicit_recall:
+                recall_report = run_explicit_recall_audit(
+                    channel=args.channel or "signalyp",
+                    limit=args.limit,
+                )
+                classify_report = None
+            else:
+                classify_report = run_classify_audit(
+                    sample_size=args.sample_size,
+                    channel=args.channel,
+                    stratified=args.stratified,
+                    suspicious_class=args.suspicious_class,
+                )
+                recall_report = None
+        except Stage3SourceRequiredError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        if recall_report is not None:
+            print(render_explicit_recall_audit(recall_report))
+        else:
+            print(render_classify_audit(
+                classify_report,
+                suspicious_class=args.suspicious_class,
+            ))
+        return 0
+
+    if args.command == "research-explicit-audit":
+        from bot.research.futures_agent.research_classify_audit import (
+            render_explicit_recall_audit,
+            run_explicit_recall_audit,
+        )
+        from bot.research.futures_agent.source_requirements import Stage3SourceRequiredError
+
+        try:
+            report = run_explicit_recall_audit(
+                channel=args.channel or "signalyp",
+                limit=args.limit,
             )
         except Stage3SourceRequiredError as exc:
             print(exc, file=sys.stderr)
             return 1
-        print(render_classify_audit(report))
+        print(render_explicit_recall_audit(report))
         return 0
 
     if args.command == "evaluate-theses":

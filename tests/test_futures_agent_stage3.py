@@ -11,6 +11,11 @@ from unittest.mock import patch
 
 from bot.research.futures_agent.env_bootstrap import reset_bootstrap_for_tests
 from bot.research.futures_agent.db import agent_connection
+from bot.research.futures_agent.research_classify_audit import (
+    is_structural_explicit_candidate,
+    render_explicit_recall_audit,
+    run_explicit_recall_audit,
+)
 from bot.research.futures_agent.research_ingest import ingest_research_posts, run_thesis_extract
 from bot.research.futures_agent.research_scoring import (
     SourceScoreInputs,
@@ -60,6 +65,17 @@ FALSE_TRADER_THESIS_CLOSE_LONG = (
 FALSE_WHALE_FLOW_FOLLOW_TRASH = (
     "follow my trash account guys https://debank.com/profile/0xabc123abc123abc123abc123abc123abc123abc1"
 )
+
+# Phase C.1 production taxonomy quality gate examples
+THX_SUPPORT = "Thx for your support"
+SUPPORT_DEFI = "We all should just support DeFi projects and not rely on centralized exchanges"
+RETAIL_BUY_TOP = "Is retail buy the top nt dwf"
+WAITING_CLOSE_ANT = (
+    "just waiting to close my long for ANT.. I hope it will break usd 5"
+)
+FIDELITY_ETF_UPDATE = "Fidelity files updated S-1 application for spot Ethereum ETF"
+BTC_PRICE_UPDATES = "$104,000 Bitcoin ... price updates"
+SIGNALYP_ENJ = "#ENJ SHORT\nEntry: 1.2\nSL: 1.1\nTP1: 1.3"
 
 
 def _create_source_db(path: Path, rows: list[tuple]) -> None:
@@ -207,6 +223,59 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
     def test_profile_follow_not_whale_flow(self) -> None:
         cls = classify_research_content(FALSE_WHALE_FLOW_FOLLOW_TRASH)
         self.assertNotEqual(cls.content_type, ResearchContentType.WHALE_FLOW)
+
+    def test_bare_support_not_technical_levels(self) -> None:
+        for text in (THX_SUPPORT, SUPPORT_DEFI):
+            cls = classify_research_content(text)
+            self.assertNotEqual(cls.content_type, ResearchContentType.TECHNICAL_LEVELS)
+
+    def test_retail_buy_top_not_trader_thesis(self) -> None:
+        cls = classify_research_content(RETAIL_BUY_TOP)
+        self.assertNotEqual(cls.content_type, ResearchContentType.TRADER_THESIS)
+
+    def test_waiting_close_ant_is_trade_update(self) -> None:
+        cls = classify_research_content(WAITING_CLOSE_ANT)
+        self.assertEqual(cls.content_type, ResearchContentType.TRADE_UPDATE)
+
+    def test_etf_filing_not_trade_update(self) -> None:
+        cls = classify_research_content(FIDELITY_ETF_UPDATE)
+        self.assertNotEqual(cls.content_type, ResearchContentType.TRADE_UPDATE)
+
+    def test_price_feed_not_trade_update(self) -> None:
+        cls = classify_research_content(BTC_PRICE_UPDATES)
+        self.assertNotEqual(cls.content_type, ResearchContentType.TRADE_UPDATE)
+
+    def test_signalyp_enj_is_structural_and_explicit(self) -> None:
+        self.assertTrue(is_structural_explicit_candidate(SIGNALYP_ENJ))
+        cls = classify_research_content(SIGNALYP_ENJ)
+        self.assertEqual(cls.content_type, ResearchContentType.EXPLICIT_SIGNAL)
+
+    def test_explicit_recall_audit_mock_source(self) -> None:
+        rows = [
+            ("signalyp", SIGNALYP_ENJ, 1_700_000_000, "s1"),
+            ("signalyp", LOOKONCHAIN_SELL_FRAGMENT, 1_700_000_001, "s2"),
+        ]
+        _create_source_db(self.source_db, rows)
+
+        def _reader():
+            conn = sqlite3.connect(self.source_db)
+            conn.row_factory = sqlite3.Row
+            from bot.research.futures.source_reader import SqliteSourceReader
+            return SqliteSourceReader(conn, path=str(self.source_db))
+
+        with patch(
+            "bot.research.futures_agent.research_classify_audit.open_stage3_source_reader",
+            side_effect=_reader,
+        ):
+            report = run_explicit_recall_audit(channel="signalyp", limit=10)
+
+        self.assertEqual(report.scanned, 2)
+        self.assertEqual(report.structural_candidates, 1)
+        self.assertEqual(report.classified_explicit, 1)
+        self.assertEqual(report.true_positives, 1)
+        rendered = render_explicit_recall_audit(report)
+        self.assertIn("structural explicit candidates", rendered)
+        self.assertIn("true positives", rendered)
 
     def test_content_hash_dedup_normalization(self) -> None:
         a = content_hash("BTC  LONG\nEntry 1.0")
