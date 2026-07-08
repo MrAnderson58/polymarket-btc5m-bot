@@ -9,6 +9,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from bot.research.futures_agent.research_taxonomy import ResearchContentType
+from bot.research.futures_agent.signal_level_extract import (
+    entry_status_from_text,
+    extract_signal_levels,
+)
 
 _STRATIFIED_TYPES = (
     ResearchContentType.EXPLICIT_SIGNAL.value,
@@ -17,9 +21,132 @@ _STRATIFIED_TYPES = (
 )
 
 _RE_DEFERRED_STOP = re.compile(
-    r"(?i)(?:стоп\s*[:：]?\s*(?:пока\s+не\s+ставлю|не\s+ставлю)|"
+    r"(?i)(?:стоп\s*[:：]?\s*(?:пока\s+не\s+ставлю|не\s+ставлю|дам\s+по\s+необходимости)|"
     r"stop\s*[:：]?\s*(?:later|not\s+set|pending))",
 )
+
+
+@dataclass
+class ExplicitSignalQualityGate:
+    total_explicit_theses: int = 0
+    numeric_entry: int = 0
+    market_entry: int = 0
+    numeric_stop: int = 0
+    deferred_stop: int = 0
+    with_targets: int = 0
+    complete_numeric_structure: int = 0
+    complete_market_structure: int = 0
+    suspicious_target_contamination: int = 0
+    percentage_contamination: int = 0
+    url_number_contamination: int = 0
+
+
+def _detect_contamination(
+    raw_text: str,
+    targets: list[float],
+    entry: float | None,
+) -> list[str]:
+    flags: list[str] = []
+    for tp in targets:
+        if tp >= 10_000:
+            flags.append("url_number_contamination")
+            break
+        if entry is not None and entry < 10 and tp in (25.0, 50.0, 75.0, 100.0):
+            flags.append("percentage_contamination")
+            break
+        if entry is not None and entry > 0 and abs(tp - entry) / entry > 5.0:
+            flags.append("suspicious_target_contamination")
+            break
+    if re.search(r"https?://|www\.|t\.me/", raw_text) and any(t >= 1000 for t in targets):
+        flags.append("url_number_contamination")
+    return flags
+
+
+def run_explicit_signal_quality_gate(
+    conn: Any,
+    *,
+    channel: str | None = "signalyp",
+) -> ExplicitSignalQualityGate:
+    gate = ExplicitSignalQualityGate()
+    ch_clause = ""
+    params: list[Any] = []
+    if channel:
+        ch_clause = " AND p.channel_name = ?"
+        params.append(channel)
+
+    rows = conn.execute(
+        f"""
+        SELECT t.id, p.raw_text
+        FROM futures_agent_trader_theses t
+        JOIN futures_agent_trader_posts p ON p.id = t.post_id
+        WHERE p.content_type = 'EXPLICIT_SIGNAL'{ch_clause}
+        """,
+        params,
+    ).fetchall()
+
+    gate.total_explicit_theses = len(rows)
+    for row in rows:
+        levels = conn.execute(
+            """
+            SELECT level_type, price FROM futures_agent_trader_levels
+            WHERE thesis_id = ? ORDER BY ordinal
+            """,
+            (row["id"],),
+        ).fetchall()
+        by_type = _levels_by_type(levels)
+        entry_low = by_type.get("ENTRY_LOW", [None])[0]
+        entry_high = by_type.get("ENTRY_HIGH", [None])[0]
+        stop = by_type.get("STOP", [None])[0]
+        targets = by_type.get("TARGET", [])
+
+        est = _entry_status(row["raw_text"], entry_low, entry_high)
+        sst = _stop_status(row["raw_text"], stop)
+        if est == "numeric":
+            gate.numeric_entry += 1
+        elif est == "market":
+            gate.market_entry += 1
+        if sst == "numeric":
+            gate.numeric_stop += 1
+        elif sst == "deferred":
+            gate.deferred_stop += 1
+        if targets:
+            gate.with_targets += 1
+        if est == "numeric" and sst == "numeric" and targets:
+            gate.complete_numeric_structure += 1
+        if est == "market" and sst in ("numeric", "deferred") and targets:
+            gate.complete_market_structure += 1
+
+        entry = entry_low or entry_high
+        for flag in _detect_contamination(row["raw_text"], targets, entry):
+            if flag == "url_number_contamination":
+                gate.url_number_contamination += 1
+            elif flag == "percentage_contamination":
+                gate.percentage_contamination += 1
+            elif flag == "suspicious_target_contamination":
+                gate.suspicious_target_contamination += 1
+    return gate
+
+
+def render_explicit_signal_quality_gate(gate: ExplicitSignalQualityGate) -> str:
+    total = max(gate.total_explicit_theses, 1)
+    pct = lambda n: f"{n:,} ({n / total:.1%})"
+    lines = [
+        "EXPLICIT_SIGNAL QUALITY GATE",
+        f"total explicit theses: {gate.total_explicit_theses:,}",
+        "",
+        f"numeric entry: {pct(gate.numeric_entry)}",
+        f"market entry: {pct(gate.market_entry)}",
+        f"numeric stop: {pct(gate.numeric_stop)}",
+        f"deferred stop: {pct(gate.deferred_stop)}",
+        f"with >=1 target: {pct(gate.with_targets)}",
+        f"complete numeric entry+stop+target: {pct(gate.complete_numeric_structure)}",
+        f"complete market-entry + stop/deferred + target: {pct(gate.complete_market_structure)}",
+        "",
+        f"suspicious target contamination: {gate.suspicious_target_contamination:,}",
+        f"percentage contamination: {gate.percentage_contamination:,}",
+        f"URL-number contamination: {gate.url_number_contamination:,}",
+    ]
+    return "\n".join(lines)
 
 
 @dataclass
@@ -64,8 +191,22 @@ def _levels_by_type(levels: list[dict]) -> dict[str, list[float]]:
 def _stop_status(raw_text: str, stop: float | None) -> str:
     if stop is not None:
         return "numeric"
+    parsed = extract_signal_levels(raw_text)
+    if parsed.stop_status == "deferred":
+        return "deferred"
     if _RE_DEFERRED_STOP.search(raw_text):
         return "deferred"
+    return "missing"
+
+
+def _entry_status(raw_text: str, entry_low: float | None, entry_high: float | None) -> str:
+    if entry_low is not None or entry_high is not None:
+        return "numeric"
+    parsed = extract_signal_levels(raw_text)
+    if parsed.entry_status == "market":
+        return "market"
+    if entry_status_from_text(raw_text) == "market":
+        return "market"
     return "missing"
 
 
@@ -295,3 +436,14 @@ def render_thesis_quality_audit(report: ThesisQualityAuditReport) -> str:
             )
 
     return "\n".join(lines)
+
+
+def render_thesis_quality_audit_with_gate(
+    report: ThesisQualityAuditReport,
+    gate: ExplicitSignalQualityGate | None = None,
+) -> str:
+    parts = [render_thesis_quality_audit(report)]
+    if gate is not None:
+        parts.append("")
+        parts.append(render_explicit_signal_quality_gate(gate))
+    return "\n".join(parts)

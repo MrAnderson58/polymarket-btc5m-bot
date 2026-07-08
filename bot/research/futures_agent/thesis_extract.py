@@ -6,14 +6,14 @@ import re
 from dataclasses import dataclass, field
 
 from bot.research.futures.parser import (
-    ENTRY_RE,
     SIDE_TOKEN,
-    SL_RE,
     TF_RE,
-    TP_LINE_RE,
     _normalize_side,
-    _parse_entry_range,
-    _parse_take_profits,
+)
+from bot.research.futures_agent.signal_level_extract import (
+    ParsedSignalLevels,
+    entry_status_from_text,
+    extract_signal_levels,
 )
 from bot.research.futures_agent.research_taxonomy import (
     RESEARCH_THESIS_ELIGIBLE,
@@ -101,42 +101,32 @@ def _extract_invalidation(text: str) -> str | None:
     m = _RE_INVALIDATION.search(text)
     if m:
         return text[m.start(): min(len(text), m.end() + 100)].split("\n")[0].strip()[:200]
-    sl = SL_RE.search(text)
-    if sl:
-        return f"stop at {sl.group(1)}"
+    parsed = extract_signal_levels(text)
+    if parsed.stop is not None:
+        return f"stop at {parsed.stop}"
     return None
 
 
-def _extract_levels(text: str) -> list[ExtractedLevel]:
+def _levels_from_parsed(parsed: ParsedSignalLevels) -> list[ExtractedLevel]:
     levels: list[ExtractedLevel] = []
-    em = ENTRY_RE.search(text)
-    if em:
-        lo, hi = _parse_entry_range(em.group(0))
-        if lo is not None:
-            levels.append(ExtractedLevel("ENTRY_LOW", lo, 0, 0.80))
-        if hi is not None and hi != lo:
-            levels.append(ExtractedLevel("ENTRY_HIGH", hi, 0, 0.80))
-        elif lo is not None:
-            levels.append(ExtractedLevel("ENTRY_HIGH", lo, 0, 0.75))
-
-    sl = SL_RE.search(text)
-    if sl:
-        levels.append(ExtractedLevel("STOP", float(sl.group(1)), 0, 0.78))
-
-    tps = _parse_take_profits(text)
-    for i, price in enumerate(tps):
+    if parsed.entry_low is not None:
+        levels.append(ExtractedLevel("ENTRY_LOW", parsed.entry_low, 0, 0.80))
+    if parsed.entry_high is not None:
+        hi_conf = 0.80 if parsed.entry_high != parsed.entry_low else 0.75
+        levels.append(ExtractedLevel("ENTRY_HIGH", parsed.entry_high, 0, hi_conf))
+    if parsed.stop is not None:
+        levels.append(ExtractedLevel("STOP", parsed.stop, 0, 0.78))
+    for i, price in enumerate(parsed.targets):
         levels.append(ExtractedLevel("TARGET", price, i + 1, 0.75))
-
-    for i, pat in enumerate((
-        re.compile(r"(?i)support\s*(?:at|zone)?\s*[:@]?\s*(\d+(?:\.\d+)?)"),
-        re.compile(r"(?i)resistance\s*(?:at|zone)?\s*[:@]?\s*(\d+(?:\.\d+)?)"),
-    )):
-        for m in pat.finditer(text):
-            price = float(m.group(1))
-            ltype = "SUPPORT" if i == 0 else "RESISTANCE"
-            levels.append(ExtractedLevel(ltype, price, len(levels), 0.65))
-
+    for i, price in enumerate(parsed.support):
+        levels.append(ExtractedLevel("SUPPORT", price, i + 1, 0.65))
+    for i, price in enumerate(parsed.resistance):
+        levels.append(ExtractedLevel("RESISTANCE", price, i + 1, 0.65))
     return levels
+
+
+def _extract_levels(text: str) -> list[ExtractedLevel]:
+    return _levels_from_parsed(extract_signal_levels(text))
 
 
 def _thesis_summary(text: str, *, max_len: int = 280) -> str:

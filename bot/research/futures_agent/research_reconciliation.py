@@ -9,8 +9,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from bot.research.futures_agent.research_ingest import IngestResearchStats
-from bot.research.futures_agent.thesis_extract import _extract_levels, _infer_direction
-from bot.research.futures_agent.research_taxonomy import ResearchContentType
+from bot.research.futures_agent.research_taxonomy import RESEARCH_THESIS_ELIGIBLE, ResearchContentType
+from bot.research.futures_agent.signal_level_extract import extract_signal_levels, entry_status_from_text
+from bot.research.futures_agent.thesis_extract import _infer_direction
 
 
 CONTENT_TYPES = (
@@ -32,6 +33,14 @@ THESIS_ELIGIBLE_TYPES = (
     "TRADER_THESIS",
     "TECHNICAL_LEVELS",
 )
+
+# Architecture buckets for thesis eligibility reporting
+THESIS_BUCKETS: dict[str, tuple[str, ...]] = {
+    "A_explicit_trade_signals": ("EXPLICIT_SIGNAL",),
+    "B_directional_trader_theses": ("TRADER_THESIS", "WHALE_FLOW", "ONCHAIN_EVENT"),
+    "C_technical_analysis": ("TECHNICAL_LEVELS",),
+    "D_contextual_non_trade": ("NEWS_EVENT", "MARKET_COMMENTARY"),
+}
 
 
 @dataclass
@@ -301,6 +310,52 @@ def run_pipeline_reconciliation(
     return report
 
 
+def render_thesis_eligibility_report(conn: Any, *, channel: str | None = None) -> str:
+    """Report intentional thesis eligibility architecture and observed counts."""
+    ch_clause = ""
+    params: list[Any] = []
+    if channel:
+        ch_clause = " WHERE p.channel_name = ?"
+        params = [channel]
+
+    lines = [
+        "THESIS ELIGIBILITY (architecture)",
+        "",
+        "Intentionally thesis-eligible (RESEARCH_THESIS_ELIGIBLE):",
+        "  EXPLICIT_SIGNAL, TRADER_THESIS, TECHNICAL_LEVELS,",
+        "  MARKET_COMMENTARY, WHALE_FLOW, ONCHAIN_EVENT, NEWS_EVENT",
+        "",
+        "Evaluation guidance:",
+        "  Trade signals (EXPLICIT_SIGNAL) should be scored separately from",
+        "  contextual/directional theses (NEWS_EVENT, MARKET_COMMENTARY, etc.).",
+        "",
+        "Observed theses by bucket:",
+    ]
+    for bucket, types in THESIS_BUCKETS.items():
+        placeholders = ",".join("?" for _ in types)
+        n = conn.execute(
+            f"""
+            SELECT COUNT(*) AS n
+            FROM futures_agent_trader_theses t
+            JOIN futures_agent_trader_posts p ON p.id = t.post_id
+            {ch_clause}
+            {"AND" if ch_clause else "WHERE"} p.content_type IN ({placeholders})
+            """,
+            [*params, *types] if channel else list(types),
+        ).fetchone()["n"]
+        label = bucket.replace("_", " ")
+        lines.append(f"  {label}: {n:,} ({', '.join(types)})")
+
+    accidental = []
+    for ctype in ResearchContentType:
+        if ctype not in RESEARCH_THESIS_ELIGIBLE:
+            accidental.append(ctype.value)
+    lines.append("")
+    lines.append(f"Non-eligible types (should not extract): {', '.join(accidental) or 'none'}")
+
+    return "\n".join(lines)
+
+
 def render_pipeline_reconciliation(report: ReconciliationReport) -> str:
     lines = ["PIPELINE RECONCILIATION CHECKS", ""]
     lines.extend([
@@ -435,6 +490,7 @@ def render_thesis_extract_report(
     lines.extend([
         "",
         f"theses with entry: {struct['with_entry']:,}",
+        f"theses with market entry: {struct['with_market_entry']:,}",
         f"theses with numeric stop: {struct['with_stop']:,}",
         f"theses with deferred stop: {struct['with_deferred_stop']:,}",
         f"theses with >=1 target: {struct['with_target']:,}",
@@ -466,30 +522,37 @@ def _thesis_structure_counts(conn: Any, *, channel: str | None = None) -> dict[s
     ).fetchall()
 
     deferred_re = re.compile(
-        r"(?i)(?:стоп\s*[:：]?\s*(?:пока\s+не\s+ставлю|не\s+ставлю)|"
+        r"(?i)(?:стоп\s*[:：]?\s*(?:пока\s+не\s+ставлю|не\s+ставлю|дам\s+по\s+необходимости)|"
         r"stop\s*[:：]?\s*(?:later|not\s+set|pending))",
     )
     out = {
         "with_entry": 0,
+        "with_market_entry": 0,
         "with_stop": 0,
         "with_deferred_stop": 0,
         "with_target": 0,
         "complete_structure": 0,
     }
     for row in rows:
-        has_entry = row["has_entry"] > 0
-        has_stop = row["has_stop"] > 0
-        has_target = row["has_target"] > 0
-        deferred = bool(deferred_re.search(row["raw_text"] or ""))
+        parsed = extract_signal_levels(row["raw_text"] or "")
+        has_entry = row["has_entry"] > 0 or parsed.entry_status == "numeric"
+        has_market = parsed.entry_status == "market" or entry_status_from_text(row["raw_text"] or "") == "market"
+        has_stop = row["has_stop"] > 0 or parsed.stop is not None
+        has_target = row["has_target"] > 0 or bool(parsed.targets)
+        deferred = parsed.stop_status == "deferred" or (
+            bool(deferred_re.search(row["raw_text"] or "")) and not has_stop
+        )
         if has_entry:
             out["with_entry"] += 1
+        if has_market and not has_entry:
+            out["with_market_entry"] += 1
         if has_stop:
             out["with_stop"] += 1
-        if deferred and not has_stop:
+        if deferred:
             out["with_deferred_stop"] += 1
         if has_target:
             out["with_target"] += 1
-        if has_entry and has_stop and has_target:
+        if (has_entry or has_market) and (has_stop or deferred) and has_target:
             out["complete_structure"] += 1
     return out
 
@@ -507,5 +570,8 @@ def count_extraction_coverage(text: str, content_type: str) -> tuple[bool, bool,
         ctype = ResearchContentType.OTHER
     direction = _infer_direction(text, ctype)
     has_dir = direction != "NEUTRAL"
-    has_levels = bool(_extract_levels(text))
+    parsed = extract_signal_levels(text)
+    has_levels = bool(
+        parsed.targets or parsed.entry_low is not None or parsed.stop is not None,
+    )
     return has_sym, has_dir, has_levels

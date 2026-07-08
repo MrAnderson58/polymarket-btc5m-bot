@@ -28,10 +28,14 @@ from bot.research.futures_agent.research_reconciliation import (
     render_pipeline_reconciliation,
     run_pipeline_reconciliation,
 )
+from bot.research.futures_agent.research_rebuild_theses import rebuild_theses_for_channel
+from bot.research.futures_agent.research_reconciliation import render_thesis_eligibility_report
+from bot.research.futures_agent.signal_level_extract import extract_signal_levels
 from bot.research.futures_agent.thesis_quality_audit import (
     ThesisQualityRow,
     _audit_row_suspicious,
     render_thesis_quality_audit,
+    run_explicit_signal_quality_gate,
     run_thesis_quality_audit,
 )
 from bot.research.futures_agent.research_scoring import (
@@ -120,6 +124,57 @@ NEAR_TP_HIT_SUPPORT = """По вечернему сигналу NEAR... проб
 
 RU_SOCIAL_SUPPORT = "Ваш актив это огромная поддержка для меня"
 RU_TECH_SUPPORT = "Цена у поддержки 1.25, жду отскок"
+
+# Phase C.3.2 Mac Mini production regression examples
+SIGNALYP_JTO = """#JTO LONG
+Диапазон входа: 3.5227 - 3.6228
+Тейки: 3.6607 3.6985 3.8157
+Стоп: 3.4461"""
+
+SIGNALYP_GALA = """#GALA LONG
+Точка входа: 0.04810
+Стоп: 0.04650
+Тейки: 0.04950 0.05020 0.05200"""
+
+SIGNALYP_NEAR = """#NEAR LONG
+Моя точка входа: 5.234
+Стоп-лосс: 5.010
+Тейки: 5.350 5.480 5.620"""
+
+SIGNALYP_NTRN_ALLOC = """#NTRN LONG
+цели:
+1.4720 (25%)
+1.4885 (25%)
+2.0150 (50%)
+Стоп: 1.3160"""
+
+SIGNALYP_BINGX_URL = """#BTC LONG
+Тейки: 1.2500 1.3000
+https://bingx.com/en/invite/1Okf7a/"""
+
+SIGNALYP_BYBIT_URL = """#BTC LONG
+Тейки: 1.50 2.00
+https://partner.bybit.com/b/76371"""
+
+SIGNALYP_DEFERRED_STOP_A = """#UNI LONG
+Вход: 14.366
+Тейки: 14.506
+Стоп: пока не ставлю"""
+
+SIGNALYP_DEFERRED_STOP_B = """#UNI LONG
+Вход: 14.366
+Тейки: 14.506
+Стоп: дам по необходимости"""
+
+SIGNALYP_MARKET_ENTRY = """#MAVIA LONG
+Диапазон входа: по рынку
+Тейки: 2.9429 2.9794
+Стоп: 2.8406"""
+
+SIGNALYP_LATIN_C_STOP = """#JTO LONG
+Вход: 3.55
+Тейки: 3.70
+Cтоп: 3.40"""
 
 
 def _create_source_db(path: Path, rows: list[tuple]) -> None:
@@ -946,6 +1001,194 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
         self.assertTrue(report.incomplete)
         self.assertIn("INCOMPLETE", rendered)
         self.assertIn("no theses were extracted", rendered)
+
+    def test_signal_level_extract_jto_production(self) -> None:
+        p = extract_signal_levels(SIGNALYP_JTO)
+        self.assertEqual(p.entry_low, 3.5227)
+        self.assertEqual(p.entry_high, 3.6228)
+        self.assertEqual(p.stop, 3.4461)
+        self.assertEqual(p.targets, [3.6607, 3.6985, 3.8157])
+
+    def test_signal_level_extract_gala_production(self) -> None:
+        p = extract_signal_levels(SIGNALYP_GALA)
+        self.assertEqual(p.entry_low, 0.04810)
+        self.assertEqual(p.stop, 0.04650)
+        self.assertEqual(len(p.targets), 3)
+
+    def test_signal_level_extract_near_production(self) -> None:
+        p = extract_signal_levels(SIGNALYP_NEAR)
+        self.assertEqual(p.entry_low, 5.234)
+        self.assertEqual(p.stop, 5.010)
+        self.assertEqual(len(p.targets), 3)
+
+    def test_signal_level_extract_ntrn_allocations_excluded(self) -> None:
+        p = extract_signal_levels(SIGNALYP_NTRN_ALLOC)
+        self.assertEqual(p.targets, [1.4720, 1.4885, 2.0150])
+        self.assertNotIn(25.0, p.targets)
+        self.assertNotIn(50.0, p.targets)
+
+    def test_signal_level_extract_bingx_url_excluded(self) -> None:
+        p = extract_signal_levels(SIGNALYP_BINGX_URL)
+        self.assertEqual(p.targets, [1.2500, 1.3000])
+        self.assertNotIn(1.0, p.targets)
+        self.assertNotIn(7.0, p.targets)
+
+    def test_signal_level_extract_bybit_url_excluded(self) -> None:
+        p = extract_signal_levels(SIGNALYP_BYBIT_URL)
+        self.assertNotIn(76371.0, p.targets)
+        self.assertEqual(p.targets, [1.50, 2.00])
+
+    def test_signal_level_extract_deferred_stop_variants(self) -> None:
+        a = extract_signal_levels(SIGNALYP_DEFERRED_STOP_A)
+        self.assertIsNone(a.stop)
+        self.assertEqual(a.stop_status, "deferred")
+        b = extract_signal_levels(SIGNALYP_DEFERRED_STOP_B)
+        self.assertEqual(b.stop_status, "deferred")
+
+    def test_signal_level_extract_market_entry(self) -> None:
+        p = extract_signal_levels(SIGNALYP_MARKET_ENTRY)
+        self.assertEqual(p.entry_status, "market")
+        self.assertIsNone(p.entry_low)
+        self.assertEqual(p.stop, 2.8406)
+        self.assertEqual(len(p.targets), 2)
+
+    def test_signal_level_extract_latin_c_stop(self) -> None:
+        p = extract_signal_levels(SIGNALYP_LATIN_C_STOP)
+        self.assertEqual(p.stop, 3.40)
+
+    def test_thesis_extract_levels_from_jto_signal(self) -> None:
+        theses = extract_theses_from_post(SIGNALYP_JTO, "EXPLICIT_SIGNAL", symbols=["JTO"])
+        self.assertEqual(len(theses), 1)
+        types = {lv.level_type: lv.price for lv in theses[0].levels}
+        self.assertEqual(types.get("ENTRY_LOW"), 3.5227)
+        self.assertEqual(types.get("ENTRY_HIGH"), 3.6228)
+        self.assertEqual(types.get("STOP"), 3.4461)
+        targets = [lv.price for lv in theses[0].levels if lv.level_type == "TARGET"]
+        self.assertEqual(targets, [3.6607, 3.6985, 3.8157])
+
+    def test_rebuild_theses_scoped_signalyp(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            post_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("r1", "signalyp", 1_700_000_000, SIGNALYP_JTO, "h_r1", "EXPLICIT_SIGNAL", "[]", 0.9),
+            ).lastrowid
+            thesis_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_theses (
+                  post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (post_id, "JTO", "LONG", "jto", "1d", None, None, 0.9),
+            ).lastrowid
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_levels (
+                  thesis_id, level_type, price, ordinal, confidence
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (thesis_id, "TARGET", 1.0, 1, 0.9),
+            )
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("r2", "lookonchain", 1_700_000_001, WHALE_BORROW, "h_r2", "WHALE_FLOW", "[]", 0.7),
+            )
+            lookonchain_post = conn.execute(
+                "SELECT id FROM futures_agent_trader_posts WHERE channel_name = 'lookonchain'",
+            ).fetchone()["id"]
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_theses (
+                  post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (lookonchain_post, "ETH", "SHORT", "whale", "1d", None, None, 0.7),
+            )
+            conn.commit()
+            report = rebuild_theses_for_channel(conn, channel="signalyp")
+            signalyp_theses = conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM futures_agent_trader_theses t
+                JOIN futures_agent_trader_posts p ON p.id = t.post_id
+                WHERE p.channel_name = 'signalyp'
+                """,
+            ).fetchone()["n"]
+            lookonchain_theses = conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM futures_agent_trader_theses t
+                JOIN futures_agent_trader_posts p ON p.id = t.post_id
+                WHERE p.channel_name = 'lookonchain'
+                """,
+            ).fetchone()["n"]
+            posts = conn.execute(
+                "SELECT COUNT(*) AS n FROM futures_agent_trader_posts WHERE channel_name = 'signalyp'",
+            ).fetchone()["n"]
+
+        self.assertEqual(report.theses_deleted, 1)
+        self.assertEqual(report.theses_after, 0)
+        self.assertEqual(signalyp_theses, 0)
+        self.assertEqual(lookonchain_theses, 1)
+        self.assertEqual(posts, 1)
+
+    def test_explicit_signal_quality_gate(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            post_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("q1", "signalyp", 1_700_000_000, SIGNALYP_JTO, "h_q1", "EXPLICIT_SIGNAL", "[]", 0.9),
+            ).lastrowid
+            thesis_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_theses (
+                  post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (post_id, "JTO", "LONG", "jto", "1d", None, None, 0.9),
+            ).lastrowid
+            for ltype, price, ord_ in (
+                ("ENTRY_LOW", 3.5227, 0),
+                ("ENTRY_HIGH", 3.6228, 0),
+                ("STOP", 3.4461, 0),
+                ("TARGET", 3.6607, 1),
+            ):
+                conn.execute(
+                    """
+                    INSERT INTO futures_agent_trader_levels (
+                      thesis_id, level_type, price, ordinal, confidence
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (thesis_id, ltype, price, ord_, 0.9),
+                )
+            conn.commit()
+            gate = run_explicit_signal_quality_gate(conn, channel="signalyp")
+
+        self.assertEqual(gate.total_explicit_theses, 1)
+        self.assertEqual(gate.numeric_entry, 1)
+        self.assertEqual(gate.numeric_stop, 1)
+        self.assertEqual(gate.with_targets, 1)
+        self.assertEqual(gate.complete_numeric_structure, 1)
+
+    def test_thesis_eligibility_report(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            rendered = render_thesis_eligibility_report(conn, channel="signalyp")
+        self.assertIn("THESIS ELIGIBILITY", rendered)
+        self.assertIn("EXPLICIT_SIGNAL", rendered)
 
     def test_thesis_outcome_evaluation_deterministic(self) -> None:
         # Build a sqlite source DB with market_prices and feed a single thesis.
