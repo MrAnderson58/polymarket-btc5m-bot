@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
-from collections import defaultdict
+import sys
+import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
@@ -35,6 +37,12 @@ class IngestResearchStats:
     skipped_hash_duplicate: int = 0
     skipped_source_cap: int = 0
     per_channel: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    content_type_counts: Counter = field(default_factory=Counter)
+    symbols_extracted: int = 0
+    directions_extracted: int = 0
+    levels_extracted: int = 0
+    current_class: str = ""
+    total_estimate: int | None = None
 
 
 def _reader_is_postgres(reader: SourceReader) -> bool:
@@ -266,6 +274,26 @@ def _insert_post(
         return None
 
 
+def _estimate_source_total(
+    reader: SourceReader,
+    *,
+    channel: str | None,
+    limit: int | None,
+) -> int | None:
+    if limit is not None:
+        return limit
+    try:
+        rows = reader.channel_stats()
+        if channel:
+            for r in rows:
+                if r.get("source") == channel:
+                    return int(r.get("count", 0))
+            return None
+        return sum(int(r.get("count", 0)) for r in rows)
+    except Exception:
+        return None
+
+
 def ingest_research_posts(
     conn: Any,
     *,
@@ -276,14 +304,18 @@ def ingest_research_posts(
     limit: int | None = None,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     max_per_source: int | None = DEFAULT_MAX_PER_SOURCE,
-    progress_every: int = 5000,
+    progress_every: int = 500,
 ) -> IngestResearchStats:
     """Ingest classified research posts into futures_agent_trader_posts."""
+    from bot.research.futures_agent.research_reconciliation import count_extraction_coverage
+
     stats = IngestResearchStats()
     reader = open_stage3_source_reader()
     seen_hashes: set[str] = set()
     channel_inserted: dict[str, int] = defaultdict(int)
+    t0 = time.monotonic()
     try:
+        stats.total_estimate = _estimate_source_total(reader, channel=channel, limit=limit)
         batch_hashes: set[str] = set()
         batch_rows: list[dict[str, Any]] = []
         for row in iter_source_messages(
@@ -311,6 +343,17 @@ def ingest_research_posts(
                 continue
             classification = classify_research_content(text)
             symbols = extract_symbols(text)
+            stats.current_class = classification.content_type.value
+            stats.content_type_counts[stats.current_class] += 1
+            has_sym, has_dir, has_levels = count_extraction_coverage(
+                text, stats.current_class,
+            )
+            if has_sym:
+                stats.symbols_extracted += 1
+            if has_dir:
+                stats.directions_extracted += 1
+            if has_levels:
+                stats.levels_extracted += 1
             channel_inserted[ch] += 1
             batch_rows.append({
                 **row,
@@ -330,9 +373,21 @@ def ingest_research_posts(
                 batch_hashes = set()
 
             if progress_every and stats.scanned % progress_every == 0:
+                elapsed = max(time.monotonic() - t0, 0.001)
+                rate = stats.scanned / elapsed
+                total = stats.total_estimate
+                eta_s = (total - stats.scanned) / rate if total and rate > 0 else 0
+                total_s = f"{total:,}" if total else "?"
+                eta_s_str = f"{int(eta_s)}s" if eta_s > 0 else "?"
                 print(
-                    f"  scanned={stats.scanned} inserted={stats.inserted} "
-                    f"dup={stats.skipped_duplicate} cap={stats.skipped_source_cap}",
+                    f"Processed: {stats.scanned:,} / {total_s}\n"
+                    f"Inserted posts: {stats.inserted:,}\n"
+                    f"Duplicates skipped: {stats.skipped_duplicate:,}\n"
+                    f"Content-hash duplicates: {stats.skipped_hash_duplicate:,}\n"
+                    f"Current class: {stats.current_class}\n"
+                    f"Speed: {rate:.0f} msg/s\n"
+                    f"ETA: {eta_s_str}",
+                    file=sys.stderr,
                     flush=True,
                 )
 
@@ -386,46 +441,63 @@ def run_thesis_extract(
     channel: str | None = None,
     limit: int | None = None,
     chunk_size: int = 500,
-    progress_every: int = 2000,
-) -> dict[str, int]:
+    progress_every: int = 250,
+) -> "ThesisExtractStats":
     """Extract and persist theses for posts without existing theses."""
+    import sys
+
+    from bot.research.futures_agent.research_reconciliation import ThesisExtractStats
     from bot.research.futures_agent.thesis_extract import extract_theses_from_post
 
     validate_write_table("futures_agent_trader_theses")
-    stats = {
-        "posts_scanned": 0,
-        "theses_inserted": 0,
-        "levels_inserted": 0,
-        "unresolved_skipped": 0,
-    }
-    offset = 0
+    stats = ThesisExtractStats()
+    t0 = time.monotonic()
+
+    ch_clause = ""
+    count_params: list[Any] = []
+    if channel:
+        ch_clause = " AND p.channel_name = ?"
+        count_params.append(channel)
+    stats.posts_total = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM futures_agent_trader_posts p
+        LEFT JOIN futures_agent_trader_theses t ON t.post_id = p.id
+        WHERE t.id IS NULL{ch_clause}
+        """,
+        count_params,
+    ).fetchone()["n"]
+
+    last_id = 0
     while True:
         q = """
             SELECT p.id, p.raw_text, p.content_type, p.symbols_json
             FROM futures_agent_trader_posts p
             LEFT JOIN futures_agent_trader_theses t ON t.post_id = p.id
-            WHERE t.id IS NULL
+            WHERE t.id IS NULL AND p.id > ?
         """
-        params: list[Any] = []
+        params: list[Any] = [last_id]
         if channel:
             q += " AND p.channel_name = ?"
             params.append(channel)
-        q += " ORDER BY p.message_ts ASC LIMIT ? OFFSET ?"
-        params.extend([chunk_size, offset])
+        q += " ORDER BY p.id ASC LIMIT ?"
+        params.append(chunk_size)
         rows = conn.execute(q, params).fetchall()
         if not rows:
             break
         for row in rows:
-            stats["posts_scanned"] += 1
+            stats.posts_scanned += 1
+            last_id = row["id"]
             symbols = json.loads(row["symbols_json"] or "[]")
             theses = extract_theses_from_post(
                 row["raw_text"],
                 row["content_type"],
                 symbols=symbols,
             )
+            thesis_created = False
             for thesis in theses:
                 if thesis.unresolved:
-                    stats["unresolved_skipped"] += 1
+                    stats.unresolved_skipped += 1
                     continue
                 thesis_id = insert_returning_id(
                     conn,
@@ -441,7 +513,8 @@ def run_thesis_extract(
                         thesis.confidence,
                     ),
                 )
-                stats["theses_inserted"] += 1
+                stats.theses_inserted += 1
+                thesis_created = True
                 for level in thesis.levels:
                     conn.execute(
                         """
@@ -454,14 +527,53 @@ def run_thesis_extract(
                             level.ordinal, level.confidence,
                         ),
                     )
-                    stats["levels_inserted"] += 1
-            if limit and stats["posts_scanned"] >= limit:
+                    stats.levels_inserted += 1
+            if not thesis_created:
+                stats.posts_without_thesis += 1
+            if limit and stats.posts_scanned >= limit:
                 conn.commit()
                 return stats
         conn.commit()
-        offset += len(rows)
-        if progress_every and stats["posts_scanned"] % progress_every == 0:
-            print(f"  thesis-extract scanned={stats['posts_scanned']}", flush=True)
+
+        if progress_every and stats.posts_scanned % progress_every == 0:
+            elapsed = max(time.monotonic() - t0, 0.001)
+            rate = stats.posts_scanned / elapsed
+            total = stats.posts_total
+            eta_s = (total - stats.posts_scanned) / rate if total and rate > 0 else 0
+            eta_s_str = f"{int(eta_s)}s" if eta_s > 0 else "?"
+            print(
+                f"Processed posts: {stats.posts_scanned:,} / {total:,}\n"
+                f"Theses created: {stats.theses_inserted:,}\n"
+                f"Posts without thesis: {stats.posts_without_thesis:,}\n"
+                f"Levels created: {stats.levels_inserted:,}\n"
+                f"Speed: {rate:.0f} posts/s\n"
+                f"ETA: {eta_s_str}",
+                file=sys.stderr,
+                flush=True,
+            )
+
         if len(rows) < chunk_size:
             break
+
+    # Re-count remaining posts without thesis
+    stats.posts_without_thesis = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM futures_agent_trader_posts p
+        LEFT JOIN futures_agent_trader_theses t ON t.post_id = p.id
+        WHERE t.id IS NULL{ch_clause}
+        """,
+        count_params,
+    ).fetchone()["n"]
     return stats
+
+
+def thesis_extract_stats_dict(stats: Any) -> dict[str, int]:
+    return {
+        "posts_scanned": stats.posts_scanned,
+        "posts_total": stats.posts_total,
+        "theses_inserted": stats.theses_inserted,
+        "levels_inserted": stats.levels_inserted,
+        "unresolved_skipped": stats.unresolved_skipped,
+        "posts_without_thesis": stats.posts_without_thesis,
+    }

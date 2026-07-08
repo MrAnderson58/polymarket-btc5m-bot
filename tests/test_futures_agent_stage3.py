@@ -23,6 +23,16 @@ from bot.research.futures_agent.signal_format_audit import (
     run_signal_format_audit,
 )
 from bot.research.futures_agent.research_ingest import ingest_research_posts, run_thesis_extract
+from bot.research.futures_agent.research_reconciliation import (
+    render_ingest_reconciliation,
+    render_pipeline_reconciliation,
+    run_pipeline_reconciliation,
+)
+from bot.research.futures_agent.thesis_quality_audit import (
+    ThesisQualityRow,
+    _audit_row_suspicious,
+    run_thesis_quality_audit,
+)
 from bot.research.futures_agent.research_scoring import (
     SourceScoreInputs,
     bayesian_shrinkage_rate,
@@ -425,8 +435,8 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
                     "SELECT level_type, price FROM futures_agent_trader_levels ORDER BY level_type",
                 ).fetchall()
 
-        self.assertEqual(stats["theses_inserted"], 1)
-        self.assertGreaterEqual(stats["levels_inserted"], 2)
+        self.assertEqual(stats.theses_inserted, 1)
+        self.assertGreaterEqual(stats.levels_inserted, 2)
         level_types = {r["level_type"] for r in levels}
         self.assertIn("STOP", level_types)
         self.assertTrue({"ENTRY_LOW", "ENTRY_HIGH"} & level_types)
@@ -487,6 +497,286 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
         with self.assertRaises(Stage3SourceRequiredError) as ctx:
             open_stage3_source_reader()
         self.assertIn("Mac Mini", str(ctx.exception))
+
+    def test_channel_scoped_ingest(self) -> None:
+        _create_source_db(
+            self.source_db,
+            [
+                ("lookonchain", WHALE_BORROW, 1_700_000_000, "m1"),
+                ("signalyp", AUTHOR_SIGNAL, 1_700_000_100, "m2"),
+            ],
+        )
+
+        def _reader():
+            conn = sqlite3.connect(self.source_db)
+            conn.row_factory = sqlite3.Row
+            from bot.research.futures.source_reader import SqliteSourceReader
+            return SqliteSourceReader(conn, path=str(self.source_db))
+
+        with patch(
+            "bot.research.futures_agent.research_ingest.open_stage3_source_reader",
+            side_effect=_reader,
+        ):
+            with self._agent_conn() as conn:
+                apply_migrations(conn)
+                stats = ingest_research_posts(conn, channel="signalyp", limit=10)
+                channels = {
+                    r["channel_name"]
+                    for r in conn.execute(
+                        "SELECT channel_name FROM futures_agent_trader_posts",
+                    ).fetchall()
+                }
+
+        self.assertEqual(stats.inserted, 1)
+        self.assertEqual(channels, {"signalyp"})
+
+    def test_ingest_reconciliation_output(self) -> None:
+        _create_source_db(
+            self.source_db,
+            [("signalyp", AUTHOR_SIGNAL, 1_700_000_000, "m1")],
+        )
+
+        def _reader():
+            conn = sqlite3.connect(self.source_db)
+            conn.row_factory = sqlite3.Row
+            from bot.research.futures.source_reader import SqliteSourceReader
+            return SqliteSourceReader(conn, path=str(self.source_db))
+
+        with patch(
+            "bot.research.futures_agent.research_ingest.open_stage3_source_reader",
+            side_effect=_reader,
+        ):
+            with self._agent_conn() as conn:
+                apply_migrations(conn)
+                stats = ingest_research_posts(conn, channel="signalyp", limit=10)
+                rendered = render_ingest_reconciliation(
+                    stats, channel="signalyp", conn=conn,
+                )
+
+        self.assertIn("SOURCE ROWS SCANNED", rendered)
+        self.assertIn("CONTENT TYPES:", rendered)
+        self.assertIn("SYMBOL EXTRACTION COVERAGE", rendered)
+        self.assertIn("EXPLICIT_SIGNAL", rendered)
+
+    def test_channel_scoped_thesis_extract(self) -> None:
+        _create_source_db(
+            self.source_db,
+            [
+                ("lookonchain", WHALE_BORROW, 1_700_000_000, "m1"),
+                ("signalyp", AUTHOR_SIGNAL, 1_700_000_100, "m2"),
+            ],
+        )
+
+        def _reader():
+            conn = sqlite3.connect(self.source_db)
+            conn.row_factory = sqlite3.Row
+            from bot.research.futures.source_reader import SqliteSourceReader
+            return SqliteSourceReader(conn, path=str(self.source_db))
+
+        with patch(
+            "bot.research.futures_agent.research_ingest.open_stage3_source_reader",
+            side_effect=_reader,
+        ):
+            with self._agent_conn() as conn:
+                apply_migrations(conn)
+                ingest_research_posts(conn, limit=10)
+                stats = run_thesis_extract(conn, channel="signalyp")
+                signalyp_theses = conn.execute(
+                    """
+                    SELECT COUNT(*) AS n
+                    FROM futures_agent_trader_theses t
+                    JOIN futures_agent_trader_posts p ON p.id = t.post_id
+                    WHERE p.channel_name = 'signalyp'
+                    """,
+                ).fetchone()["n"]
+                lookonchain_theses = conn.execute(
+                    """
+                    SELECT COUNT(*) AS n
+                    FROM futures_agent_trader_theses t
+                    JOIN futures_agent_trader_posts p ON p.id = t.post_id
+                    WHERE p.channel_name = 'lookonchain'
+                    """,
+                ).fetchone()["n"]
+
+        self.assertEqual(stats.theses_inserted, 1)
+        self.assertEqual(signalyp_theses, 1)
+        self.assertEqual(lookonchain_theses, 0)
+
+    def test_thesis_extract_rerun_idempotent(self) -> None:
+        _create_source_db(
+            self.source_db,
+            [("signalyp", AUTHOR_SIGNAL, 1_700_000_000, "m1")],
+        )
+
+        def _reader():
+            conn = sqlite3.connect(self.source_db)
+            conn.row_factory = sqlite3.Row
+            from bot.research.futures.source_reader import SqliteSourceReader
+            return SqliteSourceReader(conn, path=str(self.source_db))
+
+        with patch(
+            "bot.research.futures_agent.research_ingest.open_stage3_source_reader",
+            side_effect=_reader,
+        ):
+            with self._agent_conn() as conn:
+                apply_migrations(conn)
+                ingest_research_posts(conn, channel="signalyp", limit=10)
+                stats1 = run_thesis_extract(conn, channel="signalyp")
+                stats2 = run_thesis_extract(conn, channel="signalyp")
+                thesis_count = conn.execute(
+                    "SELECT COUNT(*) AS n FROM futures_agent_trader_theses",
+                ).fetchone()["n"]
+
+        self.assertEqual(stats1.theses_inserted, 1)
+        self.assertEqual(stats2.theses_inserted, 0)
+        self.assertEqual(stats2.posts_scanned, 0)
+        self.assertEqual(thesis_count, 1)
+
+    def test_thesis_extract_id_cursor_no_skip(self) -> None:
+        """Id-based pagination must process all posts (OFFSET bug regression)."""
+        rows = [
+            ("signalyp", f"ORDI LONG entry {i}.0 sl {i - 1}.0 tp {i + 1}.0", 1_700_000_000 + i, f"m{i}")
+            for i in range(1, 6)
+        ]
+        _create_source_db(self.source_db, rows)
+
+        def _reader():
+            conn = sqlite3.connect(self.source_db)
+            conn.row_factory = sqlite3.Row
+            from bot.research.futures.source_reader import SqliteSourceReader
+            return SqliteSourceReader(conn, path=str(self.source_db))
+
+        with patch(
+            "bot.research.futures_agent.research_ingest.open_stage3_source_reader",
+            side_effect=_reader,
+        ):
+            with self._agent_conn() as conn:
+                apply_migrations(conn)
+                ingest_research_posts(conn, channel="signalyp", limit=10)
+                stats = run_thesis_extract(conn, channel="signalyp", chunk_size=2)
+                thesis_count = conn.execute(
+                    "SELECT COUNT(*) AS n FROM futures_agent_trader_theses",
+                ).fetchone()["n"]
+
+        self.assertEqual(stats.posts_scanned, 5)
+        self.assertEqual(thesis_count, 5)
+
+    def test_pipeline_reconciliation_fk_checks(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            post_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("x1", "signalyp", 1_700_000_000, AUTHOR_SIGNAL, "h1", "EXPLICIT_SIGNAL", "[]", 0.9),
+            ).lastrowid
+            thesis_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_theses (
+                  post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (post_id, "ORDI", "LONG", "ORDI long", "1d", None, None, 0.9),
+            ).lastrowid
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_levels (
+                  thesis_id, level_type, price, ordinal, confidence
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (thesis_id, "STOP", 43.5, 0, 0.9),
+            )
+            conn.commit()
+            report = run_pipeline_reconciliation(conn, channel="signalyp")
+            rendered = render_pipeline_reconciliation(report)
+
+        self.assertTrue(report.passed)
+        self.assertIn("thesis_post_fk", rendered)
+        self.assertIn("level_thesis_fk", rendered)
+        self.assertIn("PASS", rendered)
+
+    def test_deferred_stop_preserved_in_quality_audit(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            post_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("u1", "signalyp", 1_700_000_000, UNI_DEFERRED_STOP_1, "h2", "EXPLICIT_SIGNAL", "[]", 0.9),
+            ).lastrowid
+            thesis_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_theses (
+                  post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (post_id, "UNI", "LONG", "UNI long deferred stop", "1d", None, None, 0.9),
+            ).lastrowid
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_levels (
+                  thesis_id, level_type, price, ordinal, confidence
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (thesis_id, "TARGET", 14.85, 0, 0.9),
+            )
+            conn.commit()
+            report = run_thesis_quality_audit(
+                conn, channel="signalyp", sample_size=3,
+            )
+
+        deferred_rows = [r for r in report.rows if r.stop_status == "deferred"]
+        self.assertTrue(deferred_rows)
+        self.assertIsNone(deferred_rows[0].stop)
+
+    def test_malformed_level_audit_detection(self) -> None:
+        row = ThesisQualityRow(
+            post_id=1,
+            thesis_id=1,
+            content_type="EXPLICIT_SIGNAL",
+            channel_name="signalyp",
+            raw_preview="bad levels",
+            symbol="BTC",
+            direction="LONG",
+            entry_low=100.0,
+            entry_high=None,
+            stop=105.0,
+            stop_status="numeric",
+            targets=[50.0],
+            support=[],
+            resistance=[],
+            horizon="1d",
+            confidence=0.8,
+        )
+        flags = _audit_row_suspicious(row)
+        self.assertIn("long_stop_gte_entry", flags)
+        self.assertIn("long_target_lte_entry", flags)
+
+        bad_decimal = ThesisQualityRow(
+            post_id=2,
+            thesis_id=2,
+            content_type="EXPLICIT_SIGNAL",
+            channel_name="signalyp",
+            raw_preview="bad decimal",
+            symbol="BTC",
+            direction="LONG",
+            entry_low=-1.0,
+            entry_high=None,
+            stop=None,
+            stop_status="missing",
+            targets=[],
+            support=[],
+            resistance=[],
+            horizon="1d",
+            confidence=0.8,
+        )
+        self.assertIn("malformed_decimal", _audit_row_suspicious(bad_decimal))
 
     def test_thesis_outcome_evaluation_deterministic(self) -> None:
         # Build a sqlite source DB with market_prices and feed a single thesis.

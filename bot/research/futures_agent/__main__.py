@@ -8,7 +8,9 @@ Usage:
   python -m bot.research.futures_agent research-classify-audit --sample-size 500
   python -m bot.research.futures_agent research-classify-audit --sample-size 1000 --stratified
   python -m bot.research.futures_agent research-signal-format-audit --channel signalyp --limit 7530
-  python -m bot.research.futures_agent thesis-extract
+  python -m bot.research.futures_agent thesis-extract --channel signalyp
+  python -m bot.research.futures_agent thesis-quality-audit --channel signalyp --sample-size 100
+  python -m bot.research.futures_agent pipeline-reconcile --channel signalyp
   python -m bot.research.futures_agent research-stats
   python -m bot.research.futures_agent evaluate-theses
   python -m bot.research.futures_agent evaluate-sources
@@ -42,7 +44,8 @@ def main() -> int:
             "snapshot", "snapshot-pending", "context-report", "snapshot-audit",
             "telegram-poll", "telegram-diagnose", "stage3-audit",
             "stage3-migrate", "ingest-research", "research-stats",
-            "thesis-extract", "research-classify-audit", "research-explicit-audit",
+            "thesis-extract", "thesis-quality-audit", "pipeline-reconcile",
+            "research-classify-audit", "research-explicit-audit",
             "research-signal-format-audit",
             "evaluate-theses", "evaluate-sources", "source-report", "symbol-report",
         ),
@@ -139,6 +142,7 @@ def main() -> int:
 
     if args.command == "ingest-research":
         from bot.research.futures_agent.research_ingest import ingest_research_posts
+        from bot.research.futures_agent.research_reconciliation import render_ingest_reconciliation
         from bot.research.futures_agent.source_requirements import Stage3SourceRequiredError
 
         try:
@@ -154,21 +158,20 @@ def main() -> int:
                     chunk_size=args.chunk_size,
                     max_per_source=args.max_per_source,
                 )
+                print(render_ingest_reconciliation(
+                    stats, channel=args.channel, conn=conn,
+                ))
         except Stage3SourceRequiredError as exc:
             print(exc, file=sys.stderr)
             return 1
         print(f"Backend: {cfg.backend}")
-        print(
-            f"scanned={stats.scanned} inserted={stats.inserted} "
-            f"dup={stats.skipped_duplicate} hash_dup={stats.skipped_hash_duplicate} "
-            f"source_cap={stats.skipped_source_cap} empty={stats.skipped_empty}"
-        )
         if stats.per_channel:
             print("per_channel_inserted:", stats.per_channel)
         return 0
 
     if args.command == "thesis-extract":
         from bot.research.futures_agent.research_ingest import run_thesis_extract
+        from bot.research.futures_agent.research_reconciliation import render_thesis_extract_report
 
         with agent_connection() as conn:
             apply_migrations(conn)
@@ -177,8 +180,37 @@ def main() -> int:
                 channel=args.channel,
                 limit=args.limit,
             )
-        print(f"posts_scanned={stats['posts_scanned']} theses={stats['theses_inserted']} "
-              f"levels={stats['levels_inserted']} unresolved_skipped={stats['unresolved_skipped']}")
+            print(render_thesis_extract_report(
+                conn, stats, channel=args.channel,
+            ))
+        return 0
+
+    if args.command == "thesis-quality-audit":
+        from bot.research.futures_agent.thesis_quality_audit import (
+            render_thesis_quality_audit,
+            run_thesis_quality_audit,
+        )
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            report = run_thesis_quality_audit(
+                conn,
+                channel=args.channel or "signalyp",
+                sample_size=args.sample_size,
+            )
+            print(render_thesis_quality_audit(report))
+        return 0
+
+    if args.command == "pipeline-reconcile":
+        from bot.research.futures_agent.research_reconciliation import (
+            render_pipeline_reconciliation,
+            run_pipeline_reconciliation,
+        )
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            report = run_pipeline_reconciliation(conn, channel=args.channel)
+            print(render_pipeline_reconciliation(report))
         return 0
 
     if args.command == "research-stats":
@@ -186,7 +218,7 @@ def main() -> int:
 
         with agent_connection() as conn:
             apply_migrations(conn)
-            print(render_research_stats(conn))
+            print(render_research_stats(conn, channel=args.channel))
         return 0
 
     if args.command == "research-classify-audit":
