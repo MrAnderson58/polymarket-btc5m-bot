@@ -51,6 +51,16 @@ PROMO_WHALE = (
 )
 HACKERS_TEXT = "i think russian hackers are top dogs"
 
+# Production audit false positives (precision-first EXPLICIT_SIGNAL / position mgmt)
+LOOKONCHAIN_SELL_FRAGMENT = "Sell 3-5$"
+LOOKONCHAIN_TARGET_FRAGMENT = "0.75 target for short"
+FALSE_TRADER_THESIS_CLOSE_LONG = (
+    "I close the long few minutes after a plus 6%"
+)
+FALSE_WHALE_FLOW_FOLLOW_TRASH = (
+    "follow my trash account guys https://debank.com/profile/0xabc123abc123abc123abc123abc123abc123abc1"
+)
+
 
 def _create_source_db(path: Path, rows: list[tuple]) -> None:
     conn = sqlite3.connect(path)
@@ -177,6 +187,26 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
     def test_hackers_text_not_news_event(self) -> None:
         cls = classify_research_content(HACKERS_TEXT)
         self.assertNotEqual(cls.content_type, ResearchContentType.NEWS_EVENT)
+
+    def test_sell_fragment_is_not_explicit_signal(self) -> None:
+        cls = classify_research_content(LOOKONCHAIN_SELL_FRAGMENT)
+        self.assertNotEqual(cls.content_type, ResearchContentType.EXPLICIT_SIGNAL)
+
+    def test_target_fragment_is_not_explicit_signal(self) -> None:
+        cls = classify_research_content(LOOKONCHAIN_TARGET_FRAGMENT)
+        self.assertNotEqual(cls.content_type, ResearchContentType.EXPLICIT_SIGNAL)
+
+    def test_close_long_plus_pct_not_trader_thesis(self) -> None:
+        cls = classify_research_content(FALSE_TRADER_THESIS_CLOSE_LONG)
+        self.assertNotEqual(cls.content_type, ResearchContentType.TRADER_THESIS)
+        self.assertIn(
+            cls.content_type,
+            (ResearchContentType.TRADE_UPDATE, ResearchContentType.RESULT_UPDATE),
+        )
+
+    def test_profile_follow_not_whale_flow(self) -> None:
+        cls = classify_research_content(FALSE_WHALE_FLOW_FOLLOW_TRASH)
+        self.assertNotEqual(cls.content_type, ResearchContentType.WHALE_FLOW)
 
     def test_content_hash_dedup_normalization(self) -> None:
         a = content_hash("BTC  LONG\nEntry 1.0")

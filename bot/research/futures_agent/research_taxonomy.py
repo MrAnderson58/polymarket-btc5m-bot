@@ -9,7 +9,8 @@ import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from bot.research.futures.parser import ENTRY_RE, SIDE_TOKEN, SL_RE, TF_RE, TP_LINE_RE
+from bot.research.futures.parser import ENTRY_RE, SIDE_TOKEN, SL_RE, TF_RE, TP_LINE_RE, TP_RE
+from bot.research.futures_agent.research_utils import extract_symbols
 
 
 class ResearchContentType(StrEnum):
@@ -49,7 +50,7 @@ _RE_SL_HIT = re.compile(
     r"стоп\s*(?:выбит|сработал))",
 )
 _RE_CLOSE = re.compile(
-    r"(?i)(close(?:d)?\s+(?:position|trade|long|short)|position closed|"
+    r"(?i)(close(?:d)?\s+(?:the\s+)?(?:position|trade|long|short)|position closed|"
     r"закрыли|закрыт(?:ие|a)?\s+поз|manual close|early exit)",
 )
 _RE_TRADE_UPDATE = re.compile(
@@ -109,6 +110,18 @@ _RE_QUESTION_OR_META = re.compile(
 _RE_HAS_LEVELS = re.compile(
     r"(?i)(?:entry|enter|вход|sl|stop|стоп|tp|target|цел)\s*[:@]?\s*\d",
 )
+
+_RE_PLUS_PCT = re.compile(r"(?i)\b(?:\+|plus)\s*\d+(?:\.\d+)?\s*%")
+
+_RE_URL = re.compile(r"(?i)https?://\S+")
+
+_RE_WHALE_ECON_ACTION = re.compile(
+    r"(?i)\b(?:opened|closed|bought|sold|deposited|withdrew|transferred|borrowed|repaid|opened|liquidat(?:ed|ion))\b",
+)
+
+_RE_MARKET_ENTRY_LANGUAGE = re.compile(
+    r"(?i)\b(?:entry|enter|вход|market\s+(?:buy|sell)|buy\s+at|sell\s+at)\b",
+)
 _RE_THIRD_PARTY_OBSERVED = re.compile(
     r"(?i)\b(?:whale|0x[a-f0-9]{8,}|wallet\s+0x|address\s+0x|"
     r"(?:trader|investor|fund)\s+\w+\s+opened|someone\s+opened|"
@@ -150,7 +163,8 @@ def classify_research_content(text: str) -> ResearchClassification:
     if not text or not text.strip():
         return ResearchClassification(ResearchContentType.OTHER, ["empty"], 0.0)
 
-    t = text.strip()
+    # Remove http(s) URLs so substrings like "tp" inside "https" don't trigger level regexes.
+    t = _RE_URL.sub(" ", text.strip())
     reasons: list[str] = []
 
     if _RE_TP_HIT.search(t) or _RE_SL_HIT.search(t) or _RE_CLOSE.search(t):
@@ -160,7 +174,11 @@ def classify_research_content(text: str) -> ResearchClassification:
         return ResearchClassification(ResearchContentType.TRADE_UPDATE, ["update"], 0.78)
 
     is_onchain = bool(_RE_ONCHAIN.search(t) and not _has_author_intent(t))
-    is_whale = bool(_RE_WHALE_FLOW.search(t) and not _has_author_intent(t))
+    is_whale = bool(
+        _RE_WHALE_FLOW.search(t)
+        and _RE_WHALE_ECON_ACTION.search(t)
+        and not _has_author_intent(t)
+    )
 
     if is_onchain:
         return ResearchClassification(ResearchContentType.ONCHAIN_EVENT, ["onchain"], 0.86)
@@ -183,11 +201,52 @@ def classify_research_content(text: str) -> ResearchClassification:
     author = _has_author_intent(t)
     third_party = _is_third_party_observed(t)
 
-    if author and has_levels and not third_party:
+    def _infer_direction() -> str | None:
+        m = _SIDE_RE.search(t[:400])
+        if not m:
+            return None
+        s = m.group(1).lower()
+        if s in ("long", "buy", "лонг"):
+            return "LONG"
+        if s in ("short", "sell", "шорт"):
+            return "SHORT"
+        return None
+
+    def _is_precise_explicit_signal() -> bool:
+        # Precision-first: require symbol + direction + actionable structure.
+        syms = extract_symbols(t)
+        direction = _infer_direction()
+        if not syms or direction not in ("LONG", "SHORT"):
+            return False
+
+        has_entry = bool(ENTRY_RE.search(t))
+        has_sl = bool(SL_RE.search(t))
+        # TP precision: accept strict TP_RE or TP_LINE_RE with at least one numeric.
+        tp_line_m = TP_LINE_RE.search(t)
+        has_tp = bool(
+            TP_RE.search(t)
+            or (tp_line_m is not None and re.search(r"\d+(?:\.\d+)?", tp_line_m.group(1))),
+        )
+
+        actionable = (
+            (has_entry and has_sl)
+            or (has_entry and has_tp)
+            or (has_sl and has_tp and _RE_MARKET_ENTRY_LANGUAGE.search(t))
+        )
+        if not actionable:
+            return False
+
+        # Clear intent / format: either author intent, or presence of labeled trade levels.
+        signal_format = author or bool(
+            re.search(r"(?i)\b(entry|sl|stop|tp|target)\b", t)
+        )
+        return bool(signal_format)
+
+    if author and not third_party and has_levels and _is_precise_explicit_signal():
         return ResearchClassification(
             ResearchContentType.EXPLICIT_SIGNAL,
-            ["author_intent", "trade_levels"],
-            0.90,
+            ["author_intent_precise"],
+            0.92,
         )
 
     if third_party and has_levels:
@@ -220,12 +279,12 @@ def classify_research_content(text: str) -> ResearchClassification:
             0.68,
         )
 
-    if _SIDE_RE.search(t[:400]) and has_levels and not third_party:
+    if _SIDE_RE.search(t[:400]) and has_levels and not third_party and _is_precise_explicit_signal():
         return ResearchClassification(
             ResearchContentType.EXPLICIT_SIGNAL,
-            ["side_and_levels"],
-            0.65,
-            suspicious_explicit=not author,
+            ["side_and_levels_precise"],
+            0.86,
+            suspicious_explicit=False,
         )
 
     # SIDE tokens without numeric levels should only count as TRADER_THESIS when not clearly third-party flow.

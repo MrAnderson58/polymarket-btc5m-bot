@@ -74,6 +74,11 @@ def main() -> int:
     parser.add_argument("--horizon", type=str, default="1d", help="Evaluation horizon (e.g. 1d)")
     parser.add_argument("--min-sample", type=int, default=30, help="Minimum samples for source ranking buckets")
     parser.add_argument(
+        "--stratified",
+        action="store_true",
+        help="Stratified sampling across channels for research-classify-audit",
+    )
+    parser.add_argument(
         "--max-per-source",
         type=int,
         default=None,
@@ -181,6 +186,7 @@ def main() -> int:
             report = run_classify_audit(
                 sample_size=args.sample_size,
                 channel=args.channel,
+                stratified=args.stratified,
             )
         except Stage3SourceRequiredError as exc:
             print(exc, file=sys.stderr)

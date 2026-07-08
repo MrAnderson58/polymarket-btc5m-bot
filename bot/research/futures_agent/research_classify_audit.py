@@ -22,6 +22,16 @@ _RE_THIRD_PARTY_MARKERS = re.compile(
     r"(?i)\b(?:whale|0x[a-f0-9]{8,}|wallet\s+0x|borrowed\s+\w+\s+to\s+sell)\b",
 )
 
+_RE_EXIT_VERBS = re.compile(
+    r"(?i)\b(close(?:d)?|exited?|exit|take profit|took profit|partial exit|reduce(?:d)? position)\b",
+)
+
+_RE_WHALE_ACTION = re.compile(
+    r"(?i)\b(bought|sold|borrowed|deposited|withdrew|transferred|repaid|opened|closed|liquidat(?:ed|ion))\b",
+)
+
+_RE_DEBANK_PROFILE = re.compile(r"(?i)debank\.com/profile")
+
 
 @dataclass
 class ClassifyAuditReport:
@@ -30,9 +40,14 @@ class ClassifyAuditReport:
     channel_class: dict[str, Counter] = field(default_factory=lambda: defaultdict(Counter))
     examples: dict[str, list[dict]] = field(default_factory=dict)
     suspicious_explicit: list[dict] = field(default_factory=list)
+    suspicious_trader_thesis: list[dict] = field(default_factory=list)
+    suspicious_whale_flow: list[dict] = field(default_factory=list)
+    suspicious_news_event: list[dict] = field(default_factory=list)
     symbol_rate: float = 0.0
     direction_rate: float = 0.0
     level_rate: float = 0.0
+    sampled_by_channel: dict[str, int] = field(default_factory=dict)
+    requested_by_channel: dict[str, int] = field(default_factory=dict)
 
 
 def run_classify_audit(
@@ -40,21 +55,65 @@ def run_classify_audit(
     sample_size: int = 500,
     channel: str | None = None,
     seed: int = 42,
+    stratified: bool = False,
 ) -> ClassifyAuditReport:
     reader = open_stage3_source_reader()
     report = ClassifyAuditReport()
     try:
-        reservoir: list[dict[str, Any]] = []
-        total_seen = 0
         rng = random.Random(seed)
-        for row in iter_source_messages(reader, channel=channel, chunk_size=5000):
-            total_seen += 1
-            if len(reservoir) < sample_size:
-                reservoir.append(row)
+        reservoir: list[dict[str, Any]] = []
+
+        if stratified and channel is None:
+            channel_rows = reader.channel_stats()
+            ch_names = sorted([r["source"] for r in channel_rows if r.get("count", 0) > 0 and r.get("source")])
+            if not ch_names:
+                ch_names = ["all"]
+
+            sizes: dict[str, int] = {}
+            n = len(ch_names)
+            if sample_size <= n:
+                for i, ch in enumerate(ch_names):
+                    sizes[ch] = 1 if i < sample_size else 0
             else:
-                j = rng.randint(0, total_seen - 1)
-                if j < sample_size:
-                    reservoir[j] = row
+                base = sample_size // n
+                rem = sample_size - base * n
+                for i, ch in enumerate(ch_names):
+                    sizes[ch] = base + (1 if i < rem else 0)
+
+            report.requested_by_channel = dict(sizes)
+
+            reservoirs_by_channel: dict[str, list[dict[str, Any]]] = {
+                ch: [] for ch in ch_names if sizes.get(ch, 0) > 0
+            }
+            seen_by_channel: dict[str, int] = {ch: 0 for ch in reservoirs_by_channel}
+
+            for row in iter_source_messages(reader, channel=None, chunk_size=5000):
+                ch = row["channel_name"]
+                if ch not in reservoirs_by_channel:
+                    continue
+                seen_by_channel[ch] += 1
+                k = sizes[ch]
+                cur = reservoirs_by_channel[ch]
+                if len(cur) < k:
+                    cur.append(row)
+                else:
+                    j = rng.randint(0, seen_by_channel[ch] - 1)
+                    if j < k:
+                        cur[j] = row
+
+            for ch, cur in reservoirs_by_channel.items():
+                report.sampled_by_channel[ch] = len(cur)
+                reservoir.extend(cur)
+        else:
+            total_seen = 0
+            for row in iter_source_messages(reader, channel=channel, chunk_size=5000):
+                total_seen += 1
+                if len(reservoir) < sample_size:
+                    reservoir.append(row)
+                else:
+                    j = rng.randint(0, total_seen - 1)
+                    if j < sample_size:
+                        reservoir[j] = row
 
         symbols_found = directions_found = levels_found = 0
         for row in reservoir:
@@ -80,16 +139,52 @@ def run_classify_audit(
                     "preview": text[:240].replace("\n", " "),
                 })
 
-            if cls.content_type == ResearchContentType.EXPLICIT_SIGNAL and (
-                cls.suspicious_explicit
-                or _RE_THIRD_PARTY_MARKERS.search(text)
-            ):
-                if len(report.suspicious_explicit) < 15:
-                    report.suspicious_explicit.append({
-                        "channel": row["channel_name"],
-                        "reasons": cls.reasons,
-                        "preview": text[:240].replace("\n", " "),
-                    })
+            lowered = text.lower()
+
+            # Suspicious blocks (precision-first): likely fragments that should not become outcomes/scores.
+            if cls.content_type == ResearchContentType.EXPLICIT_SIGNAL:
+                syms2 = extract_symbols(text)
+                levels2 = _extract_levels(text)
+                has_entry = any(l.level_type.startswith("ENTRY") for l in levels2)
+                has_stop = any(l.level_type == "STOP" for l in levels2)
+                has_target = any(l.level_type == "TARGET" for l in levels2)
+                actionable = (has_entry and has_stop) or (has_entry and has_target)
+                if (not syms2) or (not actionable):
+                    if len(report.suspicious_explicit) < 25:
+                        report.suspicious_explicit.append({
+                            "channel": row["channel_name"],
+                            "preview": text[:240].replace("\n", " "),
+                            "note": "precision_check_failed",
+                        })
+
+            if cls.content_type == ResearchContentType.TRADER_THESIS:
+                if _RE_EXIT_VERBS.search(text) and ("long" in lowered or "short" in lowered):
+                    if len(report.suspicious_trader_thesis) < 25:
+                        report.suspicious_trader_thesis.append({
+                            "channel": row["channel_name"],
+                            "preview": text[:240].replace("\n", " "),
+                            "note": "looks_like_exit_or_pnl",
+                        })
+
+            if cls.content_type == ResearchContentType.WHALE_FLOW:
+                has_debank = bool(_RE_DEBANK_PROFILE.search(text))
+                has_econ = bool(_RE_WHALE_ACTION.search(text))
+                if has_debank and not has_econ:
+                    if len(report.suspicious_whale_flow) < 25:
+                        report.suspicious_whale_flow.append({
+                            "channel": row["channel_name"],
+                            "preview": text[:240].replace("\n", " "),
+                            "note": "url_only_no_econ_action",
+                        })
+
+            if cls.content_type == ResearchContentType.NEWS_EVENT:
+                if "hackers" in lowered and not ("hacked" in lowered or "hack" in lowered or "exploit" in lowered):
+                    if len(report.suspicious_news_event) < 25:
+                        report.suspicious_news_event.append({
+                            "channel": row["channel_name"],
+                            "preview": text[:240].replace("\n", " "),
+                            "note": "hackers_noise",
+                        })
 
         n = max(report.sample_size, 1)
         report.symbol_rate = symbols_found / n
@@ -123,6 +218,14 @@ def render_classify_audit(report: ClassifyAuditReport) -> str:
         summary = ", ".join(f"{k}={v}" for k, v in top)
         lines.append(f"  {ch}: {summary}")
 
+    if report.sampled_by_channel:
+        lines.append("")
+        lines.append("Sampled by channel:")
+        for ch in sorted(report.sampled_by_channel):
+            req = report.requested_by_channel.get(ch, 0)
+            act = report.sampled_by_channel[ch]
+            lines.append(f"  {ch}: requested={req} actual={act}")
+
     lines.append("")
     lines.append("Examples per class:")
     for ctype, exs in sorted(report.examples.items()):
@@ -130,10 +233,18 @@ def render_classify_audit(report: ClassifyAuditReport) -> str:
         for ex in exs:
             lines.append(f"    {ex['channel']}: {ex['preview']}")
 
-    if report.suspicious_explicit:
+    def _render_suspicious(title: str, items: list[dict]) -> None:
+        nonlocal lines
+        if not items:
+            return
         lines.append("")
-        lines.append("Suspicious EXPLICIT_SIGNAL examples:")
-        for ex in report.suspicious_explicit:
+        lines.append(title)
+        for ex in items:
             lines.append(f"  {ex['channel']}: {ex['preview']}")
+
+    _render_suspicious("Suspicious EXPLICIT_SIGNAL examples:", report.suspicious_explicit)
+    _render_suspicious("Suspicious TRADER_THESIS examples:", report.suspicious_trader_thesis)
+    _render_suspicious("Suspicious WHALE_FLOW examples:", report.suspicious_whale_flow)
+    _render_suspicious("Suspicious NEWS_EVENT examples:", report.suspicious_news_event)
 
     return "\n".join(lines)
