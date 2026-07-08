@@ -99,6 +99,21 @@ STAGE3_TABLES = {
     }),
 }
 
+STAGE4_TABLES = {
+    "futures_agent_thesis_outcomes": frozenset({
+        "id", "thesis_id", "evaluation_horizon", "price_at_thesis",
+        "mfe_pct", "mae_pct", "return_pct", "direction_correct",
+        "target_hit", "stop_hit", "evaluated_at",
+        "time_to_target_sec", "time_to_stop_sec", "final_outcome",
+    }),
+    "futures_agent_source_scores_v2": frozenset({
+        "id", "channel_name", "content_type", "symbol", "direction", "timeframe", "horizon",
+        "sample_size", "win_rate", "avg_return", "avg_mfe", "avg_mae",
+        "profit_factor", "sharpe", "bayesian_mean", "wilson_lower_bound",
+        "recency_weighted_score", "calculated_as_of", "updated_at",
+    }),
+}
+
 
 def validate_stage1_schema(conn: Any) -> dict[str, Any]:
     postgres = connection_is_postgres(conn)
@@ -206,3 +221,22 @@ def validate_stage3_schema(conn: Any) -> dict[str, Any]:
         "tables_ok": tables_ok,
         "errors": errors,
     }
+
+
+def validate_stage4_schema(conn: Any) -> dict[str, Any]:
+    postgres = connection_is_postgres(conn)
+    errors: list[str] = []
+    tables_ok: list[str] = []
+
+    for table, required_cols in STAGE4_TABLES.items():
+        cols = _table_columns(conn, table, postgres=postgres)
+        if cols is None:
+            errors.append(f"missing table: {table}")
+            continue
+        missing = required_cols - set(cols)
+        if missing:
+            errors.append(f"{table} missing columns: {sorted(missing)}")
+        else:
+            tables_ok.append(table)
+
+    return {"valid": len(errors) == 0, "tables_ok": tables_ok, "errors": errors}

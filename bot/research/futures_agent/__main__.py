@@ -8,6 +8,10 @@ Usage:
   python -m bot.research.futures_agent research-classify-audit --sample-size 500
   python -m bot.research.futures_agent thesis-extract
   python -m bot.research.futures_agent research-stats
+  python -m bot.research.futures_agent evaluate-theses
+  python -m bot.research.futures_agent evaluate-sources
+  python -m bot.research.futures_agent source-report signalyp
+  python -m bot.research.futures_agent symbol-report BTC
   python -m bot.research.futures_agent ingest --text "BTC LONG ..."
   python -m bot.research.futures_agent process-pending
   python -m bot.research.futures_agent snapshot --signal-id ID
@@ -37,6 +41,7 @@ def main() -> int:
             "telegram-poll", "telegram-diagnose", "stage3-audit",
             "stage3-migrate", "ingest-research", "research-stats",
             "thesis-extract", "research-classify-audit",
+            "evaluate-theses", "evaluate-sources", "source-report", "symbol-report",
         ),
     )
     parser.add_argument("--text", default=None, help="Signal text for ingest")
@@ -66,6 +71,8 @@ def main() -> int:
         default=500,
         help="Sample size for research-classify-audit",
     )
+    parser.add_argument("--horizon", type=str, default="1d", help="Evaluation horizon (e.g. 1d)")
+    parser.add_argument("--min-sample", type=int, default=30, help="Minimum samples for source ranking buckets")
     parser.add_argument(
         "--max-per-source",
         type=int,
@@ -113,19 +120,24 @@ def main() -> int:
 
     if args.command == "ingest-research":
         from bot.research.futures_agent.research_ingest import ingest_research_posts
+        from bot.research.futures_agent.source_requirements import Stage3SourceRequiredError
 
-        with agent_connection() as conn:
-            apply_migrations(conn)
-            stats = ingest_research_posts(
-                conn,
-                source_table=args.source_table,
-                channel=args.channel,
-                start_ts=args.start_ts,
-                end_ts=args.end_ts,
-                limit=args.limit,
-                chunk_size=args.chunk_size,
-                max_per_source=args.max_per_source,
-            )
+        try:
+            with agent_connection() as conn:
+                apply_migrations(conn)
+                stats = ingest_research_posts(
+                    conn,
+                    source_table=args.source_table,
+                    channel=args.channel,
+                    start_ts=args.start_ts,
+                    end_ts=args.end_ts,
+                    limit=args.limit,
+                    chunk_size=args.chunk_size,
+                    max_per_source=args.max_per_source,
+                )
+        except Stage3SourceRequiredError as exc:
+            print(exc, file=sys.stderr)
+            return 1
         print(f"Backend: {cfg.backend}")
         print(
             f"scanned={stats.scanned} inserted={stats.inserted} "
@@ -163,12 +175,100 @@ def main() -> int:
             render_classify_audit,
             run_classify_audit,
         )
+        from bot.research.futures_agent.source_requirements import Stage3SourceRequiredError
 
-        report = run_classify_audit(
-            sample_size=args.sample_size,
-            channel=args.channel,
-        )
+        try:
+            report = run_classify_audit(
+                sample_size=args.sample_size,
+                channel=args.channel,
+            )
+        except Stage3SourceRequiredError as exc:
+            print(exc, file=sys.stderr)
+            return 1
         print(render_classify_audit(report))
+        return 0
+
+    if args.command == "evaluate-theses":
+        from bot.research.futures_agent.source_requirements import Stage3SourceRequiredError
+        from bot.research.futures_agent.thesis_outcomes import evaluate_theses
+
+        try:
+            with agent_connection() as conn:
+                apply_migrations(conn)
+                evaluate_theses(
+                    conn,
+                    limit=args.limit,
+                    channel=args.channel,
+                    symbol=None,
+                    start_ts=args.start_ts,
+                    end_ts=args.end_ts,
+                    progress_every=1000,
+                )
+        except Stage3SourceRequiredError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        return 0
+
+    if args.command == "evaluate-sources":
+        from bot.research.futures_agent.source_ratings import evaluate_sources, render_top_sources
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            evaluate_sources(conn, horizon=args.horizon, min_sample=args.min_sample, progress_every=500)
+            print(render_top_sources(conn, horizon=args.horizon, limit=20))
+        return 0
+
+    if args.command == "source-report":
+        if len(sys.argv) < 3:
+            print("ERROR: source-report requires channel_name argument", file=sys.stderr)
+            return 1
+        channel_name = sys.argv[2]
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM futures_agent_source_scores_v2
+                WHERE channel_name = ?
+                ORDER BY wilson_lower_bound DESC NULLS LAST, sample_size DESC
+                LIMIT 200
+                """,
+                (channel_name,),
+            ).fetchall()
+        print(f"SOURCE REPORT: {channel_name}")
+        for r in rows[:50]:
+            print(
+                f"{r['content_type']} {r['direction']} tf={r['timeframe']} {r['symbol']} "
+                f"n={r['sample_size']} win={r['win_rate']:.2f} ret={r['avg_return']:.3f} "
+                f"wlb={r['wilson_lower_bound']:.3f} bayes={r['bayesian_mean']:.3f}"
+            )
+        return 0
+
+    if args.command == "symbol-report":
+        if len(sys.argv) < 3:
+            print("ERROR: symbol-report requires SYMBOL argument", file=sys.stderr)
+            return 1
+        sym = sys.argv[2].upper()
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            rows = conn.execute(
+                """
+                SELECT channel_name, content_type, direction, timeframe, sample_size,
+                       win_rate, avg_return, wilson_lower_bound, bayesian_mean
+                FROM futures_agent_source_scores_v2
+                WHERE symbol = ?
+                ORDER BY wilson_lower_bound DESC NULLS LAST, sample_size DESC
+                LIMIT 200
+                """,
+                (sym,),
+            ).fetchall()
+        print(f"SYMBOL REPORT: {sym}")
+        for r in rows[:50]:
+            print(
+                f"{r['channel_name']} {r['content_type']} {r['direction']} tf={r['timeframe']} "
+                f"n={r['sample_size']} win={r['win_rate']:.2f} ret={r['avg_return']:.3f} "
+                f"wlb={r['wilson_lower_bound']:.3f} bayes={r['bayesian_mean']:.3f}"
+            )
         return 0
 
     if args.command == "ingest":

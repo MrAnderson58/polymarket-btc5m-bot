@@ -12,7 +12,7 @@ from bot.research.futures.source_data import (
     resolve_message_columns,
     row_to_raw_message,
 )
-from bot.research.futures.source_reader import SourceReader, open_configured_source_reader
+from bot.research.futures_agent.source_requirements import open_stage3_source_reader
 from bot.research.futures_agent.db import connection_is_postgres, insert_returning_id, validate_write_table
 from bot.research.futures_agent.research_taxonomy import classify_research_content
 from bot.research.futures_agent.research_utils import (
@@ -280,7 +280,7 @@ def ingest_research_posts(
 ) -> IngestResearchStats:
     """Ingest classified research posts into futures_agent_trader_posts."""
     stats = IngestResearchStats()
-    reader = open_configured_source_reader()
+    reader = open_stage3_source_reader()
     seen_hashes: set[str] = set()
     channel_inserted: dict[str, int] = defaultdict(int)
     try:

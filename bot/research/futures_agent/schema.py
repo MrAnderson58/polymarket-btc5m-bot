@@ -9,12 +9,14 @@ from bot.research.futures_agent.schema_validate import (
     validate_stage1_schema,
     validate_stage2_schema,
     validate_stage3_schema,
+    validate_stage4_schema,
 )
 
 MIGRATIONS_TABLE = "futures_agent_migrations"
 STAGE1_VERSION = 1
 STAGE2_VERSION = 2
 STAGE3_VERSION = 3
+STAGE4_VERSION = 4
 
 STAGE1_DDL = """
 CREATE TABLE IF NOT EXISTS futures_agent_migrations (
@@ -448,6 +450,95 @@ CREATE TABLE IF NOT EXISTS futures_agent_source_scores (
 );
 """
 
+STAGE4_DDL = """
+-- Stage 4: Thesis outcome engine + richer source scores
+
+-- Add missing outcome fields (SQLite)
+ALTER TABLE futures_agent_thesis_outcomes ADD COLUMN time_to_target_sec INTEGER;
+ALTER TABLE futures_agent_thesis_outcomes ADD COLUMN time_to_stop_sec INTEGER;
+ALTER TABLE futures_agent_thesis_outcomes ADD COLUMN final_outcome TEXT;
+
+-- New table for Phase C source intelligence (SQLite)
+CREATE TABLE IF NOT EXISTS futures_agent_source_scores_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_name TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    symbol TEXT,
+    direction TEXT,
+    timeframe TEXT,
+    horizon TEXT NOT NULL DEFAULT 'all',
+    sample_size INTEGER NOT NULL DEFAULT 0,
+    win_rate REAL,
+    avg_return REAL,
+    avg_mfe REAL,
+    avg_mae REAL,
+    profit_factor REAL,
+    sharpe REAL,
+    bayesian_mean REAL,
+    wilson_lower_bound REAL,
+    recency_weighted_score REAL,
+    calculated_as_of INTEGER NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(channel_name, content_type, symbol, direction, timeframe, horizon)
+);
+CREATE INDEX IF NOT EXISTS idx_fa_scores_v2_channel ON futures_agent_source_scores_v2(channel_name);
+CREATE INDEX IF NOT EXISTS idx_fa_scores_v2_symbol ON futures_agent_source_scores_v2(symbol);
+"""
+
+STAGE4_DDL_POSTGRES = """
+-- Stage 4: Thesis outcome engine + richer source scores
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='futures_agent_thesis_outcomes'
+      AND column_name='time_to_target_sec'
+  ) THEN
+    ALTER TABLE futures_agent_thesis_outcomes ADD COLUMN time_to_target_sec INTEGER;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='futures_agent_thesis_outcomes'
+      AND column_name='time_to_stop_sec'
+  ) THEN
+    ALTER TABLE futures_agent_thesis_outcomes ADD COLUMN time_to_stop_sec INTEGER;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='futures_agent_thesis_outcomes'
+      AND column_name='final_outcome'
+  ) THEN
+    ALTER TABLE futures_agent_thesis_outcomes ADD COLUMN final_outcome TEXT;
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS futures_agent_source_scores_v2 (
+    id BIGSERIAL PRIMARY KEY,
+    channel_name TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    symbol TEXT,
+    direction TEXT,
+    timeframe TEXT,
+    horizon TEXT NOT NULL DEFAULT 'all',
+    sample_size INTEGER NOT NULL DEFAULT 0,
+    win_rate DOUBLE PRECISION,
+    avg_return DOUBLE PRECISION,
+    avg_mfe DOUBLE PRECISION,
+    avg_mae DOUBLE PRECISION,
+    profit_factor DOUBLE PRECISION,
+    sharpe DOUBLE PRECISION,
+    bayesian_mean DOUBLE PRECISION,
+    wilson_lower_bound DOUBLE PRECISION,
+    recency_weighted_score DOUBLE PRECISION,
+    calculated_as_of BIGINT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(channel_name, content_type, symbol, direction, timeframe, horizon)
+);
+CREATE INDEX IF NOT EXISTS idx_fa_scores_v2_channel ON futures_agent_source_scores_v2(channel_name);
+CREATE INDEX IF NOT EXISTS idx_fa_scores_v2_symbol ON futures_agent_source_scores_v2(symbol);
+"""
+
 
 def apply_migrations(conn: Any) -> list[str]:
     """Apply Stage 1 + Stage 2 + Stage 3 migrations idempotently."""
@@ -504,6 +595,31 @@ def apply_migrations(conn: Any) -> list[str]:
             (STAGE3_VERSION, "stage3_trader_research_posts_theses"),
         )
         applied.append(f"v{STAGE3_VERSION}: stage3_research")
+
+    # Stage 4 (Phase C)
+    if not _has_migration(conn, STAGE4_VERSION):
+        if postgres:
+            # Postgres DDL includes conditional ALTERs
+            for stmt in _split_ddl(STAGE4_DDL_POSTGRES):
+                conn.execute(stmt)
+        else:
+            # SQLite ALTER TABLE may fail if column exists; ignore "duplicate column" errors.
+            for stmt in _split_ddl(STAGE4_DDL):
+                try:
+                    conn.execute(stmt)
+                except Exception as exc:
+                    msg = str(exc).lower()
+                    if "duplicate column" in msg or "already exists" in msg:
+                        continue
+                    raise
+        validation4 = validate_stage4_schema(conn)
+        if not validation4["valid"]:
+            raise RuntimeError(f"Stage 4 schema validation failed after DDL: {validation4['errors']}")
+        conn.execute(
+            f"INSERT INTO {MIGRATIONS_TABLE} (version, description) VALUES (?, ?)",
+            (STAGE4_VERSION, "stage4_thesis_outcomes_and_source_scores_v2"),
+        )
+        applied.append(f"v{STAGE4_VERSION}: stage4_outcomes_scores")
 
     return applied
 

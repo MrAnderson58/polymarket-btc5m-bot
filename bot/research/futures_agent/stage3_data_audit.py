@@ -22,6 +22,10 @@ from typing import Any
 from bot.research.futures.db_config import get_futures_source_database_url
 from bot.research.futures.taxonomy import MessageType, classify_message
 from bot.research.futures_agent.env_bootstrap import bootstrap_config, project_root
+from bot.research.futures_agent.source_requirements import (
+    Stage3SourceRequiredError,
+    render_stage3_source_db_required,
+)
 
 AUDIT_TABLES = (
     "telegram_messages",
@@ -42,10 +46,7 @@ def _connect():
     bootstrap_config()
     url = get_futures_source_database_url()
     if not url:
-        raise RuntimeError(
-            "FUTURES_SOURCE_DATABASE_URL (or TELEGRAM_DATABASE_URL) not set. "
-            "Configure .env on Mac Mini before running stage3-audit."
-        )
+        raise Stage3SourceRequiredError(render_stage3_source_db_required())
     try:
         import psycopg2
         from psycopg2.extras import RealDictCursor
@@ -343,6 +344,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         audit = run_audit()
+    except Stage3SourceRequiredError as exc:
+        print(exc, file=sys.stderr)
+        return 1
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

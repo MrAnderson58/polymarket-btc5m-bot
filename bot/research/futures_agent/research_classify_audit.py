@@ -8,7 +8,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from bot.research.futures.source_reader import open_configured_source_reader
+from bot.research.futures.source_reader import SourceReader
+from bot.research.futures_agent.source_requirements import open_stage3_source_reader
 from bot.research.futures_agent.research_ingest import iter_source_messages
 from bot.research.futures_agent.research_taxonomy import (
     ResearchContentType,
@@ -40,7 +41,7 @@ def run_classify_audit(
     channel: str | None = None,
     seed: int = 42,
 ) -> ClassifyAuditReport:
-    reader = open_configured_source_reader()
+    reader = open_stage3_source_reader()
     report = ClassifyAuditReport()
     try:
         reservoir: list[dict[str, Any]] = []

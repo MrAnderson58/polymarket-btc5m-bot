@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -174,7 +175,7 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
             return SqliteSourceReader(conn, path=str(self.source_db))
 
         with patch(
-            "bot.research.futures_agent.research_ingest.open_configured_source_reader",
+            "bot.research.futures_agent.research_ingest.open_stage3_source_reader",
             side_effect=_reader,
         ):
             with self._agent_conn() as conn:
@@ -203,7 +204,7 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
             return SqliteSourceReader(conn, path=str(self.source_db))
 
         with patch(
-            "bot.research.futures_agent.research_ingest.open_configured_source_reader",
+            "bot.research.futures_agent.research_ingest.open_stage3_source_reader",
             side_effect=_reader,
         ):
             with self._agent_conn() as conn:
@@ -235,7 +236,7 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
             return SqliteSourceReader(conn, path=str(self.source_db))
 
         with patch(
-            "bot.research.futures_agent.research_ingest.open_configured_source_reader",
+            "bot.research.futures_agent.research_ingest.open_stage3_source_reader",
             side_effect=_reader,
         ):
             with self._agent_conn() as conn:
@@ -261,6 +262,87 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
 
     def test_migration_version_constant(self) -> None:
         self.assertEqual(STAGE3_VERSION, 3)
+
+    def test_stage3_source_required_message(self) -> None:
+        from bot.research.futures_agent.source_requirements import (
+            Stage3SourceRequiredError,
+            open_stage3_source_reader,
+            render_stage3_source_db_required,
+        )
+
+        os.environ.pop("FUTURES_SOURCE_DATABASE_URL", None)
+        msg = render_stage3_source_db_required()
+        self.assertIn("Stage 3 requires production source DB", msg)
+        self.assertIn("FUTURES_SOURCE_DATABASE_URL = missing", msg)
+        with self.assertRaises(Stage3SourceRequiredError) as ctx:
+            open_stage3_source_reader()
+        self.assertIn("Mac Mini", str(ctx.exception))
+
+    def test_thesis_outcome_evaluation_deterministic(self) -> None:
+        # Build a sqlite source DB with market_prices and feed a single thesis.
+        conn_src = sqlite3.connect(self.source_db)
+        conn_src.execute(
+            "CREATE TABLE market_prices (symbol TEXT, ts INTEGER, price REAL)",
+        )
+        # Price path: 100 -> 110 -> 90 within 1d
+        conn_src.executemany(
+            "INSERT INTO market_prices(symbol, ts, price) VALUES (?, ?, ?)",
+            [
+                ("BTC", 1_700_000_000, 100.0),
+                ("BTC", 1_700_000_100, 110.0),
+                ("BTC", 1_700_000_200, 90.0),
+            ],
+        )
+        conn_src.commit()
+        conn_src.close()
+
+        # Insert a post+thesis into agent DB.
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            post_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("x1", "signalyp", 1_700_000_000, "BTC LONG", "h1", "TRADER_THESIS", "[]", 0.7),
+            ).lastrowid
+            thesis_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_theses (
+                  post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (post_id, "BTC", "LONG", "BTC thesis", "1d", None, None, 0.7),
+            ).lastrowid
+
+            def _reader():
+                c = sqlite3.connect(self.source_db)
+                c.row_factory = sqlite3.Row
+                from bot.research.futures.source_reader import SqliteSourceReader
+                return SqliteSourceReader(c, path=str(self.source_db))
+
+            from unittest.mock import patch as _patch
+            with _patch(
+                "bot.research.futures_agent.thesis_outcomes.open_stage3_source_reader",
+                side_effect=_reader,
+            ):
+                from bot.research.futures_agent.thesis_outcomes import evaluate_theses
+                evaluate_theses(conn, horizons={"1d": 24 * 3600}, progress_every=0)
+
+            out = conn.execute(
+                """
+                SELECT * FROM futures_agent_thesis_outcomes
+                WHERE thesis_id = ? AND evaluation_horizon = '1d'
+                """,
+                (thesis_id,),
+            ).fetchone()
+        self.assertIsNotNone(out)
+        # MFE should see +10%, MAE should see -10% for LONG from entry 100
+        self.assertAlmostEqual(out["price_at_thesis"], 100.0)
+        self.assertAlmostEqual(out["mfe_pct"], 0.10, places=6)
+        self.assertAlmostEqual(out["mae_pct"], -0.10, places=6)
 
 
 if __name__ == "__main__":
