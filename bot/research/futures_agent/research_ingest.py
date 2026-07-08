@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 import time
 from collections import Counter, defaultdict
@@ -21,6 +20,7 @@ from bot.research.futures_agent.research_utils import (
     content_hash,
     extract_symbols,
     message_ts_to_epoch,
+    normalize_json_array,
     symbols_json,
 )
 
@@ -36,7 +36,10 @@ class IngestResearchStats:
     skipped_empty: int = 0
     skipped_hash_duplicate: int = 0
     skipped_source_cap: int = 0
-    per_channel: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    current_run_inserted_by_channel: dict[str, int] = field(
+        default_factory=lambda: defaultdict(int),
+    )
+    total_stored_by_channel: dict[str, int] = field(default_factory=dict)
     content_type_counts: Counter = field(default_factory=Counter)
     symbols_extracted: int = 0
     directions_extracted: int = 0
@@ -312,7 +315,8 @@ def ingest_research_posts(
     stats = IngestResearchStats()
     reader = open_stage3_source_reader()
     seen_hashes: set[str] = set()
-    channel_inserted: dict[str, int] = defaultdict(int)
+    run_inserted_by_channel: dict[str, int] = defaultdict(int)
+    run_accepted_by_channel: dict[str, int] = defaultdict(int)
     t0 = time.monotonic()
     try:
         stats.total_estimate = _estimate_source_total(reader, channel=channel, limit=limit)
@@ -329,7 +333,7 @@ def ingest_research_posts(
         ):
             stats.scanned += 1
             ch = row["channel_name"]
-            if max_per_source is not None and channel_inserted[ch] >= max_per_source:
+            if max_per_source is not None and run_accepted_by_channel[ch] >= max_per_source:
                 stats.skipped_source_cap += 1
                 continue
 
@@ -354,7 +358,7 @@ def ingest_research_posts(
                 stats.directions_extracted += 1
             if has_levels:
                 stats.levels_extracted += 1
-            channel_inserted[ch] += 1
+            run_accepted_by_channel[ch] += 1
             batch_rows.append({
                 **row,
                 "content_hash": c_hash,
@@ -366,8 +370,8 @@ def ingest_research_posts(
             seen_hashes.add(c_hash)
 
             if len(batch_rows) >= 500:
-                stats, channel_inserted = _flush_batch(
-                    conn, batch_rows, batch_hashes, stats, channel_inserted,
+                stats, run_inserted_by_channel = _flush_batch(
+                    conn, batch_rows, batch_hashes, stats, run_inserted_by_channel,
                 )
                 batch_rows = []
                 batch_hashes = set()
@@ -392,13 +396,27 @@ def ingest_research_posts(
                 )
 
         if batch_rows:
-            stats, channel_inserted = _flush_batch(
-                conn, batch_rows, batch_hashes, stats, channel_inserted,
+            stats, run_inserted_by_channel = _flush_batch(
+                conn, batch_rows, batch_hashes, stats, run_inserted_by_channel,
             )
     finally:
         reader.close()
-    stats.per_channel = dict(channel_inserted)
+    stats.current_run_inserted_by_channel = dict(run_inserted_by_channel)
+    stats.total_stored_by_channel = _total_stored_by_channel(conn, channel=channel)
     return stats
+
+
+def _total_stored_by_channel(conn: Any, *, channel: str | None = None) -> dict[str, int]:
+    q = """
+        SELECT channel_name, COUNT(*) AS n
+        FROM futures_agent_trader_posts
+    """
+    params: list[Any] = []
+    if channel:
+        q += " WHERE channel_name = ?"
+        params.append(channel)
+    q += " GROUP BY channel_name ORDER BY channel_name"
+    return {row["channel_name"]: row["n"] for row in conn.execute(q, params).fetchall()}
 
 
 def _flush_batch(
@@ -406,7 +424,7 @@ def _flush_batch(
     rows: list[dict[str, Any]],
     hashes: set[str],
     stats: IngestResearchStats,
-    channel_inserted: dict[str, int],
+    run_inserted_by_channel: dict[str, int],
 ) -> tuple[IngestResearchStats, dict[str, int]]:
     existing = _existing_hashes(conn, hashes)
     for row in rows:
@@ -426,13 +444,11 @@ def _flush_batch(
         )
         if post_id:
             stats.inserted += 1
+            run_inserted_by_channel[row["channel_name"]] += 1
         else:
             stats.skipped_duplicate += 1
-            channel_inserted[row["channel_name"]] = max(
-                0, channel_inserted[row["channel_name"]] - 1,
-            )
     conn.commit()
-    return stats, channel_inserted
+    return stats, run_inserted_by_channel
 
 
 def run_thesis_extract(
@@ -488,7 +504,7 @@ def run_thesis_extract(
         for row in rows:
             stats.posts_scanned += 1
             last_id = row["id"]
-            symbols = json.loads(row["symbols_json"] or "[]")
+            symbols = [str(s) for s in normalize_json_array(row["symbols_json"])]
             theses = extract_theses_from_post(
                 row["raw_text"],
                 row["content_type"],

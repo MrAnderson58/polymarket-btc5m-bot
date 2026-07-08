@@ -27,11 +27,22 @@ CONTENT_TYPES = (
     "OTHER",
 )
 
+THESIS_ELIGIBLE_TYPES = (
+    "EXPLICIT_SIGNAL",
+    "TRADER_THESIS",
+    "TECHNICAL_LEVELS",
+)
+
 
 @dataclass
 class ReconciliationReport:
     checks: list[tuple[str, bool, str]] = field(default_factory=list)
     passed: bool = True
+    extraction_status: str = "UNKNOWN"
+    eligible_posts: int = 0
+    posts_with_theses: int = 0
+    eligible_posts_without_theses: int = 0
+    thesis_coverage_pct: float = 0.0
 
     def add(self, name: str, ok: bool, detail: str) -> None:
         self.checks.append((name, ok, detail))
@@ -95,6 +106,15 @@ def render_ingest_reconciliation(
         f"DIRECTION EXTRACTION COVERAGE: {stats.directions_extracted / scanned:.1%}",
         f"LEVEL EXTRACTION COVERAGE: {stats.levels_extracted / scanned:.1%}",
     ])
+    if stats.current_run_inserted_by_channel or stats.total_stored_by_channel:
+        lines.append("")
+        lines.append("CURRENT RUN INSERTED BY CHANNEL:")
+        for ch, n in sorted(stats.current_run_inserted_by_channel.items()):
+            lines.append(f"  {ch}: {n:,}")
+        lines.append("")
+        lines.append("TOTAL STORED BY CHANNEL:")
+        for ch, n in sorted(stats.total_stored_by_channel.items()):
+            lines.append(f"  {ch}: {n:,}")
     return "\n".join(lines)
 
 
@@ -204,16 +224,99 @@ def run_pipeline_reconciliation(
         f"duplicate thesis fingerprints: {dup_theses}",
     )
 
+    eligible_placeholders = ",".join("?" for _ in THESIS_ELIGIBLE_TYPES)
+    eligible_posts = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM futures_agent_trader_posts p
+        WHERE p.content_type IN ({eligible_placeholders}){ch_clause}
+        """,
+        [*THESIS_ELIGIBLE_TYPES, *params],
+    ).fetchone()["n"]
+    posts_with_theses = conn.execute(
+        f"""
+        SELECT COUNT(DISTINCT p.id) AS n
+        FROM futures_agent_trader_posts p
+        JOIN futures_agent_trader_theses t ON t.post_id = p.id
+        WHERE p.content_type IN ({eligible_placeholders}){ch_clause}
+        """,
+        [*THESIS_ELIGIBLE_TYPES, *params],
+    ).fetchone()["n"]
+    total_theses = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM futures_agent_trader_theses t
+        JOIN futures_agent_trader_posts p ON p.id = t.post_id
+        WHERE p.content_type IN ({eligible_placeholders}){ch_clause}
+        """,
+        [*THESIS_ELIGIBLE_TYPES, *params],
+    ).fetchone()["n"]
+
+    report.eligible_posts = eligible_posts
+    report.posts_with_theses = posts_with_theses
+    report.eligible_posts_without_theses = max(eligible_posts - posts_with_theses, 0)
+    report.thesis_coverage_pct = (
+        posts_with_theses / eligible_posts if eligible_posts else 0.0
+    )
+
+    if eligible_posts > 0 and total_theses == 0:
+        report.extraction_status = "INCOMPLETE"
+        report.add(
+            "thesis_extraction_status",
+            False,
+            (
+                f"eligible_posts={eligible_posts} posts_with_theses=0 "
+                f"thesis_coverage={report.thesis_coverage_pct:.1%} status=INCOMPLETE"
+            ),
+        )
+    elif eligible_posts > 0 and posts_with_theses < eligible_posts:
+        report.extraction_status = "PARTIAL"
+        report.add(
+            "thesis_extraction_status",
+            True,
+            (
+                f"eligible_posts={eligible_posts} posts_with_theses={posts_with_theses} "
+                f"eligible_without_theses={report.eligible_posts_without_theses} "
+                f"thesis_coverage={report.thesis_coverage_pct:.1%} status=PARTIAL"
+            ),
+        )
+    elif eligible_posts > 0:
+        report.extraction_status = "COMPLETE"
+        report.add(
+            "thesis_extraction_status",
+            True,
+            (
+                f"eligible_posts={eligible_posts} posts_with_theses={posts_with_theses} "
+                f"thesis_coverage={report.thesis_coverage_pct:.1%} status=COMPLETE"
+            ),
+        )
+    else:
+        report.extraction_status = "NO_ELIGIBLE_POSTS"
+        report.add(
+            "thesis_extraction_status",
+            True,
+            "eligible_posts=0 status=NO_ELIGIBLE_POSTS",
+        )
+
     return report
 
 
 def render_pipeline_reconciliation(report: ReconciliationReport) -> str:
     lines = ["PIPELINE RECONCILIATION CHECKS", ""]
+    lines.extend([
+        f"extraction_status: {report.extraction_status}",
+        f"eligible_posts: {report.eligible_posts:,}",
+        f"posts_with_theses: {report.posts_with_theses:,}",
+        f"eligible_posts_without_theses: {report.eligible_posts_without_theses:,}",
+        f"thesis_coverage_pct: {report.thesis_coverage_pct:.1%}",
+        "",
+    ])
     for name, ok, detail in report.checks:
         status = "PASS" if ok else "FAIL"
         lines.append(f"  [{status}] {name}: {detail}")
     lines.append("")
-    lines.append(f"Overall: {'PASS' if report.passed else 'FAIL'}")
+    overall = "PASS" if report.passed else ("INCOMPLETE" if report.extraction_status == "INCOMPLETE" else "FAIL")
+    lines.append(f"Overall: {overall}")
     return "\n".join(lines)
 
 

@@ -110,17 +110,11 @@ def format_snapshot_audit(conn: Any, signal_id: int, *, provider: MarketDataProv
 
 
 def _parse_meta(row: Any) -> dict:
+    from bot.research.futures_agent.research_utils import normalize_json_object
+
     if not row:
         return {}
-    raw = row["raw_metadata_json"]
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str) and raw:
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            return {}
-    return {}
+    return normalize_json_object(row["raw_metadata_json"])
 
 
 def _lookahead_violations(alt_candles: list, btc_candles: list, signal_t: int) -> list[str]:

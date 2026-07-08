@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from datetime import datetime, timezone
+from typing import Any
 
 from bot.research.futures.parser_v2 import KNOWN_TICKERS, SYMBOL_ALIASES, extract_symbol_v2
 
@@ -61,14 +62,84 @@ def symbols_json(symbols: list[str]) -> str:
     return json.dumps(symbols, separators=(",", ":"))
 
 
-def parse_symbols_json(raw: str | None) -> list[str]:
-    if not raw:
+def normalize_json_array(
+    value: Any,
+    *,
+    warnings: list[str] | None = None,
+) -> list[Any]:
+    """Decode a JSON array from DB boundary values (SQLite TEXT or PG JSONB)."""
+    if value is None:
         return []
-    try:
-        val = json.loads(raw)
-        return [str(s) for s in val] if isinstance(val, list) else []
-    except json.JSONDecodeError:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, bytes):
+        try:
+            value = value.decode("utf-8")
+        except UnicodeDecodeError:
+            if warnings is not None:
+                warnings.append("malformed_json_array_bytes")
+            return []
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        try:
+            decoded = json.loads(text)
+        except json.JSONDecodeError:
+            if warnings is not None:
+                warnings.append("malformed_json_array")
+            return []
+        if isinstance(decoded, list):
+            return decoded
+        if warnings is not None:
+            warnings.append("non_list_json_array")
         return []
+    if warnings is not None:
+        warnings.append(f"unexpected_json_array_type:{type(value).__name__}")
+    return []
+
+
+def normalize_json_object(
+    value: Any,
+    *,
+    warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    """Decode a JSON object from DB boundary values (SQLite TEXT or PG JSONB)."""
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, bytes):
+        try:
+            value = value.decode("utf-8")
+        except UnicodeDecodeError:
+            if warnings is not None:
+                warnings.append("malformed_json_object_bytes")
+            return {}
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return {}
+        try:
+            decoded = json.loads(text)
+        except json.JSONDecodeError:
+            if warnings is not None:
+                warnings.append("malformed_json_object")
+            return {}
+        if isinstance(decoded, dict):
+            return decoded
+        if warnings is not None:
+            warnings.append("non_dict_json_object")
+        return {}
+    if warnings is not None:
+        warnings.append(f"unexpected_json_object_type:{type(value).__name__}")
+    return {}
+
+
+def parse_symbols_json(raw: Any) -> list[str]:
+    return [str(s) for s in normalize_json_array(raw)]
 
 
 def message_ts_to_epoch(value) -> int | None:

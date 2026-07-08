@@ -49,6 +49,9 @@ class ThesisQualityAuditReport:
     rows: list[ThesisQualityRow] = field(default_factory=list)
     suspicious_rows: list[ThesisQualityRow] = field(default_factory=list)
     sampled_by_type: dict[str, int] = field(default_factory=dict)
+    incomplete: bool = False
+    eligible_posts: int = 0
+    total_theses: int = 0
 
 
 def _levels_by_type(levels: list[dict]) -> dict[str, list[float]]:
@@ -155,14 +158,38 @@ def run_thesis_quality_audit(
 ) -> ThesisQualityAuditReport:
     """Stratified sample of theses across key content types."""
     report = ThesisQualityAuditReport()
-    rng = random.Random(seed)
-
-    per_type: dict[str, list[dict]] = defaultdict(list)
     ch_clause = ""
     params: list[Any] = []
     if channel:
         ch_clause = " AND p.channel_name = ?"
         params.append(channel)
+
+    eligible_placeholders = ",".join("?" for _ in _STRATIFIED_TYPES)
+    report.eligible_posts = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM futures_agent_trader_posts p
+        WHERE p.content_type IN ({eligible_placeholders}){ch_clause}
+        """,
+        [*_STRATIFIED_TYPES, *params],
+    ).fetchone()["n"]
+    report.total_theses = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM futures_agent_trader_theses t
+        JOIN futures_agent_trader_posts p ON p.id = t.post_id
+        WHERE p.content_type IN ({eligible_placeholders}){ch_clause}
+        """,
+        [*_STRATIFIED_TYPES, *params],
+    ).fetchone()["n"]
+
+    if report.eligible_posts > 0 and report.total_theses == 0:
+        report.incomplete = True
+        return report
+
+    rng = random.Random(seed)
+
+    per_type: dict[str, list[dict]] = defaultdict(list)
 
     for ctype in _STRATIFIED_TYPES:
         rows = conn.execute(
@@ -223,6 +250,14 @@ def run_thesis_quality_audit(
 
 
 def render_thesis_quality_audit(report: ThesisQualityAuditReport) -> str:
+    if report.incomplete:
+        return "\n".join([
+            "THESIS QUALITY AUDIT: INCOMPLETE",
+            "Eligible posts exist but no theses were extracted.",
+            f"eligible_posts: {report.eligible_posts:,}",
+            f"total_theses: {report.total_theses:,}",
+        ])
+
     lines = [
         "THESIS QUALITY AUDIT (stratified sample)",
         f"sample_size: {report.sample_size}",

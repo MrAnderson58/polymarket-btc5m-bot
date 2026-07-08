@@ -165,8 +165,10 @@ def main() -> int:
             print(exc, file=sys.stderr)
             return 1
         print(f"Backend: {cfg.backend}")
-        if stats.per_channel:
-            print("per_channel_inserted:", stats.per_channel)
+        if stats.current_run_inserted_by_channel:
+            print("current_run_inserted_by_channel:", stats.current_run_inserted_by_channel)
+        if stats.total_stored_by_channel:
+            print("total_stored_by_channel:", stats.total_stored_by_channel)
         return 0
 
     if args.command == "thesis-extract":

@@ -118,17 +118,11 @@ def format_context_report(conn: Any, signal_id: int) -> str:
 
 
 def _parse_meta(row: Any) -> dict:
+    from bot.research.futures_agent.research_utils import normalize_json_object
+
     if not row:
         return {}
-    raw = row["raw_metadata_json"]
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str) and raw:
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            return {}
-    return {}
+    return normalize_json_object(row["raw_metadata_json"])
 
 
 def _resolve_alignment(meta: dict, status_detail: str | None) -> str:

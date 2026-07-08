@@ -183,12 +183,9 @@ def process_pending(conn: Any, *, limit: int = 50) -> list[ProcessResult]:
 
 
 def _parse_telegram_meta(status_detail: str | None) -> dict | None:
-    if not status_detail:
-        return None
-    try:
-        data = json.loads(status_detail)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if isinstance(data, dict) and "telegram_chat_id" in data:
+    from bot.research.futures_agent.research_utils import normalize_json_object
+
+    data = normalize_json_object(status_detail)
+    if data and "telegram_chat_id" in data:
         return data
     return None

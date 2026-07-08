@@ -31,6 +31,7 @@ from bot.research.futures_agent.research_reconciliation import (
 from bot.research.futures_agent.thesis_quality_audit import (
     ThesisQualityRow,
     _audit_row_suspicious,
+    render_thesis_quality_audit,
     run_thesis_quality_audit,
 )
 from bot.research.futures_agent.research_scoring import (
@@ -43,7 +44,12 @@ from bot.research.futures_agent.research_taxonomy import (
     ResearchContentType,
     classify_research_content,
 )
-from bot.research.futures_agent.research_utils import content_hash, extract_symbols
+from bot.research.futures_agent.research_utils import (
+    content_hash,
+    extract_symbols,
+    normalize_json_array,
+    parse_symbols_json,
+)
 from bot.research.futures_agent.schema import STAGE3_VERSION, apply_migrations
 from bot.research.futures_agent.thesis_extract import extract_theses_from_post
 
@@ -465,8 +471,8 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
 
         self.assertEqual(stats.inserted, 3)
         self.assertEqual(stats.skipped_source_cap, 3)
-        self.assertEqual(stats.per_channel.get("lookonchain"), 2)
-        self.assertEqual(stats.per_channel.get("signalyp"), 1)
+        self.assertEqual(stats.current_run_inserted_by_channel.get("lookonchain"), 2)
+        self.assertEqual(stats.current_run_inserted_by_channel.get("signalyp"), 1)
 
     def test_wilson_and_bayesian_helpers(self) -> None:
         wlb = wilson_lower_bound(7, 10)
@@ -777,6 +783,169 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
             confidence=0.8,
         )
         self.assertIn("malformed_decimal", _audit_row_suspicious(bad_decimal))
+
+    def test_normalize_json_array_backends(self) -> None:
+        self.assertEqual(normalize_json_array(None), [])
+        self.assertEqual(normalize_json_array('["BTC", "ETH"]'), ["BTC", "ETH"])
+        self.assertEqual(normalize_json_array(["BTC", "ETH"]), ["BTC", "ETH"])
+        self.assertEqual(normalize_json_array(("BTC", "ETH")), ["BTC", "ETH"])
+        self.assertEqual(parse_symbols_json(["ORDI"]), ["ORDI"])
+
+        warnings: list[str] = []
+        self.assertEqual(normalize_json_array("{not json", warnings=warnings), [])
+        self.assertIn("malformed_json_array", warnings)
+
+        warnings = []
+        self.assertEqual(normalize_json_array('{"symbol":"BTC"}', warnings=warnings), [])
+        self.assertIn("non_list_json_array", warnings)
+
+        warnings = []
+        self.assertEqual(normalize_json_array(42, warnings=warnings), [])
+        self.assertTrue(any("unexpected_json_array_type" in w for w in warnings))
+
+    def test_thesis_extract_symbols_json_sqlite_string(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "s1", "signalyp", 1_700_000_000, AUTHOR_SIGNAL,
+                    "h1", "EXPLICIT_SIGNAL", '["ORDI"]', 0.9,
+                ),
+            )
+            conn.commit()
+            stats = run_thesis_extract(conn, channel="signalyp")
+
+        self.assertEqual(stats.theses_inserted, 1)
+        self.assertGreater(stats.levels_inserted, 0)
+
+    def test_thesis_extract_symbols_json_pg_list(self) -> None:
+        """Simulate psycopg2 returning decoded JSONB list for symbols_json."""
+        from bot.research.futures_agent.thesis_extract import extract_theses_from_post
+
+        symbols = normalize_json_array(["ORDI"])
+        theses = extract_theses_from_post(
+            AUTHOR_SIGNAL,
+            "EXPLICIT_SIGNAL",
+            symbols=symbols,
+        )
+        self.assertEqual(len(theses), 1)
+        self.assertEqual(theses[0].symbol, "ORDI")
+
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            post_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "s2", "signalyp", 1_700_000_001, AUTHOR_SIGNAL,
+                    "h2", "EXPLICIT_SIGNAL", '["ORDI"]', 0.9,
+                ),
+            ).lastrowid
+            conn.commit()
+
+            row = conn.execute(
+                "SELECT id, raw_text, content_type, symbols_json FROM futures_agent_trader_posts WHERE id = ?",
+                (post_id,),
+            ).fetchone()
+            pg_row = dict(row)
+            pg_row["symbols_json"] = ["ORDI"]
+            decoded = [str(s) for s in normalize_json_array(pg_row["symbols_json"])]
+            theses_db = extract_theses_from_post(
+                pg_row["raw_text"],
+                pg_row["content_type"],
+                symbols=decoded,
+            )
+            self.assertEqual(len(theses_db), 1)
+
+            stats = run_thesis_extract(conn, channel="signalyp")
+        self.assertEqual(stats.theses_inserted, 1)
+
+    def test_ingest_rerun_current_run_counters_zero(self) -> None:
+        rows = [
+            ("signalyp", f"ORDI signal variant {i}", 1_700_000_000 + i, f"m{i}")
+            for i in range(3)
+        ]
+        _create_source_db(self.source_db, rows)
+
+        def _reader():
+            conn = sqlite3.connect(self.source_db)
+            conn.row_factory = sqlite3.Row
+            from bot.research.futures.source_reader import SqliteSourceReader
+            return SqliteSourceReader(conn, path=str(self.source_db))
+
+        with patch(
+            "bot.research.futures_agent.research_ingest.open_stage3_source_reader",
+            side_effect=_reader,
+        ):
+            with self._agent_conn() as conn:
+                apply_migrations(conn)
+                stats1 = ingest_research_posts(conn, channel="signalyp", limit=10)
+                stats2 = ingest_research_posts(conn, channel="signalyp", limit=10)
+
+        self.assertEqual(stats1.inserted, 3)
+        self.assertEqual(stats1.current_run_inserted_by_channel.get("signalyp"), 3)
+        self.assertEqual(stats1.total_stored_by_channel.get("signalyp"), 3)
+        self.assertEqual(stats2.inserted, 0)
+        self.assertEqual(stats2.current_run_inserted_by_channel.get("signalyp", 0), 0)
+        self.assertEqual(stats2.total_stored_by_channel.get("signalyp"), 3)
+
+    def test_pipeline_reconcile_incomplete_zero_theses(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "e1", "signalyp", 1_700_000_000, AUTHOR_SIGNAL,
+                    "h1", "EXPLICIT_SIGNAL", '["ORDI"]', 0.9,
+                ),
+            )
+            conn.commit()
+            report = run_pipeline_reconciliation(conn, channel="signalyp")
+            rendered = render_pipeline_reconciliation(report)
+
+        self.assertFalse(report.passed)
+        self.assertEqual(report.extraction_status, "INCOMPLETE")
+        self.assertGreater(report.eligible_posts, 0)
+        self.assertEqual(report.posts_with_theses, 0)
+        self.assertIn("INCOMPLETE", rendered)
+
+    def test_quality_audit_incomplete_zero_theses(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "e1", "signalyp", 1_700_000_000, AUTHOR_SIGNAL,
+                    "h1", "EXPLICIT_SIGNAL", '["ORDI"]', 0.9,
+                ),
+            )
+            conn.commit()
+            report = run_thesis_quality_audit(conn, channel="signalyp", sample_size=10)
+            rendered = render_thesis_quality_audit(report)
+
+        self.assertTrue(report.incomplete)
+        self.assertIn("INCOMPLETE", rendered)
+        self.assertIn("no theses were extracted", rendered)
 
     def test_thesis_outcome_evaluation_deterministic(self) -> None:
         # Build a sqlite source DB with market_prices and feed a single thesis.
