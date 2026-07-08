@@ -16,6 +16,12 @@ from bot.research.futures_agent.research_classify_audit import (
     render_explicit_recall_audit,
     run_explicit_recall_audit,
 )
+from bot.research.futures_agent.signal_format_audit import (
+    SignalFormatTier,
+    parse_signal_format_audit,
+    render_signal_format_audit,
+    run_signal_format_audit,
+)
 from bot.research.futures_agent.research_ingest import ingest_research_posts, run_thesis_extract
 from bot.research.futures_agent.research_scoring import (
     SourceScoreInputs,
@@ -76,6 +82,28 @@ WAITING_CLOSE_ANT = (
 FIDELITY_ETF_UPDATE = "Fidelity files updated S-1 application for spot Ethereum ETF"
 BTC_PRICE_UPDATES = "$104,000 Bitcoin ... price updates"
 SIGNALYP_ENJ = "#ENJ SHORT\nEntry: 1.2\nSL: 1.1\nTP1: 1.3"
+
+MAVIA_LONG = """mavia long 20x
+ вход по рынку
+ выделяю 1.000$
+ цели 2.9429 2.9794 3.0520
+ стоп 2.8406"""
+
+UNI_DEFERRED_STOP_1 = """Захожу в сетап UNI/USDT — LONG
+ Рыночный вход: 14.362
+ Тейк-профит: 14.850
+ Стоп: пока не ставлю"""
+
+UNI_DEFERRED_STOP_2 = """UNI LONG x25
+ Вход: 14.366
+ Тейки: 14.506 14.657 15.759
+ Стоп: пока не ставлю"""
+
+NEAR_TP_HIT_SUPPORT = """По вечернему сигналу NEAR... пробили все тейки.
+Друзья спасибо за поддержку, работаем дальше"""
+
+RU_SOCIAL_SUPPORT = "Ваш актив это огромная поддержка для меня"
+RU_TECH_SUPPORT = "Цена у поддержки 1.25, жду отскок"
 
 
 def _create_source_db(path: Path, rows: list[tuple]) -> None:
@@ -250,6 +278,59 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
         cls = classify_research_content(SIGNALYP_ENJ)
         self.assertEqual(cls.content_type, ResearchContentType.EXPLICIT_SIGNAL)
 
+    def test_mavia_long_is_explicit_signal(self) -> None:
+        parsed = parse_signal_format_audit(MAVIA_LONG)
+        self.assertEqual(parsed.tier, SignalFormatTier.FULL_SIGNAL)
+        cls = classify_research_content(MAVIA_LONG)
+        self.assertEqual(cls.content_type, ResearchContentType.EXPLICIT_SIGNAL)
+
+    def test_uni_deferred_stop_signals(self) -> None:
+        for text in (UNI_DEFERRED_STOP_1, UNI_DEFERRED_STOP_2):
+            parsed = parse_signal_format_audit(text)
+            self.assertEqual(parsed.tier, SignalFormatTier.DEFERRED_STOP_SIGNAL)
+            self.assertTrue(parsed.has_deferred_stop)
+            cls = classify_research_content(text)
+            self.assertEqual(cls.content_type, ResearchContentType.EXPLICIT_SIGNAL)
+
+    def test_near_tp_hit_not_technical_levels(self) -> None:
+        cls = classify_research_content(NEAR_TP_HIT_SUPPORT)
+        self.assertEqual(cls.content_type, ResearchContentType.RESULT_UPDATE)
+
+    def test_russian_social_support_not_technical_levels(self) -> None:
+        cls = classify_research_content(RU_SOCIAL_SUPPORT)
+        self.assertNotEqual(cls.content_type, ResearchContentType.TECHNICAL_LEVELS)
+
+    def test_russian_technical_support_is_technical_levels(self) -> None:
+        cls = classify_research_content(RU_TECH_SUPPORT)
+        self.assertEqual(cls.content_type, ResearchContentType.TECHNICAL_LEVELS)
+
+    def test_signal_format_audit_mock_source(self) -> None:
+        rows = [
+            ("signalyp", MAVIA_LONG, 1_700_000_000, "m1"),
+            ("signalyp", UNI_DEFERRED_STOP_1, 1_700_000_100, "m2"),
+            ("signalyp", NEAR_TP_HIT_SUPPORT, 1_700_000_200, "m3"),
+        ]
+        _create_source_db(self.source_db, rows)
+
+        def _reader():
+            conn = sqlite3.connect(self.source_db)
+            conn.row_factory = sqlite3.Row
+            from bot.research.futures.source_reader import SqliteSourceReader
+            return SqliteSourceReader(conn, path=str(self.source_db))
+
+        with patch(
+            "bot.research.futures_agent.signal_format_audit.open_stage3_source_reader",
+            side_effect=_reader,
+        ):
+            report = run_signal_format_audit(channel="signalyp", limit=10)
+
+        self.assertEqual(report.scanned, 3)
+        self.assertGreaterEqual(report.full_signal, 1)
+        self.assertGreaterEqual(report.deferred_stop_signal, 1)
+        rendered = render_signal_format_audit(report)
+        self.assertIn("FULL_SIGNAL", rendered)
+        self.assertIn("DEFERRED_STOP_SIGNAL", rendered)
+
     def test_explicit_recall_audit_mock_source(self) -> None:
         rows = [
             ("signalyp", SIGNALYP_ENJ, 1_700_000_000, "s1"),
@@ -274,7 +355,7 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
         self.assertEqual(report.classified_explicit, 1)
         self.assertEqual(report.true_positives, 1)
         rendered = render_explicit_recall_audit(report)
-        self.assertIn("structural explicit candidates", rendered)
+        self.assertIn("FULL_SIGNAL", rendered)
         self.assertIn("true positives", rendered)
 
     def test_content_hash_dedup_normalization(self) -> None:

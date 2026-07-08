@@ -7,7 +7,7 @@ Usage:
   python -m bot.research.futures_agent ingest-research --source-table telegram_messages
   python -m bot.research.futures_agent research-classify-audit --sample-size 500
   python -m bot.research.futures_agent research-classify-audit --sample-size 1000 --stratified
-  python -m bot.research.futures_agent research-explicit-audit --channel signalyp --limit 5000
+  python -m bot.research.futures_agent research-signal-format-audit --channel signalyp --limit 7530
   python -m bot.research.futures_agent thesis-extract
   python -m bot.research.futures_agent research-stats
   python -m bot.research.futures_agent evaluate-theses
@@ -43,6 +43,7 @@ def main() -> int:
             "telegram-poll", "telegram-diagnose", "stage3-audit",
             "stage3-migrate", "ingest-research", "research-stats",
             "thesis-extract", "research-classify-audit", "research-explicit-audit",
+            "research-signal-format-audit",
             "evaluate-theses", "evaluate-sources", "source-report", "symbol-report",
         ),
     )
@@ -240,6 +241,24 @@ def main() -> int:
             print(exc, file=sys.stderr)
             return 1
         print(render_explicit_recall_audit(report))
+        return 0
+
+    if args.command == "research-signal-format-audit":
+        from bot.research.futures_agent.signal_format_audit import (
+            render_signal_format_audit,
+            run_signal_format_audit,
+        )
+        from bot.research.futures_agent.source_requirements import Stage3SourceRequiredError
+
+        try:
+            report = run_signal_format_audit(
+                channel=args.channel or "signalyp",
+                limit=args.limit,
+            )
+        except Stage3SourceRequiredError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        print(render_signal_format_audit(report))
         return 0
 
     if args.command == "evaluate-theses":

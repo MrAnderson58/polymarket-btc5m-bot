@@ -43,7 +43,8 @@ _RE_PROMO = re.compile(
 )
 _RE_TP_HIT = re.compile(
     r"(?i)(tp\s*(?:hit|reached|done|взят|достиг)|take profit|"
-    r"цель\s*(?:\d+|достиг|взята)|target\s*(?:hit|reached)|\+[\d.]+\s*%)",
+    r"цель\s*(?:\d+|достиг|взята)|target\s*(?:hit|reached)|\+[\d.]+\s*%|"
+    r"пробил\w*\s+все\s+тейк|тейк\w*\s+(?:взят|достиг|пробит|пробил))",
 )
 _RE_SL_HIT = re.compile(
     r"(?i)(sl\s*(?:hit|triggered|выбило)|stop(?:\s*loss)?\s*(?:hit|triggered)|"
@@ -117,8 +118,28 @@ _RE_THESIS_LANGUAGE = re.compile(
 )
 _RE_TECH_LEVELS_OTHER = re.compile(
     r"(?i)\b(?:liquidity\s+zone|supply\s+zone|demand\s+zone|"
-    r"breakout\s+level|consolidation|range\s+bound|key\s+level|"
-    r"поддержк|сопротивлен)",
+    r"breakout\s+level|consolidation|range\s+bound|key\s+level)",
+)
+_RE_TECH_LEVELS_RU = re.compile(
+    r"(?i)(?:"
+    r"уровн\w+\s+поддержк|"
+    r"поддержк\w*\s+\d|"
+    r"зон\w+\s+поддержк|"
+    r"цен\w+\s+у\s+поддержк|"
+    r"пробо\w+\s+поддержк|"
+    r"сопротивлен\w*\s+\d|"
+    r"уровн\w+\s+сопротивлен|"
+    r"поддержк\w*\s+(?:и|/)\s*сопротивлен"
+    r")",
+)
+_RE_SOCIAL_SUPPORT_RU = re.compile(
+    r"(?i)(?:"
+    r"спасибо\s+за\s+поддержк|"
+    r"ваш\w*\s+.{0,30}поддержк|"
+    r"огромн\w+\s+поддержк|"
+    r"поддержк\w+\s+для\s+меня|"
+    r"поддержите\s+канал"
+    r")",
 )
 _RE_TECH_SUPPORT = re.compile(
     r"(?i)(?:"
@@ -161,7 +182,26 @@ _RE_WHALE_ECON_ACTION = re.compile(
 )
 
 _RE_MARKET_ENTRY_LANGUAGE = re.compile(
-    r"(?i)\b(?:entry|enter|вход|market\s+(?:buy|sell)|buy\s+at|sell\s+at)\b",
+    r"(?i)\b(?:entry|enter|вход|market\s+(?:buy|sell|entry)|buy\s+at|sell\s+at|"
+    r"вход\s+по\s+рынку|рыночн(?:ый|ого)\s+вход|по\s+рынку)\b",
+)
+_RE_RU_TARGETS = re.compile(
+    r"(?i)(?:"
+    r"(?:тейк(?:и|-профит)?|цел[ьи])\s*[:：]?\s*[\d.,\s]+|"
+    r"(?:^|\n)\s*цели\s+[\d.,\s]+"
+    r")",
+)
+_RE_RU_NUMERIC_STOP = re.compile(
+    r"(?i)(?:"
+    r"(?:стоп(?:-лосс)?)\s*[:：]?\s*\d|"
+    r"(?:^|\n)\s*стоп\s+\d"
+    r")",
+)
+_RE_DEFERRED_STOP = re.compile(
+    r"(?i)(?:"
+    r"стоп\s*[:：]?\s*(?:пока\s+не\s+ставлю|не\s+ставлю|later|позже)|"
+    r"stop\s*[:：]?\s*(?:later|not\s+set|pending)"
+    r")",
 )
 _RE_BEARISH_THESIS = re.compile(
     r"(?i)\b(?:lower|bearish|drop|dump|fall|decline|sell.?off|continuation\s+lower)\b",
@@ -170,6 +210,9 @@ _RE_BULLISH_THESIS = re.compile(
     r"(?i)\b(?:higher|bullish|rise|rally|pump|continuation\s+higher)\b",
 )
 _BARE_TICKER_LINE_RE = re.compile(r"(?im)^([A-Z]{2,10})\b")
+_BARE_TICKER_SIGNAL_RE = re.compile(
+    r"(?im)^([a-z]{2,12})\s+(?:long|short|лонг|шорт)\b",
+)
 _TICKER_STOPWORDS = frozenset({
     "THE", "AND", "FOR", "ARE", "BUT", "NOT", "YOU", "ALL", "CAN", "HAD", "HER",
     "WAS", "ONE", "OUR", "OUT", "HAS", "HIS", "HOW", "ITS", "MAY", "NEW", "NOW",
@@ -203,11 +246,37 @@ def _has_trade_levels(text: str) -> bool:
 
 def _has_technical_levels_context(text: str) -> bool:
     """Support/resistance only when numeric or explicit technical-market context."""
+    if _RE_SOCIAL_SUPPORT_RU.search(text):
+        return False
+    if _RE_TECH_LEVELS_RU.search(text):
+        return True
     if _RE_TECH_LEVELS_OTHER.search(text):
         return True
     if _RE_TECH_SUPPORT.search(text) or _RE_TECH_RESISTANCE.search(text):
         return True
     return False
+
+
+def _signal_symbols(text: str) -> list[str]:
+    """Symbols for explicit-signal gate: $/#/pair, line-start ticker, or mavia long."""
+    syms = extract_symbols(text)
+    if syms:
+        return syms
+    m = _BARE_TICKER_SIGNAL_RE.search(text)
+    if m:
+        from bot.research.futures_agent.research_utils import normalize_symbol
+        sym = normalize_symbol(m.group(1))
+        if sym:
+            return [sym]
+    m = _BARE_TICKER_LINE_RE.search(text)
+    if m:
+        token = m.group(1).upper()
+        if len(token) >= 3 and token not in _TICKER_STOPWORDS:
+            from bot.research.futures_agent.research_utils import normalize_symbol
+            sym = normalize_symbol(token)
+            if sym:
+                return [sym]
+    return []
 
 
 def _infer_direction(text: str) -> str | None:
@@ -313,40 +382,43 @@ def classify_research_content(text: str) -> ResearchClassification:
 
     def _is_precise_explicit_signal() -> bool:
         # Precision-first: require symbol + direction + actionable structure.
-        syms = extract_symbols(t)
+        syms = _signal_symbols(t)
         direction = _infer_direction(t)
         if not syms or direction not in ("LONG", "SHORT"):
             return False
 
-        has_entry = bool(ENTRY_RE.search(t))
-        has_sl = bool(SL_RE.search(t))
-        # TP precision: accept strict TP_RE or TP_LINE_RE with at least one numeric.
+        has_entry = bool(
+            ENTRY_RE.search(t)
+            or _RE_MARKET_ENTRY_LANGUAGE.search(t)
+            or re.search(
+                r"(?i)(?:точка\s+входа|диапазон\s+входа|"
+                r"вход\s*[:：]\s*\d|рыночн(?:ый|ого)\s+вход\s*[:：]?\s*\d)",
+                t,
+            ),
+        )
+        has_sl = bool(SL_RE.search(t) or _RE_RU_NUMERIC_STOP.search(t))
+        has_deferred_sl = bool(_RE_DEFERRED_STOP.search(t))
         tp_line_m = TP_LINE_RE.search(t)
         has_tp = bool(
             TP_RE.search(t)
+            or _RE_RU_TARGETS.search(t)
             or (tp_line_m is not None and re.search(r"\d+(?:\.\d+)?", tp_line_m.group(1))),
         )
 
         actionable = (
-            (has_entry and has_sl)
+            (has_entry and has_sl and has_tp)
+            or (has_entry and has_tp and has_deferred_sl)
+            or (has_entry and has_sl)
             or (has_entry and has_tp)
             or (has_sl and has_tp and _RE_MARKET_ENTRY_LANGUAGE.search(t))
         )
         if not actionable:
             return False
 
-        # Clear intent / format: either author intent, or presence of labeled trade levels.
         signal_format = author or bool(
-            re.search(r"(?i)\b(entry|sl|stop|tp|target)\b", t)
+            re.search(r"(?i)\b(entry|sl|stop|tp|target|вход|стоп|тейк|цел)", t)
         )
         return bool(signal_format)
-
-    if author and not third_party and has_levels and _is_precise_explicit_signal():
-        return ResearchClassification(
-            ResearchContentType.EXPLICIT_SIGNAL,
-            ["author_intent_precise"],
-            0.92,
-        )
 
     if third_party and has_levels:
         return ResearchClassification(
@@ -354,6 +426,21 @@ def classify_research_content(text: str) -> ResearchClassification:
             ["third_party_with_levels"],
             0.80,
             suspicious_explicit=True,
+        )
+
+    if _SIDE_RE.search(t[:400]) and has_levels and not third_party and _is_precise_explicit_signal():
+        return ResearchClassification(
+            ResearchContentType.EXPLICIT_SIGNAL,
+            ["side_and_levels_precise"],
+            0.86,
+            suspicious_explicit=False,
+        )
+
+    if author and not third_party and has_levels and _is_precise_explicit_signal():
+        return ResearchClassification(
+            ResearchContentType.EXPLICIT_SIGNAL,
+            ["author_intent_precise"],
+            0.92,
         )
 
     if (
@@ -382,28 +469,6 @@ def classify_research_content(text: str) -> ResearchClassification:
             ResearchContentType.MARKET_COMMENTARY,
             ["commentary"],
             0.68,
-        )
-
-    if _SIDE_RE.search(t[:400]) and has_levels and not third_party and _is_precise_explicit_signal():
-        return ResearchClassification(
-            ResearchContentType.EXPLICIT_SIGNAL,
-            ["side_and_levels_precise"],
-            0.86,
-            suspicious_explicit=False,
-        )
-
-    # SIDE tokens without full signal: require symbol + direction evidence.
-    if (
-        _SIDE_RE.search(t[:400])
-        and _has_thesis_evidence(t)
-        and not _RE_QUESTION_OR_META.search(t)
-        and not _RE_POSITION_MGMT.search(t)
-        and not third_party
-    ):
-        return ResearchClassification(
-            ResearchContentType.TRADER_THESIS,
-            ["side_with_symbol_direction"],
-            0.55,
         )
 
     return ResearchClassification(ResearchContentType.OTHER, ["unclassified"], 0.30)
