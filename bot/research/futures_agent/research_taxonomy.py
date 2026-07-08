@@ -73,7 +73,7 @@ _RE_ONCHAIN = re.compile(
     r"flash\s+loan|defi\s+protocol)",
 )
 _RE_NEWS = re.compile(
-    r"(?i)(breaking|just in|listed on|delist(?:ed|ing)?|hack(?:ed)?|exploit|"
+    r"(?i)(breaking|just in|listed on|delist(?:ed|ing)?|\bhack(?:ed)?\b(?!ers?)|exploit|"
     r"etf approv|sec\s+(?:sues|approves|files)|regulat(?:ion|ory)|lawsuit|"
     r"partnership|acquisition|merger|airdrop|token\s+launch|mainnet\s+launch|"
     r"новост|листинг|взлом|суд|регулятор)",
@@ -102,12 +102,17 @@ _RE_COMMENTARY = re.compile(
     r"(?i)(market\s+(?:update|outlook)|рынок|btc\s+(?:is|at|holds)|"
     r"dominance|altseason|macro|fed\s|cpi\s|fomc|correlat|коррел)",
 )
+_RE_QUESTION_OR_META = re.compile(
+    r"(?i)(\?|how to\b|training\b|learn\b|tutorial\b|course\b|guide\b|"
+    r"what do you think|should i\b|кто\s+знает|как\s+шортить|как\s+лонговать)",
+)
 _RE_HAS_LEVELS = re.compile(
     r"(?i)(?:entry|enter|вход|sl|stop|стоп|tp|target|цел)\s*[:@]?\s*\d",
 )
 _RE_THIRD_PARTY_OBSERVED = re.compile(
     r"(?i)\b(?:whale|0x[a-f0-9]{8,}|wallet\s+0x|address\s+0x|"
-    r"(?:trader|investor|fund)\s+\w+\s+opened|someone\s+opened)\b",
+    r"(?:trader|investor|fund)\s+\w+\s+opened|someone\s+opened|"
+    r"fresh wallet|receive[s]?\s+\d|\bwallet\b)\b",
 )
 _SIDE_RE = re.compile(rf"\b({SIDE_TOKEN})\b", re.IGNORECASE)
 
@@ -148,19 +153,19 @@ def classify_research_content(text: str) -> ResearchClassification:
     t = text.strip()
     reasons: list[str] = []
 
-    if _RE_PROMO.search(t):
-        return ResearchClassification(ResearchContentType.PROMO, ["promo"], 0.92)
-
     if _RE_TP_HIT.search(t) or _RE_SL_HIT.search(t) or _RE_CLOSE.search(t):
         return ResearchClassification(ResearchContentType.RESULT_UPDATE, ["result"], 0.88)
 
     if _RE_TRADE_UPDATE.search(t):
         return ResearchClassification(ResearchContentType.TRADE_UPDATE, ["update"], 0.78)
 
-    if _RE_ONCHAIN.search(t) and not _has_author_intent(t):
+    is_onchain = bool(_RE_ONCHAIN.search(t) and not _has_author_intent(t))
+    is_whale = bool(_RE_WHALE_FLOW.search(t) and not _has_author_intent(t))
+
+    if is_onchain:
         return ResearchClassification(ResearchContentType.ONCHAIN_EVENT, ["onchain"], 0.86)
 
-    if _RE_WHALE_FLOW.search(t) and not _has_author_intent(t):
+    if is_whale:
         return ResearchClassification(
             ResearchContentType.WHALE_FLOW,
             ["whale_flow_third_party"],
@@ -169,6 +174,10 @@ def classify_research_content(text: str) -> ResearchClassification:
 
     if _RE_NEWS.search(t):
         return ResearchClassification(ResearchContentType.NEWS_EVENT, ["news"], 0.82)
+
+    # PROMO only when promotional content is primary and not a clear whale/onchain event.
+    if _RE_PROMO.search(t) and not (is_whale or is_onchain):
+        return ResearchClassification(ResearchContentType.PROMO, ["promo"], 0.92)
 
     has_levels = _has_trade_levels(t)
     author = _has_author_intent(t)
@@ -189,7 +198,7 @@ def classify_research_content(text: str) -> ResearchClassification:
             suspicious_explicit=True,
         )
 
-    if _RE_THESIS_LANGUAGE.search(t):
+    if _RE_THESIS_LANGUAGE.search(t) and not _RE_QUESTION_OR_META.search(t) and not (is_whale or is_onchain):
         reasons.append("thesis_language")
         return ResearchClassification(
             ResearchContentType.TRADER_THESIS,
@@ -219,7 +228,8 @@ def classify_research_content(text: str) -> ResearchClassification:
             suspicious_explicit=not author,
         )
 
-    if _SIDE_RE.search(t[:400]):
+    # SIDE tokens without numeric levels should only count as TRADER_THESIS when not clearly third-party flow.
+    if _SIDE_RE.search(t[:400]) and not _RE_QUESTION_OR_META.search(t) and not third_party:
         return ResearchClassification(
             ResearchContentType.TRADER_THESIS,
             ["side_without_full_signal"],

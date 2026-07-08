@@ -488,30 +488,12 @@ CREATE INDEX IF NOT EXISTS idx_fa_scores_v2_symbol ON futures_agent_source_score
 STAGE4_DDL_POSTGRES = """
 -- Stage 4: Thesis outcome engine + richer source scores
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='futures_agent_thesis_outcomes'
-      AND column_name='time_to_target_sec'
-  ) THEN
-    ALTER TABLE futures_agent_thesis_outcomes ADD COLUMN time_to_target_sec INTEGER;
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='futures_agent_thesis_outcomes'
-      AND column_name='time_to_stop_sec'
-  ) THEN
-    ALTER TABLE futures_agent_thesis_outcomes ADD COLUMN time_to_stop_sec INTEGER;
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='futures_agent_thesis_outcomes'
-      AND column_name='final_outcome'
-  ) THEN
-    ALTER TABLE futures_agent_thesis_outcomes ADD COLUMN final_outcome TEXT;
-  END IF;
-END $$;
+ALTER TABLE futures_agent_thesis_outcomes
+  ADD COLUMN IF NOT EXISTS time_to_target_sec INTEGER;
+ALTER TABLE futures_agent_thesis_outcomes
+  ADD COLUMN IF NOT EXISTS time_to_stop_sec INTEGER;
+ALTER TABLE futures_agent_thesis_outcomes
+  ADD COLUMN IF NOT EXISTS final_outcome TEXT;
 
 CREATE TABLE IF NOT EXISTS futures_agent_source_scores_v2 (
     id BIGSERIAL PRIMARY KEY,

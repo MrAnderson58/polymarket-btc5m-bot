@@ -41,6 +41,15 @@ ORDI_THESIS = (
     "Interested after retest."
 )
 NEWS_ETF = "Breaking: SEC approves spot Bitcoin ETF filing from major asset manager."
+QUESTION_LONG_SHORT = "Is there any good training to learn how to long/short?"
+WALLET_ACTIVITY = (
+    "This wallet is fresh wallet. Receive 3.33 eth from another wallet with $2m. "
+    "And then buy $cartel and send all to bitboy"
+)
+PROMO_WHALE = (
+    "The whale bought another 953 BTC on Binance. Join our VIP signals t.me/vip for more trades."
+)
+HACKERS_TEXT = "i think russian hackers are top dogs"
 
 
 def _create_source_db(path: Path, rows: list[tuple]) -> None:
@@ -147,6 +156,27 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
         )
         self.assertEqual(len(theses), 1)
         self.assertEqual(theses[0].direction, "NEUTRAL")
+
+    def test_trader_thesis_excludes_questions_and_training(self) -> None:
+        cls = classify_research_content(QUESTION_LONG_SHORT)
+        self.assertEqual(cls.content_type, ResearchContentType.OTHER)
+
+    def test_wallet_activity_is_whale_or_onchain_not_thesis(self) -> None:
+        cls = classify_research_content(WALLET_ACTIVITY)
+        # Precision-first: acceptable to drop to OTHER, but never TRADER_THESIS.
+        self.assertNotEqual(cls.content_type, ResearchContentType.TRADER_THESIS)
+
+    def test_promo_whale_prioritizes_whale_over_promo(self) -> None:
+        cls = classify_research_content(PROMO_WHALE)
+        self.assertIn(
+            cls.content_type,
+            (ResearchContentType.WHALE_FLOW, ResearchContentType.ONCHAIN_EVENT),
+        )
+        self.assertNotEqual(cls.content_type, ResearchContentType.PROMO)
+
+    def test_hackers_text_not_news_event(self) -> None:
+        cls = classify_research_content(HACKERS_TEXT)
+        self.assertNotEqual(cls.content_type, ResearchContentType.NEWS_EVENT)
 
     def test_content_hash_dedup_normalization(self) -> None:
         a = content_hash("BTC  LONG\nEntry 1.0")
