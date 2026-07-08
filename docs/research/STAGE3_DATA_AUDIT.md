@@ -1,13 +1,77 @@
 # Futures Agent Stage 3 — Production Data Audit
 
-**Status:** PENDING — must be executed on Mac Mini with production PostgreSQL access.
-
-**Last update (dev machine):** 2026-07-08 — production `trading_ai` not reachable from dev environment
-(no `FUTURES_SOURCE_DATABASE_URL` in `.env`, no local PostgreSQL server).
+**Status:** COMPLETE — live production audit executed 2026-07-08 (Mac Mini / `trading_ai`).
 
 ---
 
-## How to run the live audit
+## Live production findings (2026-07-08)
+
+### `telegram_messages` (primary corpus)
+
+| Metric | Value |
+|--------|-------|
+| Total rows | 370,876 |
+| Channels | 3 |
+| `lookonchain` | 351,573 (~95%) |
+| `WatcherGuru` | 11,773 |
+| `signalyp` | 7,530 |
+| Timestamp range | 2021-08-23 → 2026-06-15 |
+
+**Columns:** `id`, `channel_name`, `message_text`, `message_date`, `collected_at`, `telegram_message_id`
+
+**Missing:** author, reply, forward metadata
+
+### Legacy taxonomy sample (recent 25k)
+
+| Type | Count |
+|------|-------|
+| OTHER | 12,443 |
+| NEWS | 5,966 |
+| EXPLICIT_SIGNAL | 2,783 |
+| MARKET_COMMENTARY | 1,326 |
+| PROMO | 1,273 |
+| TRADE_UPDATE | 685 |
+| MARKET_REVIEW | 214 |
+| TP_HIT | 187 |
+| POSITION_CLOSE | 122 |
+| SL_HIT | 1 |
+
+**Audit conclusion:** Legacy taxonomy is semantically insufficient for Stage 3. Whale/on-chain
+observations are misclassified as `EXPLICIT_SIGNAL`; valuable `signalyp` commentary falls into `OTHER`.
+Stage 3 uses a **separate research taxonomy** (`research_taxonomy.py`) — production classifier unchanged.
+
+### Other tables
+
+| Table | Status |
+|-------|--------|
+| `news` | 20 rows — `published_at`, `summary`, `symbols`, `sentiment` 100% null → **unusable** |
+| `source_ratings` | empty |
+| `telegram_channels` | empty |
+| `telegram_signals` | empty |
+
+**Historical news corpus for Stage 3:** `NEWS_EVENT` posts from `telegram_messages` only.
+
+---
+
+## Phase B commands (Mac Mini)
+
+```bash
+cd ~/polymarket-btc5m-bot && source .venv/bin/activate
+
+python -m bot.research.futures_agent stage3-migrate
+python -m bot.research.futures_agent research-classify-audit --sample-size 500
+python -m bot.research.futures_agent ingest-research --source-table telegram_messages
+python -m bot.research.futures_agent thesis-extract
+python -m bot.research.futures_agent research-stats
+```
+
+Optional filters: `--channel`, `--start-ts`, `--end-ts`, `--limit`, `--max-per-source`
+
+**Expected full ingest runtime:** ~15–45 min for 370k rows (chunked classify-only, no Binance).
+
+---
+
+## How to run the live audit (re-run)
 
 On Mac Mini (where `telegram_messages` lives):
 

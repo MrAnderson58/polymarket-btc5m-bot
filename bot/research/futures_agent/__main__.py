@@ -3,6 +3,11 @@
 Usage:
   python -m bot.research.futures_agent audit
   python -m bot.research.futures_agent migrate
+  python -m bot.research.futures_agent stage3-migrate
+  python -m bot.research.futures_agent ingest-research --source-table telegram_messages
+  python -m bot.research.futures_agent research-classify-audit --sample-size 500
+  python -m bot.research.futures_agent thesis-extract
+  python -m bot.research.futures_agent research-stats
   python -m bot.research.futures_agent ingest --text "BTC LONG ..."
   python -m bot.research.futures_agent process-pending
   python -m bot.research.futures_agent snapshot --signal-id ID
@@ -30,11 +35,13 @@ def main() -> int:
             "audit", "migrate", "ingest", "process-pending",
             "snapshot", "snapshot-pending", "context-report", "snapshot-audit",
             "telegram-poll", "telegram-diagnose", "stage3-audit",
+            "stage3-migrate", "ingest-research", "research-stats",
+            "thesis-extract", "research-classify-audit",
         ),
     )
     parser.add_argument("--text", default=None, help="Signal text for ingest")
     parser.add_argument("--signal-id", type=int, default=None, help="Signal id for snapshot/report")
-    parser.add_argument("--limit", type=int, default=50, help="Max pending to process")
+    parser.add_argument("--limit", type=int, default=None, help="Max rows to process")
     parser.add_argument("--dry-run", action="store_true", help="Ingest without DB write")
     parser.add_argument("--notify", action="store_true", help="Send Telegram ack if configured")
     parser.add_argument(
@@ -44,6 +51,33 @@ def main() -> int:
         help="Write stage3-audit markdown to path",
     )
     parser.add_argument("--json", type=str, default=None, help="Write stage3-audit raw JSON")
+    parser.add_argument(
+        "--source-table",
+        type=str,
+        default="telegram_messages",
+        help="Source table for ingest-research",
+    )
+    parser.add_argument("--channel", type=str, default=None, help="Filter by channel/source name")
+    parser.add_argument("--start-ts", type=int, default=None, help="Min message epoch seconds")
+    parser.add_argument("--end-ts", type=int, default=None, help="Max message epoch seconds")
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=500,
+        help="Sample size for research-classify-audit",
+    )
+    parser.add_argument(
+        "--max-per-source",
+        type=int,
+        default=None,
+        help="Cap ingested posts per channel (source imbalance guard)",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=2000,
+        help="Chunk size for ingest-research",
+    )
     args = parser.parse_args()
 
     cfg = resolve_agent_db_config()
@@ -66,7 +100,7 @@ def main() -> int:
     from bot.research.futures_agent.db import agent_connection
     from bot.research.futures_agent.schema import apply_migrations
 
-    if args.command == "migrate":
+    if args.command in ("migrate", "stage3-migrate"):
         with agent_connection() as conn:
             applied = apply_migrations(conn)
         print(f"Backend: {cfg.backend} ({cfg.config_source})")
@@ -75,6 +109,66 @@ def main() -> int:
         elif cfg.sqlite_path:
             print(f"SQLite: {cfg.sqlite_path}")
         print(f"Migrations applied: {applied or ['already up to date']}")
+        return 0
+
+    if args.command == "ingest-research":
+        from bot.research.futures_agent.research_ingest import ingest_research_posts
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            stats = ingest_research_posts(
+                conn,
+                source_table=args.source_table,
+                channel=args.channel,
+                start_ts=args.start_ts,
+                end_ts=args.end_ts,
+                limit=args.limit,
+                chunk_size=args.chunk_size,
+                max_per_source=args.max_per_source,
+            )
+        print(f"Backend: {cfg.backend}")
+        print(
+            f"scanned={stats.scanned} inserted={stats.inserted} "
+            f"dup={stats.skipped_duplicate} hash_dup={stats.skipped_hash_duplicate} "
+            f"source_cap={stats.skipped_source_cap} empty={stats.skipped_empty}"
+        )
+        if stats.per_channel:
+            print("per_channel_inserted:", stats.per_channel)
+        return 0
+
+    if args.command == "thesis-extract":
+        from bot.research.futures_agent.research_ingest import run_thesis_extract
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            stats = run_thesis_extract(
+                conn,
+                channel=args.channel,
+                limit=args.limit,
+            )
+        print(f"posts_scanned={stats['posts_scanned']} theses={stats['theses_inserted']} "
+              f"levels={stats['levels_inserted']} unresolved_skipped={stats['unresolved_skipped']}")
+        return 0
+
+    if args.command == "research-stats":
+        from bot.research.futures_agent.research_stats import render_research_stats
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            print(render_research_stats(conn))
+        return 0
+
+    if args.command == "research-classify-audit":
+        from bot.research.futures_agent.research_classify_audit import (
+            render_classify_audit,
+            run_classify_audit,
+        )
+
+        report = run_classify_audit(
+            sample_size=args.sample_size,
+            channel=args.channel,
+        )
+        print(render_classify_audit(report))
         return 0
 
     if args.command == "ingest":
@@ -115,9 +209,10 @@ def main() -> int:
     if args.command == "process-pending":
         from bot.research.futures_agent.pipeline import process_pending
 
+        pending_limit = args.limit if args.limit is not None else 50
         with agent_connection() as conn:
             apply_migrations(conn)
-            results = process_pending(conn, limit=args.limit)
+            results = process_pending(conn, limit=pending_limit)
         print(f"Backend: {cfg.backend} ({cfg.config_source})")
         for r in results:
             print(
@@ -152,9 +247,10 @@ def main() -> int:
     if args.command == "snapshot-pending":
         from bot.research.futures_agent.snapshot import snapshot_pending
 
+        snap_limit = args.limit if args.limit is not None else 50
         with agent_connection() as conn:
             apply_migrations(conn)
-            results = snapshot_pending(conn, limit=args.limit)
+            results = snapshot_pending(conn, limit=snap_limit)
         print(f"Backend: {cfg.backend} ({cfg.config_source})")
         for r in results:
             status = "skipped" if r.skipped else ("ok" if r.success else f"fail:{r.error}")

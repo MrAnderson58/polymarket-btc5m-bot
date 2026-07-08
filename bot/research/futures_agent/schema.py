@@ -5,11 +5,16 @@ from __future__ import annotations
 from typing import Any
 
 from bot.research.futures_agent.db import connection_is_postgres
-from bot.research.futures_agent.schema_validate import validate_stage1_schema, validate_stage2_schema
+from bot.research.futures_agent.schema_validate import (
+    validate_stage1_schema,
+    validate_stage2_schema,
+    validate_stage3_schema,
+)
 
 MIGRATIONS_TABLE = "futures_agent_migrations"
 STAGE1_VERSION = 1
 STAGE2_VERSION = 2
+STAGE3_VERSION = 3
 
 STAGE1_DDL = """
 CREATE TABLE IF NOT EXISTS futures_agent_migrations (
@@ -278,9 +283,174 @@ CREATE TABLE IF NOT EXISTS futures_agent_relative_strength (
 );
 """
 
+STAGE3_DDL = """
+CREATE TABLE IF NOT EXISTS futures_agent_trader_posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_message_id TEXT NOT NULL,
+    channel_name TEXT NOT NULL,
+    message_ts INTEGER NOT NULL,
+    raw_text TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    symbols_json TEXT NOT NULL DEFAULT '[]',
+    deterministic_confidence REAL NOT NULL DEFAULT 0.0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(channel_name, source_message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fa_trader_posts_ts ON futures_agent_trader_posts(message_ts);
+CREATE INDEX IF NOT EXISTS idx_fa_trader_posts_channel ON futures_agent_trader_posts(channel_name);
+CREATE INDEX IF NOT EXISTS idx_fa_trader_posts_type ON futures_agent_trader_posts(content_type);
+CREATE INDEX IF NOT EXISTS idx_fa_trader_posts_hash ON futures_agent_trader_posts(content_hash);
+
+CREATE TABLE IF NOT EXISTS futures_agent_trader_theses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id INTEGER NOT NULL,
+    symbol TEXT,
+    direction TEXT NOT NULL,
+    thesis_text TEXT NOT NULL,
+    horizon TEXT,
+    condition_text TEXT,
+    invalidation_text TEXT,
+    confidence REAL NOT NULL DEFAULT 0.0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (post_id) REFERENCES futures_agent_trader_posts(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fa_trader_theses_post ON futures_agent_trader_theses(post_id);
+CREATE INDEX IF NOT EXISTS idx_fa_trader_theses_symbol ON futures_agent_trader_theses(symbol);
+
+CREATE TABLE IF NOT EXISTS futures_agent_trader_levels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thesis_id INTEGER NOT NULL,
+    level_type TEXT NOT NULL,
+    price REAL NOT NULL,
+    ordinal INTEGER NOT NULL DEFAULT 0,
+    confidence REAL NOT NULL DEFAULT 0.0,
+    FOREIGN KEY (thesis_id) REFERENCES futures_agent_trader_theses(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fa_trader_levels_thesis ON futures_agent_trader_levels(thesis_id);
+
+CREATE TABLE IF NOT EXISTS futures_agent_thesis_outcomes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thesis_id INTEGER NOT NULL,
+    evaluation_horizon TEXT NOT NULL,
+    price_at_thesis REAL,
+    mfe_pct REAL,
+    mae_pct REAL,
+    return_pct REAL,
+    direction_correct INTEGER,
+    target_hit INTEGER,
+    stop_hit INTEGER,
+    evaluated_at INTEGER NOT NULL,
+    UNIQUE(thesis_id, evaluation_horizon),
+    FOREIGN KEY (thesis_id) REFERENCES futures_agent_trader_theses(id)
+);
+
+CREATE TABLE IF NOT EXISTS futures_agent_source_scores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_name TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    symbol_group TEXT,
+    horizon TEXT NOT NULL DEFAULT 'all',
+    sample_size INTEGER NOT NULL DEFAULT 0,
+    directional_accuracy REAL,
+    avg_mfe REAL,
+    avg_mae REAL,
+    expectancy_proxy REAL,
+    wilson_lower_bound REAL,
+    recency_weighted_score REAL,
+    calculated_as_of INTEGER NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(channel_name, content_type, symbol_group, horizon)
+);
+"""
+
+STAGE3_DDL_POSTGRES = """
+CREATE TABLE IF NOT EXISTS futures_agent_trader_posts (
+    id BIGSERIAL PRIMARY KEY,
+    source_message_id TEXT NOT NULL,
+    channel_name TEXT NOT NULL,
+    message_ts BIGINT NOT NULL,
+    raw_text TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    symbols_json JSONB NOT NULL DEFAULT '[]',
+    deterministic_confidence DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(channel_name, source_message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fa_trader_posts_ts ON futures_agent_trader_posts(message_ts);
+CREATE INDEX IF NOT EXISTS idx_fa_trader_posts_channel ON futures_agent_trader_posts(channel_name);
+CREATE INDEX IF NOT EXISTS idx_fa_trader_posts_type ON futures_agent_trader_posts(content_type);
+CREATE INDEX IF NOT EXISTS idx_fa_trader_posts_hash ON futures_agent_trader_posts(content_hash);
+
+CREATE TABLE IF NOT EXISTS futures_agent_trader_theses (
+    id BIGSERIAL PRIMARY KEY,
+    post_id BIGINT NOT NULL REFERENCES futures_agent_trader_posts(id),
+    symbol TEXT,
+    direction TEXT NOT NULL,
+    thesis_text TEXT NOT NULL,
+    horizon TEXT,
+    condition_text TEXT,
+    invalidation_text TEXT,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_fa_trader_theses_post ON futures_agent_trader_theses(post_id);
+CREATE INDEX IF NOT EXISTS idx_fa_trader_theses_symbol ON futures_agent_trader_theses(symbol);
+
+CREATE TABLE IF NOT EXISTS futures_agent_trader_levels (
+    id BIGSERIAL PRIMARY KEY,
+    thesis_id BIGINT NOT NULL REFERENCES futures_agent_trader_theses(id),
+    level_type TEXT NOT NULL,
+    price DOUBLE PRECISION NOT NULL,
+    ordinal INTEGER NOT NULL DEFAULT 0,
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0.0
+);
+
+CREATE INDEX IF NOT EXISTS idx_fa_trader_levels_thesis ON futures_agent_trader_levels(thesis_id);
+
+CREATE TABLE IF NOT EXISTS futures_agent_thesis_outcomes (
+    id BIGSERIAL PRIMARY KEY,
+    thesis_id BIGINT NOT NULL REFERENCES futures_agent_trader_theses(id),
+    evaluation_horizon TEXT NOT NULL,
+    price_at_thesis DOUBLE PRECISION,
+    mfe_pct DOUBLE PRECISION,
+    mae_pct DOUBLE PRECISION,
+    return_pct DOUBLE PRECISION,
+    direction_correct INTEGER,
+    target_hit INTEGER,
+    stop_hit INTEGER,
+    evaluated_at BIGINT NOT NULL,
+    UNIQUE(thesis_id, evaluation_horizon)
+);
+
+CREATE TABLE IF NOT EXISTS futures_agent_source_scores (
+    id BIGSERIAL PRIMARY KEY,
+    channel_name TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    symbol_group TEXT,
+    horizon TEXT NOT NULL DEFAULT 'all',
+    sample_size INTEGER NOT NULL DEFAULT 0,
+    directional_accuracy DOUBLE PRECISION,
+    avg_mfe DOUBLE PRECISION,
+    avg_mae DOUBLE PRECISION,
+    expectancy_proxy DOUBLE PRECISION,
+    wilson_lower_bound DOUBLE PRECISION,
+    recency_weighted_score DOUBLE PRECISION,
+    calculated_as_of BIGINT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(channel_name, content_type, symbol_group, horizon)
+);
+"""
+
 
 def apply_migrations(conn: Any) -> list[str]:
-    """Apply Stage 1 + Stage 2 migrations idempotently."""
+    """Apply Stage 1 + Stage 2 + Stage 3 migrations idempotently."""
     postgres = connection_is_postgres(conn)
     applied: list[str] = []
 
@@ -317,6 +487,23 @@ def apply_migrations(conn: Any) -> list[str]:
             (STAGE2_VERSION, "stage2_market_snapshots_btc_context"),
         )
         applied.append(f"v{STAGE2_VERSION}: stage2_snapshots")
+
+    for stmt in _split_ddl(STAGE3_DDL_POSTGRES if postgres else STAGE3_DDL):
+        conn.execute(stmt)
+
+    if _has_migration(conn, STAGE3_VERSION):
+        validation3 = validate_stage3_schema(conn)
+        if not validation3["valid"]:
+            raise RuntimeError(f"Stage 3 schema validation failed: {validation3['errors']}")
+    else:
+        validation3 = validate_stage3_schema(conn)
+        if not validation3["valid"]:
+            raise RuntimeError(f"Stage 3 schema validation failed after DDL: {validation3['errors']}")
+        conn.execute(
+            f"INSERT INTO {MIGRATIONS_TABLE} (version, description) VALUES (?, ?)",
+            (STAGE3_VERSION, "stage3_trader_research_posts_theses"),
+        )
+        applied.append(f"v{STAGE3_VERSION}: stage3_research")
 
     return applied
 
