@@ -558,5 +558,70 @@ class FuturesAgentPostgresSmokeTest(unittest.TestCase):
         self.assertTrue(validation["valid"])
 
 
+@unittest.skipUnless(
+    os.getenv("FUTURES_AGENT_PG_SMOKE_TEST"),
+    "set FUTURES_AGENT_PG_SMOKE_TEST=1 for PostgreSQL seed-helper smoke test",
+)
+class FuturesAgentPostgresSeedHelperSmokeTest(unittest.TestCase):
+    def tearDown(self) -> None:
+        reset_bootstrap_for_tests()
+
+    def test_seed_helper_insert_returning_id_on_postgres(self) -> None:
+        import json
+        from bot.research.futures_agent.db import agent_connection, insert_returning_id
+        from bot.research.futures_agent.schema import apply_migrations
+
+        reset_bootstrap_for_tests()
+        url = os.environ.get("FUTURES_AGENT_DATABASE_URL", "")
+        if not url.startswith(("postgres://", "postgresql://")):
+            self.skipTest("FUTURES_AGENT_DATABASE_URL must be PostgreSQL")
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            post_id = insert_returning_id(
+                conn,
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "pg_seed_smoke", "signalyp", 1_700_000_000,
+                    "BTC LONG", "h_pg_seed", "EXPLICIT_SIGNAL", json.dumps(["BTC"]), 0.9,
+                ),
+            )
+            self.assertIsNotNone(post_id)
+            thesis_id = insert_returning_id(
+                conn,
+                """
+                INSERT INTO futures_agent_trader_theses (
+                  post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (post_id, "BTC", "LONG", "smoke", "1d", None, None, 0.9),
+            )
+            row = conn.execute(
+                """
+                SELECT t.post_id, p.source_message_id
+                FROM futures_agent_trader_theses t
+                JOIN futures_agent_trader_posts p ON p.id = t.post_id
+                WHERE t.id = ?
+                """,
+                (thesis_id,),
+            ).fetchone()
+            conn.execute(
+                "DELETE FROM futures_agent_trader_theses WHERE id = ?",
+                (thesis_id,),
+            )
+            conn.execute(
+                "DELETE FROM futures_agent_trader_posts WHERE id = ?",
+                (post_id,),
+            )
+            conn.commit()
+        self.assertEqual(int(row["post_id"]), int(post_id))
+        self.assertEqual(row["source_message_id"], "pg_seed_smoke")
+
+
 if __name__ == "__main__":
     unittest.main()

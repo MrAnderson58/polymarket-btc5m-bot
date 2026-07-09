@@ -14,7 +14,10 @@ from bot.research.futures.config import BINANCE_FUTURES_API, BINANCE_SPOT_API
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 8
+DEFAULT_CONNECT_TIMEOUT = 5
+DEFAULT_READ_TIMEOUT = 15
 DEFAULT_RETRIES = 2
+MAX_RETRIES = 2
 RETRY_BACKOFF_SEC = 0.5
 
 
@@ -55,14 +58,16 @@ class BinanceMarketProvider(MarketDataProvider):
         *,
         spot_api: str = BINANCE_SPOT_API,
         futures_api: str = BINANCE_FUTURES_API,
-        timeout: float = DEFAULT_TIMEOUT,
+        timeout: float | tuple[float, float] | None = None,
         retries: int = DEFAULT_RETRIES,
         session: requests.Session | None = None,
     ) -> None:
         self.spot_api = spot_api.rstrip("/")
         self.futures_api = futures_api.rstrip("/")
+        if timeout is None:
+            timeout = (DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_TIMEOUT)
         self.timeout = timeout
-        self.retries = retries
+        self.retries = min(retries, MAX_RETRIES)
         self._session = session or requests.Session()
 
     def _get(self, url: str, params: dict[str, Any]) -> Any:

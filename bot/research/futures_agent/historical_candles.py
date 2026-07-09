@@ -71,10 +71,51 @@ class CandleProvider(Protocol):
 
 
 class BinanceCandleProvider:
-    """Paginated Binance 1m fetch with retry via BinanceMarketProvider."""
+    """Paginated Binance 1m fetch with retry via BinanceMarketProvider.
+
+    Uses one canonical market source (spot or futures) per exchange_symbol for the
+    lifetime of this provider instance — avoids mixing sources across signals.
+    """
 
     def __init__(self, provider: BinanceMarketProvider | None = None) -> None:
         self._provider = provider or BinanceMarketProvider()
+        self._canonical_source: dict[str, str] = {}
+
+    def canonical_source_for(self, exchange_symbol: str) -> str | None:
+        return self._canonical_source.get(exchange_symbol)
+
+    def _fetch_page(
+        self,
+        exchange_symbol: str,
+        interval: str,
+        cursor_end: int,
+        *,
+        limit: int,
+    ) -> tuple[list[list], str]:
+        """Return (rows, resolved_source). Locks source per symbol on first success."""
+        locked = self._canonical_source.get(exchange_symbol)
+        if locked == "binance_futures":
+            return self._provider.fetch_futures_klines(
+                exchange_symbol, interval, cursor_end, limit=limit,
+            ) or [], "binance_futures"
+        if locked == "binance_spot":
+            return self._provider.fetch_spot_klines(
+                exchange_symbol, interval, cursor_end, limit=limit,
+            ) or [], "binance_spot"
+
+        page = self._provider.fetch_spot_klines(
+            exchange_symbol, interval, cursor_end, limit=limit,
+        )
+        if page:
+            self._canonical_source[exchange_symbol] = "binance_spot"
+            return page, "binance_spot"
+        page = self._provider.fetch_futures_klines(
+            exchange_symbol, interval, cursor_end, limit=limit,
+        )
+        if page:
+            self._canonical_source[exchange_symbol] = "binance_futures"
+            return page, "binance_futures"
+        return [], "unresolved"
 
     def fetch_range(
         self,
@@ -90,8 +131,10 @@ class BinanceCandleProvider:
             "requested_start_ts": start_ts,
             "requested_end_ts": end_ts,
             "data_source": "binance_spot",
+            "source_attempt": "spot",
             "fetch_status": "ok",
             "pages": 0,
+            "fetch_attempts": 0,
         }
         if start_ts >= end_ts:
             meta["fetch_status"] = "empty_range"
@@ -103,15 +146,12 @@ class BinanceCandleProvider:
         safety = 0
         while cursor_end > earliest_needed and safety < 50:
             safety += 1
-            page = self._provider.fetch_spot_klines(
+            meta["fetch_attempts"] += 1
+            page, resolved = self._fetch_page(
                 exchange_symbol, interval, cursor_end, limit=BINANCE_PAGE_LIMIT,
             )
-            if not page:
-                page = self._provider.fetch_futures_klines(
-                    exchange_symbol, interval, cursor_end, limit=BINANCE_PAGE_LIMIT,
-                )
-                if page:
-                    meta["data_source"] = "binance_futures"
+            meta["data_source"] = resolved
+            meta["source_attempt"] = "futures" if resolved == "binance_futures" else "spot"
             meta["pages"] += 1
             if not page:
                 meta["fetch_status"] = "no_data"
@@ -200,23 +240,37 @@ class CachedCandleProvider:
         cached = self._load_cached(exchange_symbol, start_ts, end_ts, interval)
         expected = max(0, (end_ts - start_ts) // INTERVAL_1M_SEC + 1)
         if cached and len(cached) >= expected * 0.98:
+            cached_source = self._conn.execute(
+                """
+                SELECT data_source FROM futures_agent_research_market_data_cache
+                WHERE exchange_symbol = ? AND interval = ?
+                ORDER BY open_ts DESC LIMIT 1
+                """,
+                (exchange_symbol, interval),
+            ).fetchone()
+            source = cached_source["data_source"] if cached_source else "cache"
             meta = {
                 "exchange_symbol": exchange_symbol,
                 "interval": interval,
                 "requested_start_ts": start_ts,
                 "requested_end_ts": end_ts,
-                "data_source": "cache",
+                "data_source": source,
+                "source_attempt": "cache",
+                "cache_status": "hit",
                 "fetch_status": "cache_hit",
                 "first_candle_ts": cached[0].open_ts,
                 "last_candle_ts": cached[-1].open_ts,
                 "candle_count": len(cached),
                 "gap_count": count_gaps(cached),
+                "pages": 0,
+                "fetch_attempts": 0,
             }
             return cached, meta
 
         candles, meta = self._inner.fetch_range(
             exchange_symbol, start_ts, end_ts, interval=interval,
         )
+        meta["cache_status"] = "miss"
         if candles:
             self._store_cache(exchange_symbol, interval, candles, str(meta.get("data_source", "binance")))
         return candles, meta

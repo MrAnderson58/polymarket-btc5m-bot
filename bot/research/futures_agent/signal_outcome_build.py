@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import sys
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
-from bot.research.futures_agent.db import connection_is_postgres, insert_returning_id, validate_write_table
+from bot.research.futures_agent.db import insert_returning_id, validate_write_table
 from bot.research.futures_agent.historical_candles import (
     CachedCandleProvider,
     required_end_ts,
@@ -32,6 +34,50 @@ class OutcomeBuildStats:
     not_entered: int = 0
     ambiguous: int = 0
     engine_version: str = ENGINE_VERSION
+
+
+def _format_message_ts(ts: int) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _emit_build_progress(
+    stats: OutcomeBuildStats,
+    *,
+    row: dict[str, Any] | None,
+    meta: dict[str, Any] | None,
+    t0: float,
+    phase: str,
+) -> None:
+    elapsed = max(time.monotonic() - t0, 0.001)
+    speed = stats.processed / elapsed if stats.processed else 0.0
+    remaining = max(stats.signals_total - stats.processed, 0)
+    eta_sec = remaining / speed if speed > 0 else 0.0
+    parts = [
+        "[outcome-build]",
+        phase,
+        f"{stats.processed}/{stats.signals_total}",
+        f"inserted={stats.outcomes_inserted}",
+        f"elapsed={elapsed:.1f}s",
+    ]
+    if speed > 0:
+        parts.append(f"speed={speed:.2f}/s")
+        parts.append(f"eta={eta_sec / 60:.1f}m")
+    if row is not None:
+        parts.extend([
+            f"thesis={row['thesis_id']}",
+            f"symbol={row['symbol']}",
+            f"ts={_format_message_ts(int(row['message_ts']))}",
+        ])
+    if meta is not None:
+        parts.extend([
+            f"cache={meta.get('cache_status', meta.get('fetch_status', '?'))}",
+            f"source={meta.get('data_source', '?')}",
+            f"attempt={meta.get('source_attempt', '?')}",
+            f"candles={meta.get('candle_count', 0)}",
+            f"pages={meta.get('pages', 0)}",
+            f"fetch_attempts={meta.get('fetch_attempts', 0)}",
+        ])
+    print(" ".join(parts), file=sys.stderr, flush=True)
 
 
 def _load_levels(conn: Any, thesis_id: int) -> dict[str, list[float]]:
@@ -215,11 +261,20 @@ def build_signal_outcomes(
     provider = candle_provider or CachedCandleProvider(conn)
     t0 = time.monotonic()
 
+    _emit_build_progress(
+        stats, row=None, meta=None, t0=t0,
+        phase=f"startup channel={channel} engine={engine_version} signals_discovered={stats.signals_total}",
+    )
+
     for row in rows:
         stats.processed += 1
         thesis_id = int(row["thesis_id"])
         if _outcome_exists(conn, thesis_id, engine_version):
             stats.outcomes_skipped += 1
+            _emit_build_progress(
+                stats, row=row, meta={"fetch_status": "skipped_existing"}, t0=t0,
+                phase="skip",
+            )
             continue
 
         exchange_symbol, _, symbol_status = resolve_exchange_symbol(row["symbol"])
@@ -246,10 +301,19 @@ def build_signal_outcomes(
             stats.outcomes_inserted += 1
             stats.events_inserted += ev_n
             stats.markouts_inserted += mk_n
+            _emit_build_progress(
+                stats, row=row, meta={"fetch_status": "symbol_unresolved"}, t0=t0,
+                phase="done",
+            )
             continue
 
         decision_ts = int(row["message_ts"])
         end_fetch = required_end_ts(decision_ts)
+        _emit_build_progress(
+            stats, row=row,
+            meta={"cache_status": "pending", "source_attempt": "spot_or_futures"},
+            t0=t0, phase="fetch",
+        )
         candles, meta = provider.fetch_range(exchange_symbol, decision_ts, end_fetch)
         dq = "COMPLETE"
         if not candles:
@@ -284,18 +348,16 @@ def build_signal_outcomes(
         stats.events_inserted += ev_n
         stats.markouts_inserted += mk_n
 
+        _emit_build_progress(stats, row=row, meta=meta, t0=t0, phase="done")
+
         if progress_every and stats.processed % progress_every == 0:
-            elapsed = max(time.monotonic() - t0, 0.001)
-            print(
-                f"Outcome build: {stats.processed}/{stats.signals_total} "
-                f"inserted={stats.outcomes_inserted} entered={stats.entered} "
-                f"speed={stats.processed/elapsed:.1f}/s",
-                flush=True,
-            )
-        if stats.processed % 25 == 0:
             conn.commit()
 
     conn.commit()
+    _emit_build_progress(
+        stats, row=None, meta=None, t0=t0,
+        phase=f"complete inserted={stats.outcomes_inserted} entered={stats.entered} not_entered={stats.not_entered}",
+    )
     return stats
 
 

@@ -10,7 +10,9 @@ import unittest
 from typing import Any
 
 from bot.research.futures_agent.env_bootstrap import reset_bootstrap_for_tests
+from bot.research.futures_agent.db import insert_returning_id
 from bot.research.futures_agent.historical_candles import Candle, resolve_exchange_symbol
+from bot.research.futures_agent.market_provider import BinanceMarketProvider
 from bot.research.futures_agent.schema import STAGE5_VERSION, apply_migrations
 from bot.research.futures_agent.signal_outcome_build import build_signal_outcomes
 from bot.research.futures_agent.signal_outcome_constants import ENGINE_VERSION
@@ -74,8 +76,8 @@ class StageD1Tests(unittest.TestCase):
         message_ts: int = 1_700_000_000,
         levels: list[tuple[str, float, int]],
     ) -> int:
-        thesis_id = None
-        post_row = conn.execute(
+        post_row_id = insert_returning_id(
+            conn,
             """
             INSERT INTO futures_agent_trader_posts (
               source_message_id, channel_name, message_ts, raw_text,
@@ -83,15 +85,18 @@ class StageD1Tests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (post_id, "signalyp", message_ts, raw, f"h{post_id}", "EXPLICIT_SIGNAL", json.dumps([symbol]), 0.9),
-        ).lastrowid
-        thesis_id = conn.execute(
+        )
+        self.assertIsNotNone(post_row_id)
+        thesis_id = insert_returning_id(
+            conn,
             """
             INSERT INTO futures_agent_trader_theses (
               post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (post_row, symbol, direction, "test", "1d", None, None, 0.9),
-        ).lastrowid
+            (post_row_id, symbol, direction, "test", "1d", None, None, 0.9),
+        )
+        self.assertIsNotNone(thesis_id)
         for ltype, price, ord_ in levels:
             conn.execute(
                 """
@@ -102,7 +107,35 @@ class StageD1Tests(unittest.TestCase):
                 (thesis_id, ltype, price, ord_, 0.9),
             )
         conn.commit()
+        post_check = conn.execute(
+            "SELECT id FROM futures_agent_trader_posts WHERE id = ?",
+            (post_row_id,),
+        ).fetchone()
+        thesis_check = conn.execute(
+            "SELECT post_id FROM futures_agent_trader_theses WHERE id = ?",
+            (thesis_id,),
+        ).fetchone()
+        self.assertIsNotNone(post_check)
+        self.assertEqual(int(thesis_check["post_id"]), int(post_row_id))
         return int(thesis_id)
+
+    def test_binance_canonical_source_locked_per_symbol(self) -> None:
+        from unittest.mock import MagicMock
+        from bot.research.futures_agent.historical_candles import BinanceCandleProvider
+
+        provider = BinanceMarketProvider()
+        inner = BinanceCandleProvider(provider)
+        spot_rows = [[1_700_000_000_000, "1", "2", "0.5", "1.5", "0"]]
+        provider.fetch_spot_klines = MagicMock(return_value=[])  # type: ignore[method-assign]
+        provider.fetch_futures_klines = MagicMock(return_value=spot_rows)  # type: ignore[method-assign]
+
+        candles, meta = inner.fetch_range("FOOUSDT", 1_700_000_000, 1_700_000_060)
+        self.assertEqual(meta["data_source"], "binance_futures")
+        self.assertEqual(inner.canonical_source_for("FOOUSDT"), "binance_futures")
+
+        provider.fetch_spot_klines = MagicMock(return_value=spot_rows)  # type: ignore[method-assign]
+        inner.fetch_range("FOOUSDT", 1_700_000_000, 1_700_000_120)
+        provider.fetch_spot_klines.assert_not_called()
 
     def test_schema_stage5_migration(self) -> None:
         with self._conn() as conn:
@@ -274,6 +307,33 @@ class StageD1Tests(unittest.TestCase):
         pr = evaluate_exit_policy(ev, "P2")
         self.assertIsNotNone(pr.return_pct)
         self.assertGreater(pr.return_pct, 0)
+
+    def test_seed_helper_preserves_post_thesis_fk(self) -> None:
+        with self._conn() as conn:
+            apply_migrations(conn)
+            thesis_id = self._seed_explicit_signal(
+                conn,
+                post_id="fk1",
+                raw="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
+                levels=[
+                    ("ENTRY_LOW", 100.0, 0),
+                    ("ENTRY_HIGH", 100.0, 0),
+                    ("STOP", 95.0, 0),
+                    ("TARGET", 110.0, 1),
+                ],
+            )
+            row = conn.execute(
+                """
+                SELECT t.id AS thesis_id, t.post_id, p.id AS post_pk, p.source_message_id
+                FROM futures_agent_trader_theses t
+                JOIN futures_agent_trader_posts p ON p.id = t.post_id
+                WHERE t.id = ?
+                """,
+                (thesis_id,),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["post_id"], row["post_pk"])
+        self.assertEqual(row["source_message_id"], "fk1")
 
     def test_build_idempotent_no_duplicates(self) -> None:
         t0 = 1_700_000_000
