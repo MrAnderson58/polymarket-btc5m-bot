@@ -22,6 +22,15 @@ from bot.research.futures_agent.signal_outcome_constants import (
     SAMPLE_LOW,
     SAMPLE_MODERATE,
 )
+from bot.research.futures_agent.signal_outcome_robustness import (
+    DEFAULT_COST_FEE_BPS,
+    DEFAULT_COST_SLIPPAGE_BPS,
+    VerdictInputs,
+    apply_round_trip_cost,
+    compute_research_verdict,
+    compute_robust_stats,
+    simulate_portfolio_equity,
+)
 
 
 @dataclass
@@ -308,30 +317,58 @@ def run_outcome_report(
         report.warnings.append(
             f"Only {len(rows)}/{expected} EXPLICIT_SIGNAL outcomes built; run outcome-build first.",
         )
-    if complete_pct < DATA_QUALITY_COMPLETE_THRESHOLD:
-        report.verdict = "INSUFFICIENT_DATA"
-        report.verdict_reasons.append(
-            f"Data completeness {complete_pct:.1%} < {DATA_QUALITY_COMPLETE_THRESHOLD:.0%}",
-        )
-    elif report.conservative_results.n < SAMPLE_INSUFFICIENT:
-        report.verdict = "INSUFFICIENT_DATA"
-        report.verdict_reasons.append(f"Entered N={report.conservative_results.n} < {SAMPLE_INSUFFICIENT}")
-    else:
-        oos_positive = sum(
-            1 for w in report.walk_forward
-            if w.get("oos_mean") is not None and w["oos_mean"] > 0 and w.get("oos_n", 0) >= 10
-        )
-        oos_total = sum(1 for w in report.walk_forward if w.get("oos_n", 0) >= 10)
-        q_positive = sum(1 for q in report.rolling_quarters if q["mean_return"] > 0 and q["n"] >= 10)
-        if report.conservative_results.mean_return > 0 and oos_positive >= max(1, oos_total // 2):
-            report.verdict = "SOURCE_HAS_PERSISTENT_EDGE"
-            report.verdict_reasons.append("Positive conservative mean with majority positive OOS years")
-        elif report.conservative_results.mean_return > 0 and q_positive >= 2:
-            report.verdict = "CONDITIONAL_EDGE"
-            report.verdict_reasons.append("Positive headline mean but mixed walk-forward blocks")
-        else:
-            report.verdict = "NOT_STABLE"
-            report.verdict_reasons.append("Conservative mean not positive across regimes")
+
+    robust = compute_robust_stats(conservative_returns)
+    trade_dicts = [
+            {
+                "return_pct": _policy_return(row, policy),
+                "entry_price": row["entry_price"],
+                "stop_price": row["stop_price"],
+                "direction": row["direction"],
+            }
+        for row in entered_rows
+        if _policy_return(row, policy) is not None
+    ]
+    port = simulate_portfolio_equity(trade_dicts, sizing="fixed_risk")
+    cost_mean = statistics.mean([
+        apply_round_trip_cost(r, fee_bps=DEFAULT_COST_FEE_BPS, slippage_bps=DEFAULT_COST_SLIPPAGE_BPS)
+        for r in conservative_returns
+    ]) if conservative_returns else None
+
+    oos_years_pos = sum(
+        1 for w in report.walk_forward
+        if w.get("oos_mean") is not None and w["oos_mean"] > 0 and w.get("oos_n", 0) >= 10
+    )
+    oos_years_total = sum(1 for w in report.walk_forward if w.get("oos_n", 0) >= 10)
+    rolling_blocks_pos = sum(1 for q in report.rolling_quarters if q["mean_return"] > 0 and q["n"] >= 10)
+    rolling_blocks_total = sum(1 for q in report.rolling_quarters if q["n"] >= 10)
+
+    recent_rows = sorted(entered_rows, key=lambda r: int(r["decision_ts"]))[-250:]
+    recent_rets = [r for r in (_policy_return(row, policy) for row in recent_rows) if r is not None]
+    recent_250_mean = statistics.mean(recent_rets) if recent_rets else None
+
+    verdict_inp = VerdictInputs(
+        entered_n=report.conservative_results.n,
+        complete_data_pct=complete_pct,
+        headline_mean=report.conservative_results.mean_return,
+        bootstrap_mean_ci=robust.bootstrap_mean_ci,
+        winsorized_5pct_mean=robust.winsorized_means.get("5pct"),
+        top10_concentration=robust.top_contribution_pct.get("top_10"),
+        top25_concentration=robust.top_contribution_pct.get("top_25"),
+        cost_adjusted_mean=cost_mean,
+        risk_sized_max_dd=port.max_drawdown_pct,
+        oos_years_positive=oos_years_pos,
+        oos_years_total=oos_years_total,
+        rolling_blocks_positive=rolling_blocks_pos,
+        rolling_blocks_total=rolling_blocks_total,
+        rolling_3m_positive=0,
+        rolling_3m_total=0,
+        recent_250_mean=recent_250_mean,
+        p4_mean=report.policy_comparison.get("P4", CohortStats()).mean_return,
+        p5_mean=report.policy_comparison.get("P5", CohortStats()).mean_return,
+        p6_mean=report.policy_comparison.get("P6", CohortStats()).mean_return,
+    )
+    report.verdict, report.verdict_reasons = compute_research_verdict(verdict_inp)
 
     return report
 
@@ -375,8 +412,9 @@ def render_outcome_report(report: OutcomeReport, *, policy: str = "P1") -> str:
         "",
         "=== 5. RETURN MODEL ASSUMPTIONS ===",
         "  MODEL A (headline): unleveraged underlying move, conservative execution (P1).",
-        f"  Fees: {DEFAULT_FEE_BPS} bps (not applied unless configured).",
-        f"  Slippage: {DEFAULT_SLIPPAGE_BPS} bps (not applied unless configured).",
+        f"  Fees: {DEFAULT_FEE_BPS} bps (headline not adjusted; see outcome-outlier-audit for scenarios).",
+        f"  Slippage: {DEFAULT_SLIPPAGE_BPS} bps (headline not adjusted).",
+        f"  Robustness cost check uses {DEFAULT_COST_FEE_BPS}+{DEFAULT_COST_SLIPPAGE_BPS} bps round-trip.",
         "  Leverage scenarios below are research-only, not exchange simulation.",
         "",
         "=== 6. CONSERVATIVE UNLEVERAGED (MODEL A / P1) ===",
@@ -449,8 +487,9 @@ def render_outcome_report(report: OutcomeReport, *, policy: str = "P1") -> str:
 
     lines.extend([
         "",
-        "=== 16. RESEARCH VERDICT ===",
+        "=== 16. RESEARCH VERDICT (D.1.1 robustness bar) ===",
         f"  {report.verdict}",
+        "  Run outcome-outlier-audit for full attribution, validation, and stability drilldown.",
     ])
     for r in report.verdict_reasons:
         lines.append(f"    - {r}")

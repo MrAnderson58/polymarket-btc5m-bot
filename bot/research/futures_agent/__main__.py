@@ -17,6 +17,7 @@ Usage:
   python -m bot.research.futures_agent stage3-final-gate --channel signalyp
   python -m bot.research.futures_agent outcome-build --channel signalyp
   python -m bot.research.futures_agent outcome-report --channel signalyp
+  python -m bot.research.futures_agent outcome-outlier-audit --channel signalyp --policy P1
   python -m bot.research.futures_agent outcome-gate --channel signalyp
   python -m bot.research.futures_agent outcome-test-contamination-audit --channel signalyp
   python -m bot.research.futures_agent outcome-test-contamination-cleanup --channel signalyp
@@ -57,7 +58,7 @@ def main() -> int:
             "research-rebuild-theses",
             "target-contamination-audit", "missing-thesis-audit",
             "technical-levels-audit", "stage3-final-gate",
-            "outcome-build", "outcome-report", "outcome-gate",
+            "outcome-build", "outcome-report", "outcome-gate", "outcome-outlier-audit",
             "outcome-test-contamination-audit",
             "outcome-test-contamination-cleanup",
             "research-classify-audit", "research-explicit-audit",
@@ -337,6 +338,25 @@ def main() -> int:
             apply_migrations(conn)
             gate = run_outcome_gate(conn, channel=args.channel or "signalyp", engine_version=ev)
             print(render_outcome_gate(gate))
+        return 0
+
+    if args.command == "outcome-outlier-audit":
+        from bot.research.futures_agent.signal_outcome_constants import ENGINE_VERSION
+        from bot.research.futures_agent.signal_outcome_outlier_audit import (
+            render_outlier_audit,
+            run_outlier_audit,
+        )
+
+        ev = args.engine_version or ENGINE_VERSION
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            audit = run_outlier_audit(
+                conn,
+                channel=args.channel or "signalyp",
+                engine_version=ev,
+                policy=args.policy,
+            )
+            print(render_outlier_audit(audit))
         return 0
 
     if args.command == "outcome-test-contamination-audit":
