@@ -15,6 +15,9 @@ Usage:
   python -m bot.research.futures_agent missing-thesis-audit --channel signalyp
   python -m bot.research.futures_agent technical-levels-audit --channel signalyp
   python -m bot.research.futures_agent stage3-final-gate --channel signalyp
+  python -m bot.research.futures_agent outcome-build --channel signalyp
+  python -m bot.research.futures_agent outcome-report --channel signalyp
+  python -m bot.research.futures_agent outcome-gate --channel signalyp
   python -m bot.research.futures_agent research-stats
   python -m bot.research.futures_agent evaluate-theses
   python -m bot.research.futures_agent evaluate-sources
@@ -52,6 +55,7 @@ def main() -> int:
             "research-rebuild-theses",
             "target-contamination-audit", "missing-thesis-audit",
             "technical-levels-audit", "stage3-final-gate",
+            "outcome-build", "outcome-report", "outcome-gate",
             "research-classify-audit", "research-explicit-audit",
             "research-signal-format-audit",
             "evaluate-theses", "evaluate-sources", "source-report", "symbol-report",
@@ -113,6 +117,18 @@ def main() -> int:
         type=int,
         default=2000,
         help="Chunk size for ingest-research",
+    )
+    parser.add_argument(
+        "--engine-version",
+        type=str,
+        default=None,
+        help="Outcome engine version (default: d1.0)",
+    )
+    parser.add_argument(
+        "--policy",
+        type=str,
+        default="P1",
+        help="Exit policy for outcome-report (P1-P6)",
     )
     args = parser.parse_args()
 
@@ -249,6 +265,62 @@ def main() -> int:
             apply_migrations(conn)
             report = run_technical_levels_audit(conn, channel=args.channel or "signalyp")
             print(render_technical_levels_audit(report))
+        return 0
+
+    if args.command == "outcome-build":
+        from bot.research.futures_agent.signal_outcome_build import (
+            build_signal_outcomes,
+            render_build_reconciliation,
+        )
+        from bot.research.futures_agent.signal_outcome_constants import ENGINE_VERSION
+
+        ev = args.engine_version or ENGINE_VERSION
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            stats = build_signal_outcomes(
+                conn,
+                channel=args.channel or "signalyp",
+                symbol=None,
+                start_ts=args.start_ts,
+                end_ts=args.end_ts,
+                engine_version=ev,
+            )
+            print(render_build_reconciliation(stats))
+        return 0
+
+    if args.command == "outcome-report":
+        from bot.research.futures_agent.signal_outcome_constants import ENGINE_VERSION
+        from bot.research.futures_agent.signal_outcome_report import (
+            render_outcome_report,
+            run_outcome_report,
+        )
+
+        ev = args.engine_version or ENGINE_VERSION
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            report = run_outcome_report(
+                conn,
+                channel=args.channel or "signalyp",
+                engine_version=ev,
+                policy=args.policy,
+                start_ts=args.start_ts,
+                end_ts=args.end_ts,
+            )
+            print(render_outcome_report(report, policy=args.policy))
+        return 0
+
+    if args.command == "outcome-gate":
+        from bot.research.futures_agent.signal_outcome_constants import ENGINE_VERSION
+        from bot.research.futures_agent.signal_outcome_gate import (
+            render_outcome_gate,
+            run_outcome_gate,
+        )
+
+        ev = args.engine_version or ENGINE_VERSION
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            gate = run_outcome_gate(conn, channel=args.channel or "signalyp", engine_version=ev)
+            print(render_outcome_gate(gate))
         return 0
 
     if args.command == "stage3-final-gate":

@@ -1,0 +1,359 @@
+"""Phase D.1 historical outcome engine tests."""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import tempfile
+import unittest
+from typing import Any
+
+from bot.research.futures_agent.env_bootstrap import reset_bootstrap_for_tests
+from bot.research.futures_agent.historical_candles import Candle, resolve_exchange_symbol
+from bot.research.futures_agent.schema import STAGE5_VERSION, apply_migrations
+from bot.research.futures_agent.signal_outcome_build import build_signal_outcomes
+from bot.research.futures_agent.signal_outcome_constants import ENGINE_VERSION
+from bot.research.futures_agent.signal_outcome_exit_policies import evaluate_exit_policy
+from bot.research.futures_agent.signal_outcome_path import (
+    PathEvaluation,
+    TargetLevel,
+    directional_return,
+    evaluate_signal_path,
+    find_market_entry,
+    find_numeric_entry,
+    pre_entry_touch_ignored,
+)
+from bot.research.futures_agent.signal_outcome_report import run_outcome_report
+
+
+def _c(ts: int, o: float, h: float, l: float, cl: float | None = None) -> Candle:
+    return Candle(open_ts=ts, open=o, high=h, low=l, close=cl if cl is not None else o)
+
+
+class MockCandleProvider:
+    def __init__(self, candles: dict[str, list[Candle]]) -> None:
+        self._candles = candles
+
+    def fetch_range(
+        self, exchange_symbol: str, start_ts: int, end_ts: int, *, interval: str = "1m",
+    ) -> tuple[list[Candle], dict[str, Any]]:
+        data = [c for c in self._candles.get(exchange_symbol, []) if start_ts <= c.open_ts <= end_ts]
+        return data, {
+            "fetch_status": "mock",
+            "gap_count": 0,
+            "candle_count": len(data),
+            "data_source": "mock",
+        }
+
+
+class StageD1Tests(unittest.TestCase):
+    def setUp(self) -> None:
+        reset_bootstrap_for_tests()
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False)
+        self.tmp.close()
+        self.db_path = self.tmp.name
+        os.environ["FUTURES_AGENT_SQLITE_PATH"] = self.db_path
+        os.environ.pop("FUTURES_AGENT_DATABASE_URL", None)
+
+    def tearDown(self) -> None:
+        os.unlink(self.db_path)
+
+    def _conn(self):
+        from bot.research.futures_agent.db import agent_connection
+        return agent_connection()
+
+    def _seed_explicit_signal(
+        self,
+        conn,
+        *,
+        post_id: str = "d1",
+        raw: str,
+        direction: str = "LONG",
+        symbol: str = "BTC",
+        message_ts: int = 1_700_000_000,
+        levels: list[tuple[str, float, int]],
+    ) -> int:
+        thesis_id = None
+        post_row = conn.execute(
+            """
+            INSERT INTO futures_agent_trader_posts (
+              source_message_id, channel_name, message_ts, raw_text,
+              content_hash, content_type, symbols_json, deterministic_confidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (post_id, "signalyp", message_ts, raw, f"h{post_id}", "EXPLICIT_SIGNAL", json.dumps([symbol]), 0.9),
+        ).lastrowid
+        thesis_id = conn.execute(
+            """
+            INSERT INTO futures_agent_trader_theses (
+              post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (post_row, symbol, direction, "test", "1d", None, None, 0.9),
+        ).lastrowid
+        for ltype, price, ord_ in levels:
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_levels (
+                  thesis_id, level_type, price, ordinal, confidence
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (thesis_id, ltype, price, ord_, 0.9),
+            )
+        conn.commit()
+        return int(thesis_id)
+
+    def test_schema_stage5_migration(self) -> None:
+        with self._conn() as conn:
+            applied = apply_migrations(conn)
+            v = conn.execute(
+                "SELECT version FROM futures_agent_migrations WHERE version = ?",
+                (STAGE5_VERSION,),
+            ).fetchone()
+        self.assertTrue(any("stage5" in a for a in applied) or v is not None)
+
+    def test_long_entry_tp_before_stop(self) -> None:
+        t0 = 1_700_000_000
+        candles = [
+            _c(t0, 100, 101, 99, 100),
+            _c(t0 + 60, 100, 110, 99, 108),
+            _c(t0 + 120, 108, 109, 95, 96),
+        ]
+        ev = evaluate_signal_path(
+            decision_ts=t0,
+            direction="LONG",
+            levels={"ENTRY_LOW": [100.0], "ENTRY_HIGH": [100.0], "STOP": [95.0], "TARGET": [110.0]},
+            raw_text="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
+            candles=candles,
+        )
+        self.assertEqual(ev.entry_status, "ENTERED")
+        self.assertEqual(ev.conservative_terminal, "TP1")
+        self.assertEqual(ev.max_target_reached, 1)
+
+    def test_long_entry_stop_before_tp(self) -> None:
+        t0 = 1_700_000_000
+        candles = [
+            _c(t0, 100, 101, 99.5, 100),
+            _c(t0 + 60, 100, 101, 94, 95),
+            _c(t0 + 120, 95, 120, 94, 115),
+        ]
+        ev = evaluate_signal_path(
+            decision_ts=t0,
+            direction="LONG",
+            levels={"ENTRY_LOW": [100.0], "ENTRY_HIGH": [100.0], "STOP": [95.0], "TARGET": [110.0]},
+            raw_text="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
+            candles=candles,
+        )
+        self.assertEqual(ev.conservative_terminal, "STOP")
+
+    def test_short_entry_tp(self) -> None:
+        t0 = 1_700_000_000
+        candles = [
+            _c(t0, 100, 100.5, 99.5, 100),
+            _c(t0 + 60, 100, 101, 88, 90),
+        ]
+        ev = evaluate_signal_path(
+            decision_ts=t0,
+            direction="SHORT",
+            levels={"ENTRY_LOW": [100.0], "ENTRY_HIGH": [100.0], "STOP": [105.0], "TARGET": [90.0]},
+            raw_text="BTC SHORT\nEntry: 100\nSL: 105\nTP: 90",
+            candles=candles,
+        )
+        self.assertEqual(ev.conservative_terminal, "TP1")
+        self.assertGreater(directional_return("SHORT", 100.0, 90.0), 0)
+
+    def test_numeric_entry_not_entered(self) -> None:
+        t0 = 1_700_000_000
+        candles = [_c(t0 + i * 60, 120, 121, 119, 120) for i in range(10)]
+        ev = evaluate_signal_path(
+            decision_ts=t0,
+            direction="LONG",
+            levels={"ENTRY_LOW": [100.0], "ENTRY_HIGH": [101.0], "STOP": [95.0], "TARGET": [110.0]},
+            raw_text="BTC LONG\nEntry: 100-101\nSL: 95\nTP: 110",
+            candles=candles,
+        )
+        self.assertEqual(ev.entry_status, "NOT_ENTERED")
+
+    def test_pre_entry_touch_ignored(self) -> None:
+        t0 = 1_700_000_000
+        candles = [
+            _c(t0, 100, 100.5, 89, 95),
+            _c(t0 + 60, 95, 101, 94, 100),
+        ]
+        self.assertTrue(pre_entry_touch_ignored(
+            candles, t0, t0 + 60, "LONG", 95.0, 110.0,
+        ))
+
+    def test_market_entry_first_candle_after_decision(self) -> None:
+        t0 = 1_700_000_000
+        candles = [
+            _c(t0, 99, 100, 98, 99),
+            _c(t0 + 60, 100, 101, 99, 100.5),
+        ]
+        ts, px = find_market_entry(candles, t0)
+        self.assertEqual(ts, t0 + 60)
+        self.assertEqual(px, 100.0)
+
+    def test_ambiguous_intrabar_same_candle(self) -> None:
+        t0 = 1_700_000_000
+        candles = [
+            _c(t0, 100, 101, 99.5, 100),
+            _c(t0 + 60, 100, 112, 93, 105),
+        ]
+        ev = evaluate_signal_path(
+            decision_ts=t0,
+            direction="LONG",
+            levels={"ENTRY_LOW": [100.0], "ENTRY_HIGH": [100.0], "STOP": [95.0], "TARGET": [110.0]},
+            raw_text="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
+            candles=candles,
+        )
+        self.assertEqual(ev.ambiguous_intrabar, 1)
+        self.assertEqual(ev.conservative_terminal, "STOP")
+
+    def test_deferred_stop_no_invented_stop(self) -> None:
+        t0 = 1_700_000_000
+        candles = [_c(t0 + i * 60, 100, 101, 99, 100) for i in range(5)]
+        ev = evaluate_signal_path(
+            decision_ts=t0,
+            direction="LONG",
+            levels={"ENTRY_LOW": [100.0], "ENTRY_HIGH": [100.0], "TARGET": [110.0]},
+            raw_text="BTC LONG\nEntry: 100\nСтоп: пока не ставлю\nTP: 110",
+            candles=candles,
+        )
+        self.assertEqual(ev.stop_mode, "DEFERRED_STOP")
+        self.assertIsNone(ev.stop_price)
+
+    def test_unknown_symbol_unresolved(self) -> None:
+        sym, _, status = resolve_exchange_symbol("NOT A SYMBOL!!")
+        self.assertIsNone(sym)
+        self.assertEqual(status, "unresolved_symbol")
+
+    def test_target_direction_validation(self) -> None:
+        t0 = 1_700_000_000
+        candles = [_c(t0, 100, 101, 99, 100), _c(t0 + 60, 100, 105, 99, 104)]
+        ev = evaluate_signal_path(
+            decision_ts=t0,
+            direction="LONG",
+            levels={"ENTRY_LOW": [100.0], "ENTRY_HIGH": [100.0], "TARGET": [95.0]},
+            raw_text="BTC LONG\nEntry: 100\nTP: 95",
+            candles=candles,
+        )
+        self.assertEqual(ev.targets[0].validity, "DIRECTION_INCONSISTENT")
+
+    def test_markout_and_mfe_mae(self) -> None:
+        t0 = 1_700_000_000
+        candles = [
+            _c(t0, 100, 101, 99.5, 100),
+            _c(t0 + 60, 100, 105, 98, 104),
+            _c(t0 + 3600, 104, 106, 103, 105),
+        ]
+        ev = evaluate_signal_path(
+            decision_ts=t0,
+            direction="LONG",
+            levels={"ENTRY_LOW": [100.0], "ENTRY_HIGH": [100.0]},
+            raw_text="BTC LONG\nEntry: 100",
+            candles=candles,
+        )
+        self.assertIsNotNone(ev.mfe_pct)
+        self.assertIsNotNone(ev.mae_pct)
+        self.assertTrue(any(m.horizon == "1h" for m in ev.markouts))
+
+    def test_partial_target_policy_p2(self) -> None:
+        ev = PathEvaluation(
+            decision_ts=1, direction="LONG", entry_mode="NUMERIC_ZONE",
+            entry_status="ENTERED", entry_ts=1, entry_price=100.0,
+            entry_fill_model="conservative_boundary", stop_mode="NUMERIC_STOP",
+            stop_price=95.0, targets=[
+                TargetLevel(110.0, 1, "VALID"),
+                TargetLevel(120.0, 2, "VALID"),
+            ],
+            conservative_terminal="TP2", max_target_reached=2,
+            markouts=[type("M", (), {"horizon": "24h", "mark_price": 120.0})()],
+        )
+        pr = evaluate_exit_policy(ev, "P2")
+        self.assertIsNotNone(pr.return_pct)
+        self.assertGreater(pr.return_pct, 0)
+
+    def test_build_idempotent_no_duplicates(self) -> None:
+        t0 = 1_700_000_000
+        candles = {
+            "BTCUSDT": [
+                _c(t0, 100, 101, 99.5, 100),
+                _c(t0 + 60, 100, 110, 99, 108),
+            ],
+        }
+        provider = MockCandleProvider(candles)
+        with self._conn() as conn:
+            apply_migrations(conn)
+            self._seed_explicit_signal(
+                conn,
+                raw="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
+                levels=[
+                    ("ENTRY_LOW", 100.0, 0),
+                    ("ENTRY_HIGH", 100.0, 0),
+                    ("STOP", 95.0, 0),
+                    ("TARGET", 110.0, 1),
+                ],
+            )
+            s1 = build_signal_outcomes(conn, channel="signalyp", candle_provider=provider)
+            s2 = build_signal_outcomes(conn, channel="signalyp", candle_provider=provider)
+            n = conn.execute(
+                "SELECT COUNT(*) AS n FROM futures_agent_research_signal_outcomes",
+            ).fetchone()["n"]
+            ev_n = conn.execute(
+                "SELECT COUNT(*) AS n FROM futures_agent_research_signal_events",
+            ).fetchone()["n"]
+        self.assertEqual(s1.outcomes_inserted, 1)
+        self.assertEqual(s2.outcomes_inserted, 0)
+        self.assertEqual(n, 1)
+        self.assertGreater(ev_n, 0)
+
+    def test_no_future_candle_leakage_in_markouts(self) -> None:
+        t0 = 1_700_000_000
+        candles = [
+            _c(t0, 100, 101, 99.5, 100),
+            _c(t0 + 60, 100, 150, 99, 140),
+        ]
+        ev = evaluate_signal_path(
+            decision_ts=t0,
+            direction="LONG",
+            levels={"ENTRY_LOW": [100.0], "ENTRY_HIGH": [100.0]},
+            raw_text="BTC LONG\nEntry: 100",
+            candles=candles,
+        )
+        m15 = next(m for m in ev.markouts if m.horizon == "15m")
+        self.assertLessEqual(m15.mark_ts, t0 + 60 + 15 * 60)
+
+    def test_walk_forward_report_structure(self) -> None:
+        t0 = 1_700_000_000
+        provider = MockCandleProvider({
+            "BTCUSDT": [_c(t0, 100, 101, 99.5, 100), _c(t0 + 60, 100, 110, 99, 108)],
+        })
+        with self._conn() as conn:
+            apply_migrations(conn)
+            self._seed_explicit_signal(
+                conn,
+                post_id="wf1",
+                message_ts=t0,
+                raw="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
+                levels=[
+                    ("ENTRY_LOW", 100.0, 0),
+                    ("ENTRY_HIGH", 100.0, 0),
+                    ("STOP", 95.0, 0),
+                    ("TARGET", 110.0, 1),
+                ],
+            )
+            build_signal_outcomes(conn, channel="signalyp", candle_provider=provider)
+            report = run_outcome_report(conn, channel="signalyp")
+        self.assertIn(report.verdict, (
+            "SOURCE_HAS_PERSISTENT_EDGE",
+            "SOURCE_HAS_CONDITIONAL_EDGE",
+            "SOURCE_EDGE_NOT_STABLE",
+            "INSUFFICIENT_DATA",
+        ))
+        self.assertGreaterEqual(report.corpus["outcomes_built"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
