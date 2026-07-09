@@ -41,6 +41,23 @@ def shock_event_report(conn: Any, *, days: int = 7) -> str:
             f"  id={e['id']} {ts} {e['symbol']} {e['direction']} "
             f"ret={e['return_pct']:.2f}% class={e['classification']}",
         )
+    lines.extend(["", "=== STRATIFIED (E.2) ==="])
+    for col in ("asset_class", "session_regime", "cross_classification"):
+        try:
+            rows2 = conn.execute(
+                f"""
+                SELECT {col} AS k, COUNT(*) AS n
+                FROM market_events WHERE event_ts >= ? AND {col} IS NOT NULL
+                GROUP BY {col} ORDER BY n DESC
+                """,
+                (since,),
+            ).fetchall()
+            if rows2:
+                lines.append(f"  by {col}:")
+                for r in rows2:
+                    lines.append(f"    {r['k']}: {r['n']}")
+        except Exception:
+            pass
     return "\n".join(lines)
 
 
@@ -84,6 +101,23 @@ def shock_strategy_report(conn: Any, *, strategy_prefix: str | None = None, days
         lines.append(f"top_10pct_contribution: {top / total:.1%}")
     be_exits = sum(1 for r in rows if r["be_exit"])
     lines.append(f"be_exit_rate: {be_exits / len(rows):.1%}")
+    lines.extend(["", "=== STRATIFIED BY ASSET CLASS (E.2) ==="])
+    try:
+        strat = conn.execute(
+            """
+            SELECT e.asset_class, COUNT(*) AS n,
+                   AVG(r.net_return) AS mean_ret
+            FROM paper_strategy_runs r
+            JOIN market_events e ON e.id = r.event_id
+            WHERE e.event_ts >= ? AND r.exit_ts IS NOT NULL AND e.asset_class IS NOT NULL
+            GROUP BY e.asset_class
+            """,
+            (since,),
+        ).fetchall()
+        for s in strat:
+            lines.append(f"  {s['asset_class']}: N={s['n']} mean={s['mean_ret']:.3f}%")
+    except Exception:
+        pass
     return "\n".join(lines)
 
 

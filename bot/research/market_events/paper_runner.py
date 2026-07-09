@@ -75,11 +75,25 @@ class ShockPaperRunner:
         self.stats = RunnerStats()
         self._active: dict[int, ActiveEvent] = {}
         self._shutdown = False
+        self._instrument_map: dict[str, dict[str, Any]] = {}
 
     def request_shutdown(self) -> None:
         self._shutdown = True
 
-    def _persist_event(self, conn: Any, shock: ShockCandidate, classification: str) -> int | None:
+    def _persist_event(
+        self,
+        conn: Any,
+        shock: ShockCandidate,
+        classification: str,
+        *,
+        venue: str = "binance_futures",
+        instrument_id: int | None = None,
+        asset_class: str | None = None,
+        session_regime: str | None = None,
+        reference_return_pct: float | None = None,
+        basis_bps: float | None = None,
+        cross_classification: str | None = None,
+    ) -> int | None:
         try:
             return insert_returning_id(
                 conn,
@@ -89,11 +103,13 @@ class ShockPaperRunner:
                   trigger_window_seconds, return_pct, velocity, acceleration, volume_zscore,
                   market_return_pct, btc_return_pct, relative_return_pct, classification,
                   confidence, detector_version, detector_triggers_json, dedup_key,
-                  raw_metrics_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  raw_metrics_json, created_at,
+                  instrument_id, asset_class, session_regime, reference_return_pct,
+                  basis_bps, cross_classification
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    shock.event_ts, shock.detected_ts, "binance_futures", shock.symbol,
+                    shock.event_ts, shock.detected_ts, venue, shock.symbol,
                     "SHOCK", shock.direction, EVENT_PHASE_DETECTED,
                     max(t.window_sec for t in shock.triggers),
                     shock.return_pct, shock.velocity, shock.acceleration, shock.volume_zscore,
@@ -101,6 +117,8 @@ class ShockPaperRunner:
                     classification, shock.confidence, DETECTOR_VERSION,
                     json.dumps([t.detector_id for t in shock.triggers]),
                     shock.dedup_key, json.dumps(shock.raw_metrics), int(time.time()),
+                    instrument_id, asset_class, session_regime, reference_return_pct,
+                    basis_bps, cross_classification,
                 ),
             )
         except Exception:
@@ -149,6 +167,54 @@ class ShockPaperRunner:
                 self._active[event_id].positions.append(pos)
             self.stats.paper_entries += 1
 
+    def _classify_shock(self, shock: ShockCandidate, symbols: list[str], now: int) -> tuple[str, str | None, float | None, float | None, str | None, str | None, int | None]:
+        eth_st = self.feed.get_state("ETH")
+        eth_ret = eth_st.return_over(60, now) if eth_st else None
+        classification = classify_shock(
+            shock, eth_return_pct=eth_ret, median_universe_return_pct=shock.market_return_pct,
+        )
+        if self.universe_mode != "multi":
+            return classification, None, None, None, None, None, None
+
+        inst = self._instrument_map.get(shock.symbol.upper())
+        asset_class = inst["asset_class"] if inst else None
+        instrument_id = int(inst["id"]) if inst else None
+        venue = inst["venue"] if inst else "binance_futures"
+        session_regime = None
+        if inst:
+            from bot.research.market_events.session_regime import classify_session_regime
+            session_regime = classify_session_regime(
+                now, asset_class=inst["asset_class"], trading_hours_mode=inst["trading_hours_mode"],
+            )
+
+        basis_bps = getattr(self.feed, "get_basis_bps", lambda _s: None)(shock.symbol)
+        ref_ret = None
+        if hasattr(self.feed, "get_reference_return_pct"):
+            ref_ret = self.feed.get_reference_return_pct(shock.symbol, 60, now)
+
+        peer_returns: dict[str, float] = {}
+        for sym in symbols:
+            st = self.feed.get_state(sym)
+            if st:
+                r = st.return_over(60, now)
+                if r is not None:
+                    peer_returns[sym] = r
+
+        btc_st = self.feed.get_state("BTC")
+        btc_ret = btc_st.return_over(60, now) if btc_st else None
+        from bot.research.market_events.cross_asset_classifier import classify_cross_asset
+        cross = classify_cross_asset(
+            shock,
+            asset_class=asset_class or "CRYPTO",
+            canonical_asset=shock.symbol,
+            basis_bps=basis_bps,
+            reference_return_pct=ref_ret,
+            peer_returns=peer_returns,
+            btc_return_pct=btc_ret,
+            median_crypto_return=shock.market_return_pct,
+        )
+        return classification, cross, asset_class, session_regime, ref_ret, basis_bps, instrument_id, venue
+
     def run_once(self, conn: Any, symbols: list[str]) -> None:
         now = int(time.time())
         self.feed.poll_universe(symbols, max_age_sec=PRICE_HISTORY_SEC)
@@ -156,16 +222,41 @@ class ShockPaperRunner:
 
         shocks = scan_universe_for_shocks(self.feed, symbols, now_ts=now)
         for shock in shocks:
-            eth_st = self.feed.get_state("ETH")
-            eth_ret = eth_st.return_over(60, now) if eth_st else None
-            classification = classify_shock(shock, eth_return_pct=eth_ret, median_universe_return_pct=shock.market_return_pct)
-            event_id = self._persist_event(conn, shock, classification)
+            cls_result = self._classify_shock(shock, symbols, now)
+            if self.universe_mode == "multi":
+                classification, cross, asset_class, session_regime, ref_ret, basis_bps, instrument_id, venue = cls_result
+            else:
+                classification = cls_result[0]
+                cross = asset_class = session_regime = ref_ret = basis_bps = instrument_id = None
+                venue = "binance_futures"
+
+            event_id = self._persist_event(
+                conn, shock, classification,
+                venue=venue,
+                instrument_id=instrument_id,
+                asset_class=asset_class,
+                session_regime=session_regime,
+                reference_return_pct=ref_ret,
+                basis_bps=basis_bps,
+                cross_classification=cross,
+            )
             if event_id is None:
                 continue
             self.stats.shocks_detected += 1
             state = self.feed.get_state(shock.symbol)
             if state:
-                persist_snapshot(conn, event_id=event_id, snapshot_ts=now, offset_seconds=0, state=state, event_price=state.last_price or 0)
+                ref_price = getattr(self.feed, "get_reference_price", lambda _s: None)(shock.symbol)
+                snap_basis = basis_bps
+                tracking = None
+                if ref_price and state.last_price and ref_price > 0:
+                    tracking = (state.last_price / ref_price - 1.0) * 10000.0
+                persist_snapshot(
+                    conn, event_id=event_id, snapshot_ts=now, offset_seconds=0, state=state,
+                    event_price=state.last_price or 0,
+                    reference_price=ref_price,
+                    basis_bps=snap_basis,
+                    tracking_error_bps=tracking,
+                )
             link_event_context(conn, event_id=event_id, event_ts=shock.event_ts, symbol=shock.symbol)
 
             if not state:
@@ -225,6 +316,13 @@ class ShockPaperRunner:
         with market_events_connection() as conn:
             apply_migrations(conn)
             symbols, version = select_universe(conn, mode=self.universe_mode)
+            if self.universe_mode == "multi":
+                from bot.research.market_events.instrument_master import load_active_instruments
+                from bot.research.market_events.multi_venue_feed import MultiVenuePriceFeed
+                instruments = [dict(r) for r in load_active_instruments(conn)]
+                self.feed = MultiVenuePriceFeed(instruments)
+                self._instrument_map = {r["canonical_asset"]: r for r in instruments}
+                logger.info("multi-venue feed instruments=%s", len(instruments))
             logger.info("universe %s symbols=%s", version, ",".join(symbols))
 
             cycles = 0

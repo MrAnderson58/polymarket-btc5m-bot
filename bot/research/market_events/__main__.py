@@ -1,9 +1,12 @@
-"""Phase E.1 CLI."""
+"""Phase E.1/E.2 CLI."""
 
 from __future__ import annotations
 
 import argparse
 import sys
+
+from bot.research.market_events.db import market_events_connection
+from bot.research.market_events.event_schema import apply_migrations
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -18,9 +21,13 @@ def main(argv: list[str] | None = None) -> int:
             "shock-context-report",
             "polymarket-paper-audit",
             "architecture-audit",
+            "instrument-discover",
+            "instrument-report",
+            "e2-audit",
         ),
     )
-    parser.add_argument("--universe", default="core", help="Universe mode (core)")
+    parser.add_argument("--universe", default="core", help="Universe mode: core (E.1) or multi (E.2)")
+    parser.add_argument("--enable-tradfi", action="store_true", help="Activate liquid TradFi instruments on discover")
     parser.add_argument("--paper-only", action="store_true", default=True)
     parser.add_argument("--max-cycles", type=int, default=None, help="Limit poll cycles (testing)")
     parser.add_argument("--days", type=int, default=7)
@@ -41,8 +48,33 @@ def main(argv: list[str] | None = None) -> int:
         print(render_polymarket_paper_audit())
         return 0
 
-    from bot.research.market_events.db import market_events_connection
-    from bot.research.market_events.event_schema import apply_migrations
+    if args.command == "e2-audit":
+        from pathlib import Path
+        doc = Path(__file__).resolve().parent.parent.parent.parent / "docs" / "research" / "PHASE_E2_ARCHITECTURE.md"
+        print(doc.read_text() if doc.exists() else "Run instrument-discover first; see PHASE_E2_ARCHITECTURE.md")
+        return 0
+
+    if args.command == "instrument-discover":
+        from bot.research.market_events.instrument_discovery import run_instrument_discovery
+        from bot.research.market_events.instrument_report import instrument_registry_report
+
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            result = run_instrument_discovery(conn, enable_tradfi=args.enable_tradfi)
+            print(instrument_registry_report(conn))
+            print("")
+            print(f"discovered: binance={result.binance_count} bybit_stock={result.bybit_stock_count} "
+                  f"commodity={result.bybit_commodity_count} index={result.bybit_index_count} "
+                  f"enabled={result.enabled_count}")
+        return 0
+
+    if args.command == "instrument-report":
+        from bot.research.market_events.instrument_report import instrument_registry_report
+
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(instrument_registry_report(conn))
+        return 0
 
     if args.command == "market-event-migrate":
         with market_events_connection() as conn:

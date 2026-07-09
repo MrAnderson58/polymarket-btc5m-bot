@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -145,15 +145,108 @@ def apply_migrations(conn: Any) -> list[str]:
         f"SELECT MAX(version) AS v FROM {MIGRATIONS_TABLE}",
     ).fetchone()
     current = int(row["v"] or 0)
-    if current < SCHEMA_VERSION:
+
+    if current < 1:
         now = int(time.time())
         conn.execute(
             f"""
             INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
             VALUES (?, datetime(?, 'unixepoch'), ?)
             """,
-            (SCHEMA_VERSION, now, "Phase E.1 initial schema"),
+            (1, now, "Phase E.1 initial schema"),
+        )
+        applied.append("v1")
+
+    if current < SCHEMA_VERSION:
+        conn.executescript(E2_DDL)
+        for stmt in E2_ALTER_STATEMENTS:
+            try:
+                conn.execute(stmt)
+            except Exception:
+                pass
+        now = int(time.time())
+        conn.execute(
+            f"""
+            INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+            VALUES (?, datetime(?, 'unixepoch'), ?)
+            """,
+            (SCHEMA_VERSION, now, "Phase E.2 multi-asset instrument registry"),
         )
         applied.append(f"v{SCHEMA_VERSION}")
         conn.commit()
     return applied
+
+
+E2_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_instruments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    venue TEXT NOT NULL,
+    venue_symbol TEXT NOT NULL,
+    canonical_asset TEXT NOT NULL,
+    reference_asset TEXT NOT NULL,
+    asset_class TEXT NOT NULL,
+    instrument_type TEXT NOT NULL,
+    quote_currency TEXT NOT NULL DEFAULT 'USDT',
+    trading_hours_mode TEXT NOT NULL,
+    price_source TEXT NOT NULL,
+    reference_price_source TEXT NOT NULL,
+    contract_type TEXT,
+    funding_applicable INTEGER NOT NULL DEFAULT 0,
+    leverage_available INTEGER NOT NULL DEFAULT 1,
+    liquidity_tier TEXT NOT NULL DEFAULT 'WATCH',
+    active INTEGER NOT NULL DEFAULT 0,
+    metadata_json TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(venue, venue_symbol)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_inst_asset ON market_events_instruments(canonical_asset);
+CREATE INDEX IF NOT EXISTS idx_me_inst_class ON market_events_instruments(asset_class);
+CREATE INDEX IF NOT EXISTS idx_me_inst_active ON market_events_instruments(active);
+
+CREATE TABLE IF NOT EXISTS market_events_price_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    instrument_id INTEGER NOT NULL,
+    obs_ts INTEGER NOT NULL,
+    trade_price REAL,
+    reference_price REAL,
+    basis_bps REAL,
+    spread_bps REAL,
+    lag_seconds INTEGER,
+    venue TEXT,
+    raw_json TEXT,
+    FOREIGN KEY (instrument_id) REFERENCES market_events_instruments(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_price_obs_inst ON market_events_price_observations(instrument_id);
+
+CREATE TABLE IF NOT EXISTS market_events_entity_registry (
+    entity_id TEXT PRIMARY KEY,
+    canonical_asset TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    aliases_json TEXT NOT NULL,
+    metadata_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_discovery_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    venue TEXT NOT NULL,
+    discovered_count INTEGER NOT NULL,
+    run_ts INTEGER NOT NULL,
+    provenance_json TEXT
+);
+"""
+
+E2_ALTER_STATEMENTS = [
+    "ALTER TABLE market_events ADD COLUMN instrument_id INTEGER",
+    "ALTER TABLE market_events ADD COLUMN asset_class TEXT",
+    "ALTER TABLE market_events ADD COLUMN session_regime TEXT",
+    "ALTER TABLE market_events ADD COLUMN reference_return_pct REAL",
+    "ALTER TABLE market_events ADD COLUMN basis_bps REAL",
+    "ALTER TABLE market_events ADD COLUMN cross_classification TEXT",
+    "ALTER TABLE market_event_snapshots ADD COLUMN reference_price REAL",
+    "ALTER TABLE market_event_snapshots ADD COLUMN basis_bps REAL",
+    "ALTER TABLE market_event_snapshots ADD COLUMN tracking_error_bps REAL",
+]
