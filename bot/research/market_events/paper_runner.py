@@ -36,7 +36,7 @@ from bot.research.market_events.price_feed import BinanceFuturesPriceFeed
 from bot.research.market_events.reversal_confirmation import evaluate_all_reversals
 from bot.research.market_events.shock_classifier import classify_shock
 from bot.research.market_events.shock_detector import ShockCandidate, scan_universe_for_shocks
-from bot.research.market_events.universe import select_universe
+from bot.research.market_events.universe import needs_multi_venue_feed, select_universe
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +66,13 @@ class ShockPaperRunner:
         universe_mode: str = "core",
         paper_only: bool = True,
         max_cycles: int | None = None,
+        explicit_symbols: list[str] | None = None,
         feed: BinanceFuturesPriceFeed | None = None,
     ) -> None:
         self.universe_mode = universe_mode
         self.paper_only = paper_only
         self.max_cycles = max_cycles
+        self.explicit_symbols = explicit_symbols
         self.feed = feed or BinanceFuturesPriceFeed()
         self.stats = RunnerStats()
         self._active: dict[int, ActiveEvent] = {}
@@ -173,8 +175,8 @@ class ShockPaperRunner:
         classification = classify_shock(
             shock, eth_return_pct=eth_ret, median_universe_return_pct=shock.market_return_pct,
         )
-        if self.universe_mode != "multi":
-            return classification, None, None, None, None, None, None
+        if not self._instrument_map:
+            return classification, None, None, None, None, None, None, "binance_futures"
 
         inst = self._instrument_map.get(shock.symbol.upper())
         asset_class = inst["asset_class"] if inst else None
@@ -215,6 +217,28 @@ class ShockPaperRunner:
         )
         return classification, cross, asset_class, session_regime, ref_ret, basis_bps, instrument_id, venue
 
+    def _shock_allowed(self, symbol: str, now: int) -> tuple[bool, str | None]:
+        inst = self._instrument_map.get(symbol.upper())
+        if not inst or inst.get("asset_class") == "CRYPTO":
+            return True, None
+        if not inst.get("paper_enabled"):
+            return False, "not_paper_enabled"
+        from bot.research.market_events.activation_rules import is_shock_eligible
+        from bot.research.market_events.quote_quality import evaluate_bybit_quote
+        from bot.research.market_events.session_regime import classify_session_regime
+
+        session = classify_session_regime(
+            now, asset_class=inst["asset_class"], trading_hours_mode=inst["trading_hours_mode"],
+        )
+        ticker = getattr(self.feed, "get_last_ticker", lambda _s: None)(symbol)
+        qq = evaluate_bybit_quote(ticker, poll_ts=now)
+        return is_shock_eligible(
+            asset_class=inst["asset_class"],
+            session_regime=session,
+            quote_ok=qq.ok,
+            rejection_reason=qq.rejection_reason,
+        )
+
     def run_once(self, conn: Any, symbols: list[str]) -> None:
         now = int(time.time())
         self.feed.poll_universe(symbols, max_age_sec=PRICE_HISTORY_SEC)
@@ -222,8 +246,12 @@ class ShockPaperRunner:
 
         shocks = scan_universe_for_shocks(self.feed, symbols, now_ts=now)
         for shock in shocks:
+            allowed, skip_reason = self._shock_allowed(shock.symbol, now)
+            if not allowed:
+                logger.debug("shock skipped %s: %s", shock.symbol, skip_reason)
+                continue
             cls_result = self._classify_shock(shock, symbols, now)
-            if self.universe_mode == "multi":
+            if self.universe_mode != "core" or self._instrument_map:
                 classification, cross, asset_class, session_regime, ref_ret, basis_bps, instrument_id, venue = cls_result
             else:
                 classification = cls_result[0]
@@ -315,11 +343,26 @@ class ShockPaperRunner:
 
         with market_events_connection() as conn:
             apply_migrations(conn)
-            symbols, version = select_universe(conn, mode=self.universe_mode)
-            if self.universe_mode == "multi":
-                from bot.research.market_events.instrument_master import load_active_instruments
+            symbols, version = select_universe(
+                conn, mode=self.universe_mode, explicit_symbols=self.explicit_symbols,
+            )
+            if needs_multi_venue_feed(self.universe_mode, self.explicit_symbols):
+                from bot.research.market_events.instrument_master import (
+                    load_active_instruments,
+                    load_paper_instruments,
+                    resolve_instruments_by_symbols,
+                )
                 from bot.research.market_events.multi_venue_feed import MultiVenuePriceFeed
-                instruments = [dict(r) for r in load_active_instruments(conn)]
+                if self.explicit_symbols:
+                    instruments = resolve_instruments_by_symbols(conn, self.explicit_symbols)
+                elif self.universe_mode == "tradfi-liquid":
+                    instruments = [dict(r) for r in load_paper_instruments(conn, tradfi_only=True)]
+                elif self.universe_mode == "multi-paper":
+                    instruments = [dict(r) for r in load_paper_instruments(conn)]
+                elif self.universe_mode == "multi":
+                    instruments = [dict(r) for r in load_active_instruments(conn)]
+                else:
+                    instruments = [dict(r) for r in load_paper_instruments(conn)]
                 self.feed = MultiVenuePriceFeed(instruments)
                 self._instrument_map = {r["canonical_asset"]: r for r in instruments}
                 logger.info("multi-venue feed instruments=%s", len(instruments))
@@ -351,7 +394,11 @@ def run_shock_paper(
     universe: str = "core",
     paper_only: bool = True,
     max_cycles: int | None = None,
+    explicit_symbols: list[str] | None = None,
 ) -> RunnerStats:
     return ShockPaperRunner(
-        universe_mode=universe, paper_only=paper_only, max_cycles=max_cycles,
+        universe_mode=universe,
+        paper_only=paper_only,
+        max_cycles=max_cycles,
+        explicit_symbols=explicit_symbols,
     ).run()

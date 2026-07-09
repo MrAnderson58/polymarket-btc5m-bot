@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -157,7 +157,7 @@ def apply_migrations(conn: Any) -> list[str]:
         )
         applied.append("v1")
 
-    if current < SCHEMA_VERSION:
+    if current < 2:
         conn.executescript(E2_DDL)
         for stmt in E2_ALTER_STATEMENTS:
             try:
@@ -170,7 +170,24 @@ def apply_migrations(conn: Any) -> list[str]:
             INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
             VALUES (?, datetime(?, 'unixepoch'), ?)
             """,
-            (SCHEMA_VERSION, now, "Phase E.2 multi-asset instrument registry"),
+            (2, now, "Phase E.2 multi-asset instrument registry"),
+        )
+        applied.append("v2")
+        current = 2
+
+    if current < SCHEMA_VERSION:
+        for stmt in E21_ALTER_STATEMENTS:
+            try:
+                conn.execute(stmt)
+            except Exception:
+                pass
+        now = int(time.time())
+        conn.execute(
+            f"""
+            INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+            VALUES (?, datetime(?, 'unixepoch'), ?)
+            """,
+            (SCHEMA_VERSION, now, "Phase E.2.1 activation tiers and observation mode"),
         )
         applied.append(f"v{SCHEMA_VERSION}")
         conn.commit()
@@ -249,4 +266,17 @@ E2_ALTER_STATEMENTS = [
     "ALTER TABLE market_event_snapshots ADD COLUMN reference_price REAL",
     "ALTER TABLE market_event_snapshots ADD COLUMN basis_bps REAL",
     "ALTER TABLE market_event_snapshots ADD COLUMN tracking_error_bps REAL",
+]
+
+E21_ALTER_STATEMENTS = [
+    "ALTER TABLE market_events_instruments ADD COLUMN activation_tier TEXT DEFAULT 'INACTIVE'",
+    "ALTER TABLE market_events_instruments ADD COLUMN observe_enabled INTEGER DEFAULT 0",
+    "ALTER TABLE market_events_instruments ADD COLUMN paper_enabled INTEGER DEFAULT 0",
+    "ALTER TABLE market_events_instruments ADD COLUMN reference_provider TEXT",
+    "ALTER TABLE market_events_price_observations ADD COLUMN session_regime TEXT",
+    "ALTER TABLE market_events_price_observations ADD COLUMN turnover_24h REAL",
+    "ALTER TABLE market_events_price_observations ADD COLUMN volume_24h REAL",
+    "ALTER TABLE market_events_price_observations ADD COLUMN quote_age_sec REAL",
+    "ALTER TABLE market_events_price_observations ADD COLUMN reference_provider TEXT",
+    "ALTER TABLE market_events_price_observations ADD COLUMN same_venue_reference INTEGER DEFAULT 1",
 ]

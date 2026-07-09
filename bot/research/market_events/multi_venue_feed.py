@@ -29,6 +29,7 @@ class MultiVenuePriceFeed:
         self._bybit_states: dict[str, SymbolPriceState] = {}
         self._ref_states: dict[str, SymbolPriceState] = {}
         self._basis_cache: dict[str, float | None] = {}
+        self._last_ticker: dict[str, Any] = {}
         self._instrument_map: dict[str, dict[str, Any]] = {
             r["canonical_asset"]: r for r in instruments
         }
@@ -75,6 +76,7 @@ class MultiVenuePriceFeed:
             ask=ticker.ask,
         )
         self._basis_cache[canonical] = basis_obs.basis_bps
+        self._last_ticker[canonical] = ticker
         if canonical not in self._bybit_states:
             self._bybit_states[canonical] = SymbolPriceState(symbol=canonical, pair=venue_sym)
         state = self._bybit_states[canonical]
@@ -94,6 +96,9 @@ class MultiVenuePriceFeed:
         if ref:
             return ref.return_over(window_sec, now_ts)
         return None
+
+    def get_last_ticker(self, symbol: str) -> Any | None:
+        return self._last_ticker.get(symbol.upper())
 
     def get_basis_bps(self, symbol: str) -> float | None:
         return self._basis_cache.get(symbol.upper())

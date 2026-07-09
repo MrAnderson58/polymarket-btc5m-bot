@@ -1,7 +1,60 @@
 # Phase E.2 — Multi-Asset Tokenized Markets (Additive)
 
-**Status:** Implemented additively on top of Phase E.1 (`40f2d67`).  
-**Goal:** Extend the unified shock/paper engine beyond crypto without changing the E.1 `universe=core` path.
+**Status:** E.2 shipped in `638a4a7`; E.2.1 adds safe activation and honest index discovery.
+
+## Index / ETF Proxy Discovery (E.2.1 — corrected)
+
+**Root cause of `bybit_index: 0` on Mac Mini:** E.2 assumed `US500USDT` and `US100USDT` exist on Bybit linear. They do **not** (API retCode=10001). There is also **no** `symbolType=index` category (returns 0 instruments).
+
+**Actual API findings (2026-07):**
+| Symbol | Status | Notes |
+|--------|--------|-------|
+| US500USDT | NOT FOUND | Documentation assumption was wrong |
+| US100USDT | NOT FOUND | Documentation assumption was wrong |
+| SPYUSDT | Trading, symbolType=stock | S&P 500 ETF proxy (~$751) |
+| QQQUSDT | Trading, symbolType=stock | Nasdaq 100 ETF proxy (~$724) |
+| SPXUSDT | Trading | **Meme token ~$0.37 — NOT S&P 500; excluded** |
+
+Run `python -m bot.research.market_events index-discovery-audit` for live evidence.
+
+## Activation Tiers (E.2.1)
+
+| Tier | observe-run | shock-paper-run |
+|------|-------------|-----------------|
+| PAPER_ACTIVE | yes | yes (if rules pass) |
+| WATCH | yes | **no** |
+| INACTIVE | no | no |
+
+`instrument-discover --enable-tradfi` applies measured rules (turnover, spread, indexPrice, basis sanity, session, observation polls). It does **not** blind-activate all LIQUID instruments.
+
+## Universe Modes
+
+| Mode | Description |
+|------|-------------|
+| `core` | E.1 Binance crypto (unchanged) |
+| `tradfi-liquid` | PAPER_ACTIVE TradFi only |
+| `multi-paper` | PAPER_ACTIVE crypto + TradFi |
+| `multi` | Legacy active CORE/LIQUID |
+| `--symbols XAUUSDT,NVDAUSDT` | Explicit registry lookup |
+
+## Reference Price Quality
+
+TradFi reference = `REFERENCE_PROVIDER_BYBIT_INDEX` (Bybit indexPrice). **Same venue as lastPrice** — measures intra-venue divergence, not true external-market basis. Future: `REFERENCE_PROVIDER_EXTERNAL_EQUITY`, `REFERENCE_PROVIDER_EXTERNAL_COMMODITY` (not wired in E.2.1).
+
+## Mac Mini validation
+
+```bash
+cd ~/polymarket-bot/polymarket-btc5m-bot && git pull origin cursor/strategy-discovery-v2
+python -m bot.research.market_events market-event-migrate
+python -m bot.research.market_events index-discovery-audit
+python -m bot.research.market_events instrument-discover
+python -m bot.research.market_events instrument-discover --enable-tradfi   # second run promotes after obs polls
+python -m bot.research.market_events instrument-report
+python -m bot.research.market_events observe-run --max-cycles 2
+python -m bot.research.market_events shock-paper-run --universe core --paper-only --max-cycles 2
+python -m bot.research.market_events shock-paper-run --universe tradfi-liquid --paper-only --max-cycles 2
+pytest tests/test_market_events_e1.py tests/test_market_events_e2.py tests/test_market_events_e21.py -q
+```
 
 ## What E.1 Already Had (unchanged)
 

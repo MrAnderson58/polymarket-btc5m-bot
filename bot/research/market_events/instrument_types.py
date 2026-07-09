@@ -50,7 +50,12 @@ CROSS_ASSET_SPECIFIC = "ASSET_SPECIFIC"
 CROSS_TOKENIZED_DISLOCATION = "TOKENIZED_MARKET_DISLOCATION"
 CROSS_UNKNOWN = "UNKNOWN"
 
-# Liquidity tiers
+# Activation tiers (E.2.1) — distinct from liquidity measurement
+ACTIVATION_PAPER_ACTIVE = "PAPER_ACTIVE"
+ACTIVATION_WATCH = "WATCH"
+ACTIVATION_INACTIVE = "INACTIVE"
+
+# Liquidity tiers (measured turnover bands)
 TIER_CORE = "CORE"
 TIER_LIQUID = "LIQUID"
 TIER_WATCH = "WATCH"
@@ -68,9 +73,16 @@ INDEX_CANDIDATES = ("SP500_PROXY", "NASDAQ100_PROXY")
 COMMODITY_CANDIDATES = ("GOLD", "SILVER", "OIL")
 
 # Bybit symbol → canonical mapping (only when discovered via API)
+# Legacy E.2 map — these symbols are NOT available on Bybit public API (verified E.2.1)
+BYBIT_INDEX_LEGACY_CANDIDATES = ("US500USDT", "US100USDT")
 BYBIT_INDEX_MAP = {
     "US500USDT": "SP500_PROXY",
     "US100USDT": "NASDAQ100_PROXY",
+}
+# Actual S&P/Nasdaq ETF proxy perps (symbolType=stock on Bybit linear)
+BYBIT_ETF_PROXY_MAP = {
+    "SPYUSDT": "SP500_PROXY",
+    "QQQUSDT": "NASDAQ100_PROXY",
 }
 BYBIT_COMMODITY_MAP = {
     "XAUUSDT": "GOLD",
