@@ -124,6 +124,19 @@ def reset_bootstrap_for_tests() -> None:
     _ENV_SNAPSHOT = None
 
 
+def configure_unit_test_db_isolation(sqlite_path: str) -> None:
+    """Force agent DB resolution to an isolated SQLite file for unit tests.
+
+    Must be called after reset_bootstrap_for_tests() and before agent_connection().
+    Sets FUTURES_AGENT_DATABASE_URL to sqlite:/// so project .env PostgreSQL cannot
+    take precedence over FUTURES_AGENT_SQLITE_PATH.
+    """
+    path = str(sqlite_path)
+    os.environ["FUTURES_AGENT_SQLITE_PATH"] = path
+    os.environ["FUTURES_AGENT_DATABASE_URL"] = f"sqlite:///{path}"
+    reset_bootstrap_for_tests()
+
+
 def db_config_diagnostics(cfg: AgentDbConfig) -> dict[str, str | bool | None]:
     """Safe diagnostics — no passwords."""
     return {

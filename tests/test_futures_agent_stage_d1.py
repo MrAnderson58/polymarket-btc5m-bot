@@ -7,10 +7,15 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from pathlib import Path
 from typing import Any
 
-from bot.research.futures_agent.env_bootstrap import reset_bootstrap_for_tests
-from bot.research.futures_agent.db import insert_returning_id
+from bot.research.futures_agent.env_bootstrap import (
+    configure_unit_test_db_isolation,
+    reset_bootstrap_for_tests,
+    resolve_agent_db_config,
+)
+from bot.research.futures_agent.db import connection_is_postgres, insert_returning_id, agent_connection
 from bot.research.futures_agent.historical_candles import Candle, resolve_exchange_symbol
 from bot.research.futures_agent.market_provider import BinanceMarketProvider
 from bot.research.futures_agent.schema import STAGE5_VERSION, apply_migrations
@@ -27,6 +32,9 @@ from bot.research.futures_agent.signal_outcome_path import (
     pre_entry_touch_ignored,
 )
 from bot.research.futures_agent.signal_outcome_report import run_outcome_report
+from bot.research.futures_agent.outcome_test_contamination_audit import (
+    run_test_contamination_audit,
+)
 
 
 def _c(ts: int, o: float, h: float, l: float, cl: float | None = None) -> Candle:
@@ -52,18 +60,34 @@ class MockCandleProvider:
 class StageD1Tests(unittest.TestCase):
     def setUp(self) -> None:
         reset_bootstrap_for_tests()
-        self.tmp = tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False)
-        self.tmp.close()
-        self.db_path = self.tmp.name
-        os.environ["FUTURES_AGENT_SQLITE_PATH"] = self.db_path
-        os.environ.pop("FUTURES_AGENT_DATABASE_URL", None)
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.db_path = str(Path(self._tmpdir.name) / "agent_d1_test.db")
+        self.agent_url = f"sqlite:///{self.db_path}"
+        configure_unit_test_db_isolation(self.db_path)
 
     def tearDown(self) -> None:
-        os.unlink(self.db_path)
+        self._tmpdir.cleanup()
+        reset_bootstrap_for_tests()
 
     def _conn(self):
-        from bot.research.futures_agent.db import agent_connection
-        return agent_connection()
+        return agent_connection(self.agent_url)
+
+    def _assert_isolated_sqlite(self, conn) -> None:
+        self.assertFalse(connection_is_postgres(conn))
+        cfg = resolve_agent_db_config()
+        self.assertEqual(cfg.backend, "sqlite")
+        self.assertEqual(cfg.sqlite_path, self.db_path)
+
+    def test_unit_test_db_isolated_from_dotenv_postgres(self) -> None:
+        """Regression: project .env PG URL must not redirect D.1 unit tests."""
+        os.environ["FUTURES_AGENT_DATABASE_URL"] = "postgresql:///trading_ai"
+        reset_bootstrap_for_tests()
+        configure_unit_test_db_isolation(self.db_path)
+        with self._conn() as conn:
+            self._assert_isolated_sqlite(conn)
+        cfg = resolve_agent_db_config()
+        self.assertFalse(cfg.is_postgres)
+        self.assertEqual(cfg.url, self.agent_url)
 
     def _seed_explicit_signal(
         self,
@@ -345,8 +369,9 @@ class StageD1Tests(unittest.TestCase):
         }
         provider = MockCandleProvider(candles)
         with self._conn() as conn:
+            self._assert_isolated_sqlite(conn)
             apply_migrations(conn)
-            self._seed_explicit_signal(
+            thesis_id = self._seed_explicit_signal(
                 conn,
                 raw="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
                 levels=[
@@ -359,14 +384,38 @@ class StageD1Tests(unittest.TestCase):
             s1 = build_signal_outcomes(conn, channel="signalyp", candle_provider=provider)
             s2 = build_signal_outcomes(conn, channel="signalyp", candle_provider=provider)
             n = conn.execute(
-                "SELECT COUNT(*) AS n FROM futures_agent_research_signal_outcomes",
+                """
+                SELECT COUNT(*) AS n
+                FROM futures_agent_research_signal_outcomes
+                WHERE thesis_id = ? AND engine_version = ?
+                """,
+                (thesis_id, ENGINE_VERSION),
+            ).fetchone()["n"]
+            dup = conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM (
+                  SELECT thesis_id, engine_version, COUNT(*) AS c
+                  FROM futures_agent_research_signal_outcomes
+                  WHERE thesis_id = ?
+                  GROUP BY thesis_id, engine_version
+                  HAVING COUNT(*) > 1
+                ) x
+                """,
+                (thesis_id,),
             ).fetchone()["n"]
             ev_n = conn.execute(
-                "SELECT COUNT(*) AS n FROM futures_agent_research_signal_events",
+                """
+                SELECT COUNT(*) AS n
+                FROM futures_agent_research_signal_events e
+                JOIN futures_agent_research_signal_outcomes o ON o.id = e.outcome_id
+                WHERE o.thesis_id = ?
+                """,
+                (thesis_id,),
             ).fetchone()["n"]
         self.assertEqual(s1.outcomes_inserted, 1)
         self.assertEqual(s2.outcomes_inserted, 0)
         self.assertEqual(n, 1)
+        self.assertEqual(dup, 0)
         self.assertGreater(ev_n, 0)
 
     def test_no_future_candle_leakage_in_markouts(self) -> None:
@@ -384,6 +433,24 @@ class StageD1Tests(unittest.TestCase):
         )
         m15 = next(m for m in ev.markouts if m.horizon == "15m")
         self.assertLessEqual(m15.mark_ts, t0 + 60 + 15 * 60)
+
+    def test_test_contamination_audit_detects_fixture_ids(self) -> None:
+        with self._conn() as conn:
+            apply_migrations(conn)
+            self._seed_explicit_signal(
+                conn,
+                post_id="d1",
+                raw="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
+                levels=[
+                    ("ENTRY_LOW", 100.0, 0),
+                    ("ENTRY_HIGH", 100.0, 0),
+                    ("STOP", 95.0, 0),
+                    ("TARGET", 110.0, 1),
+                ],
+            )
+            report = run_test_contamination_audit(conn, channel="signalyp")
+        self.assertGreaterEqual(len(report.posts), 1)
+        self.assertIn("d1", report.posts[0].detail)
 
     def test_walk_forward_report_structure(self) -> None:
         t0 = 1_700_000_000

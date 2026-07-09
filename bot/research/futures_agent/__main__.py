@@ -18,6 +18,7 @@ Usage:
   python -m bot.research.futures_agent outcome-build --channel signalyp
   python -m bot.research.futures_agent outcome-report --channel signalyp
   python -m bot.research.futures_agent outcome-gate --channel signalyp
+  python -m bot.research.futures_agent outcome-test-contamination-audit --channel signalyp
   python -m bot.research.futures_agent research-stats
   python -m bot.research.futures_agent evaluate-theses
   python -m bot.research.futures_agent evaluate-sources
@@ -56,6 +57,7 @@ def main() -> int:
             "target-contamination-audit", "missing-thesis-audit",
             "technical-levels-audit", "stage3-final-gate",
             "outcome-build", "outcome-report", "outcome-gate",
+            "outcome-test-contamination-audit",
             "research-classify-audit", "research-explicit-audit",
             "research-signal-format-audit",
             "evaluate-theses", "evaluate-sources", "source-report", "symbol-report",
@@ -321,6 +323,18 @@ def main() -> int:
             apply_migrations(conn)
             gate = run_outcome_gate(conn, channel=args.channel or "signalyp", engine_version=ev)
             print(render_outcome_gate(gate))
+        return 0
+
+    if args.command == "outcome-test-contamination-audit":
+        from bot.research.futures_agent.outcome_test_contamination_audit import (
+            render_test_contamination_audit,
+            run_test_contamination_audit,
+        )
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            report = run_test_contamination_audit(conn, channel=args.channel or "signalyp")
+            print(render_test_contamination_audit(report))
         return 0
 
     if args.command == "stage3-final-gate":
