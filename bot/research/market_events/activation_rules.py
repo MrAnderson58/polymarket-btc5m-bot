@@ -13,6 +13,7 @@ from bot.research.market_events.instrument_types import (
     ACTIVATION_WATCH,
     ASSET_CLASS_CRYPTO,
     ASSET_CLASS_EQUITY,
+    ASSET_CLASS_ETF,
     ASSET_CLASS_INDEX,
     SESSION_UNDERLYING_CLOSED,
     SESSION_US_REGULAR,
@@ -142,7 +143,7 @@ def evaluate_activation(
         and obs_polls >= rules.min_observation_polls
     )
 
-    if asset_class in (ASSET_CLASS_EQUITY, ASSET_CLASS_INDEX) and rules.paper_requires_us_regular:
+    if asset_class in (ASSET_CLASS_EQUITY, ASSET_CLASS_INDEX, ASSET_CLASS_ETF) and rules.paper_requires_us_regular:
         if session_regime != SESSION_US_REGULAR:
             reasons.append(f"session_not_us_regular={session_regime}")
             paper_ok = False

@@ -206,7 +206,7 @@ class MarketEventsE21Tests(unittest.TestCase):
             inst = dict(conn.execute("SELECT * FROM market_events_instruments WHERE id=?", (iid,)).fetchone())
             mock_bybit = mock.MagicMock()
             mock_bybit.fetch_ticker.return_value = ticker
-            runner.run_once(conn, [inst], mock_bybit)
+            runner.run_once(conn, [inst], mock_bybit, cycle=1)
             obs = conn.execute("SELECT COUNT(*) AS n FROM market_events_price_observations").fetchone()["n"]
             self.assertEqual(obs, 1)
             row = conn.execute("SELECT * FROM market_events_price_observations LIMIT 1").fetchone()

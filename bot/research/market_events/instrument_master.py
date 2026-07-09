@@ -111,14 +111,17 @@ def load_paper_instruments(
     ).fetchall()
 
 
-def load_observe_instruments(conn: Any) -> list[dict[str, Any]]:
-    return conn.execute(
-        """
+def load_observe_instruments(conn: Any, *, scope: str = "all") -> list[dict[str, Any]]:
+    base = """
         SELECT * FROM market_events_instruments
         WHERE observe_enabled = 1
-        ORDER BY activation_tier DESC, asset_class, canonical_asset
-        """,
-    ).fetchall()
+    """
+    if scope == "tradfi":
+        base += " AND asset_class != 'CRYPTO'"
+    elif scope == "crypto":
+        base += " AND asset_class = 'CRYPTO'"
+    base += " ORDER BY activation_tier DESC, asset_class, canonical_asset"
+    return conn.execute(base).fetchall()
 
 
 def resolve_instruments_by_symbols(conn: Any, symbols: list[str]) -> list[dict[str, Any]]:

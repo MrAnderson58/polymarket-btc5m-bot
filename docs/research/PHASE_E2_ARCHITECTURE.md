@@ -41,19 +41,19 @@ Run `python -m bot.research.market_events index-discovery-audit` for live eviden
 
 TradFi reference = `REFERENCE_PROVIDER_BYBIT_INDEX` (Bybit indexPrice). **Same venue as lastPrice** — measures intra-venue divergence, not true external-market basis. Future: `REFERENCE_PROVIDER_EXTERNAL_EQUITY`, `REFERENCE_PROVIDER_EXTERNAL_COMMODITY` (not wired in E.2.1).
 
-## Mac Mini validation
+## Mac Mini validation (two terminals)
 
 ```bash
-cd ~/polymarket-bot/polymarket-btc5m-bot && git pull origin cursor/strategy-discovery-v2
-python -m bot.research.market_events market-event-migrate
-python -m bot.research.market_events index-discovery-audit
-python -m bot.research.market_events instrument-discover
-python -m bot.research.market_events instrument-discover --enable-tradfi   # second run promotes after obs polls
-python -m bot.research.market_events instrument-report
-python -m bot.research.market_events observe-run --max-cycles 2
-python -m bot.research.market_events shock-paper-run --universe core --paper-only --max-cycles 2
-python -m bot.research.market_events shock-paper-run --universe tradfi-liquid --paper-only --max-cycles 2
-pytest tests/test_market_events_e1.py tests/test_market_events_e2.py tests/test_market_events_e21.py -q
+# Terminal 1 — E.1 crypto paper (unchanged)
+python -u -m bot.research.market_events shock-paper-run --universe core --paper-only
+
+# Terminal 2 — TradFi observation only (default, no crypto duplicate)
+python -u -m bot.research.market_events observe-run --universe tradfi-observe
+
+# Reports
+python -m bot.research.market_events observe-report
+python -m bot.research.market_events activation-explain
+python -m bot.research.market_events activation-explain --symbol NVDA
 ```
 
 ## What E.1 Already Had (unchanged)

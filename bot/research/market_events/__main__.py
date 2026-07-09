@@ -1,4 +1,4 @@
-"""Phase E.1/E.2/E.2.1 CLI."""
+"""Phase E.1/E.2/E.2.1/E.2.2 CLI."""
 
 from __future__ import annotations
 
@@ -23,6 +23,8 @@ def main(argv: list[str] | None = None) -> int:
             "market-event-migrate",
             "shock-paper-run",
             "observe-run",
+            "observe-report",
+            "activation-explain",
             "shock-event-report",
             "shock-strategy-report",
             "shock-context-report",
@@ -36,13 +38,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--universe",
-        default="core",
-        help="core | tradfi-liquid | multi-paper | multi (legacy)",
+        default=None,
+        help="shock-paper: core|tradfi-liquid|multi-paper | observe: tradfi-observe|all-observe|crypto-observe",
     )
     parser.add_argument(
         "--symbols",
         default=None,
-        help="Explicit venue or canonical symbols, comma-separated (e.g. XAUUSDT,NVDAUSDT)",
+        help="Explicit venue or canonical symbols, comma-separated",
     )
     parser.add_argument(
         "--enable-tradfi",
@@ -53,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-cycles", type=int, default=None, help="Limit poll cycles (testing)")
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--strategy", type=str, default=None, help="Strategy name prefix filter")
+    parser.add_argument("--symbol", default=None, help="Single symbol for activation-explain")
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
 
@@ -117,6 +120,22 @@ def main(argv: list[str] | None = None) -> int:
             print(instrument_registry_report(conn))
         return 0
 
+    if args.command == "activation-explain":
+        from bot.research.market_events.activation_explain import explain_instrument_activation
+
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(explain_instrument_activation(conn, canonical=args.symbol))
+        return 0
+
+    if args.command == "observe-report":
+        from bot.research.market_events.observation_report import observation_report
+
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(observation_report(conn, days=args.days))
+        return 0
+
     if args.command == "market-event-migrate":
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
@@ -125,13 +144,19 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "observe-run":
         from bot.research.market_events.observation_runner import run_observe
-        stats = run_observe(max_cycles=args.max_cycles)
+        universe = args.universe or "tradfi-observe"
+        stats = run_observe(
+            universe=universe,
+            explicit_symbols=explicit_symbols,
+            max_cycles=args.max_cycles,
+        )
         return 1 if stats.errors else 0
 
     if args.command == "shock-paper-run":
         from bot.research.market_events.paper_runner import run_shock_paper
+        universe = args.universe or "core"
         stats = run_shock_paper(
-            universe=args.universe,
+            universe=universe,
             paper_only=True,
             max_cycles=args.max_cycles,
             explicit_symbols=explicit_symbols,
