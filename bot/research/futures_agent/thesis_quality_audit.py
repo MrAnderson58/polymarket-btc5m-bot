@@ -11,8 +11,10 @@ from typing import Any
 from bot.research.futures_agent.research_taxonomy import ResearchContentType
 from bot.research.futures_agent.signal_level_extract import (
     entry_status_from_text,
+    extract_levels_for_content_type,
     extract_signal_levels,
 )
+from bot.research.futures_agent.target_contamination import diagnose_target_contamination
 
 _STRATIFIED_TYPES = (
     ResearchContentType.EXPLICIT_SIGNAL.value,
@@ -46,20 +48,7 @@ def _detect_contamination(
     targets: list[float],
     entry: float | None,
 ) -> list[str]:
-    flags: list[str] = []
-    for tp in targets:
-        if tp >= 10_000:
-            flags.append("url_number_contamination")
-            break
-        if entry is not None and entry < 10 and tp in (25.0, 50.0, 75.0, 100.0):
-            flags.append("percentage_contamination")
-            break
-        if entry is not None and entry > 0 and abs(tp - entry) / entry > 5.0:
-            flags.append("suspicious_target_contamination")
-            break
-    if re.search(r"https?://|www\.|t\.me/", raw_text) and any(t >= 1000 for t in targets):
-        flags.append("url_number_contamination")
-    return flags
+    return diagnose_target_contamination(raw_text, targets, entry=entry)
 
 
 def run_explicit_signal_quality_gate(

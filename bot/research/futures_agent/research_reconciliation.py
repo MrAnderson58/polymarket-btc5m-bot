@@ -10,7 +10,7 @@ from typing import Any
 
 from bot.research.futures_agent.research_ingest import IngestResearchStats
 from bot.research.futures_agent.research_taxonomy import RESEARCH_THESIS_ELIGIBLE, ResearchContentType
-from bot.research.futures_agent.signal_level_extract import extract_signal_levels, entry_status_from_text
+from bot.research.futures_agent.signal_level_extract import extract_levels_for_content_type
 from bot.research.futures_agent.thesis_extract import _infer_direction
 
 
@@ -570,7 +570,7 @@ def count_extraction_coverage(text: str, content_type: str) -> tuple[bool, bool,
         ctype = ResearchContentType.OTHER
     direction = _infer_direction(text, ctype)
     has_dir = direction != "NEUTRAL"
-    parsed = extract_signal_levels(text)
+    parsed = extract_levels_for_content_type(text, content_type)
     has_levels = bool(
         parsed.targets or parsed.entry_low is not None or parsed.stop is not None,
     )

@@ -8,15 +8,19 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
-from bot.research.futures.parser import ENTRY_RE, SL_RE, _parse_entry_range, _normalize_side
+from bot.research.futures.parser import ENTRY_RE, SL_RE, _parse_entry_range
 
 # Latin capital C + Cyrillic "топ" -> Cyrillic "Стоп"
 _RE_LATIN_C_STOP = re.compile(r"\bC([\u0400-\u04FF]+)")
 
 _RE_MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
-_RE_URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
-_RE_TME = re.compile(r"\bt\.me/\S+", re.IGNORECASE)
+_RE_URL = re.compile(
+    r"(?:https?://|www\.|t\.me/|partner\.|invite/|bybit\.|bingx\.|binance\.)[^\s]*",
+    re.IGNORECASE,
+)
+_RE_URL_PATH_ID = re.compile(r"/(\d{4,})(?:/|$|\s)")
 
 _RE_SECTION_BOUNDARY = re.compile(
     r"(?i)(?:"
@@ -24,7 +28,7 @@ _RE_SECTION_BOUNDARY = re.compile(
     r"стоп|stop(?:\s*loss)?|\bsl\b|"
     r"плечо|leverage|\blev\b|"
     r"марж|margin|депозит|deposit|банк|bank|бонус|bonus|referral|"
-    r"выделяю|allocat"
+    r"выделяю|allocat|dominance|доминирован"
     r")",
 )
 
@@ -56,20 +60,41 @@ _RE_DEFERRED_STOP = re.compile(
 )
 _RE_NUM_RANGE = re.compile(r"(\d+(?:\.\d+)?)\s*[-–—]\s*(\d+(?:\.\d+)?)")
 _RE_NUM_SINGLE = re.compile(r"(\d+(?:\.\d+)?)")
+_RE_PCT = re.compile(r"\b\d+(?:\.\d+)?\s*%")
 _RE_PCT_PAREN = re.compile(r"\(\s*\d+(?:\.\d+)?\s*%\s*\)")
 _RE_LEVERAGE_INLINE = re.compile(r"\b\d+(?:\.\d+)?\s*x\b", re.IGNORECASE)
-_RE_SUPPORT = re.compile(r"(?i)support\s*(?:at|zone)?\s*[:@]?\s*(\d+(?:\.\d+)?)")
-_RE_RESISTANCE = re.compile(r"(?i)resistance\s*(?:at|zone)?\s*[:@]?\s*(\d+(?:\.\d+)?)")
+_RE_TIMEFRAME_NUM = re.compile(r"\b\d+(?:\.\d+)?\s*(?:m|h|d|w|min|hour|day|week)\b", re.IGNORECASE)
 
-# Allocation / margin / bank amounts — never trade targets
-_RE_NOISE_AMOUNT = re.compile(
+# Technical support/resistance — explicit context only
+_RE_SUPPORT_PRICE = re.compile(
     r"(?i)(?:"
-    r"\d+(?:\.\d+)?\s*%|"
-    r"\$\s*\d|"
-    r"\d+\s*(?:usd|usdt|btc)\b|"
-    r"выделяю\s+\d"
+    r"(?:support|поддержк\w*)\s*(?:at|@|zone|level|у)?\s*[:：]?\s*(\d+(?:\.\d+)?)|"
+    r"(?:at|@|near|above|below)\s+support\s*[:：]?\s*(\d+(?:\.\d+)?)|"
+    r"(\d+(?:\.\d+)?)\s+(?:support|поддержк)|"
+    r"у\s+поддержк\w*\s+(\d+(?:\.\d+)?)|"
+    r"цен\w+\s+у\s+поддержк\w*\s+(\d+(?:\.\d+)?)|"
+    r"поддержк\w*\s+(?:на|в|у)\s+(\d+(?:\.\d+)?)"
     r")",
 )
+_RE_RESISTANCE_PRICE = re.compile(
+    r"(?i)(?:"
+    r"(?:resistance|сопротивлен\w*)\s*(?:at|@|zone|level)?\s*[:：]?\s*(\d+(?:\.\d+)?)|"
+    r"(?:at|@|near|above|below)\s+resistance\s*[:：]?\s*(\d+(?:\.\d+)?)|"
+    r"(\d+(?:\.\d+)?)\s+(?:resistance|сопротивлен)|"
+    r"сопротивлен\w*\s+(?:на|в|у)\s+(\d+(?:\.\d+)?)"
+    r")",
+)
+
+_RE_NOISE_AMOUNT = re.compile(
+    r"(?i)(?:"
+    r"\$\s*\d|"
+    r"\d+\s*(?:usd|usdt|btc)\b|"
+    r"выделяю\s+\d|"
+    r"dominance|доминирован"
+    r")",
+)
+
+_ALLOCATION_PCTS = frozenset({25.0, 50.0, 75.0, 100.0})
 
 
 @dataclass
@@ -84,12 +109,59 @@ class ParsedSignalLevels:
     resistance: list[float] = field(default_factory=list)
 
 
+def extract_url_number_blacklist(text: str) -> set[float]:
+    """Numbers appearing in URLs/referral paths — never valid trade targets."""
+    blacklist: set[float] = set()
+    for m in _RE_URL.finditer(text):
+        for nm in _RE_NUM_SINGLE.finditer(m.group(0)):
+            try:
+                blacklist.add(float(nm.group(1)))
+            except ValueError:
+                pass
+    for m in _RE_URL_PATH_ID.finditer(text):
+        try:
+            blacklist.add(float(m.group(1)))
+        except ValueError:
+            pass
+    return blacklist
+
+
+def is_contaminated_target(
+    price: float,
+    *,
+    entry: float | None,
+    url_blacklist: set[float],
+    raw_text: str,
+) -> str | None:
+    """Return contamination reason code or None if clean."""
+    if price in url_blacklist:
+        return "url_number_contamination"
+    if price >= 1_000_000:
+        return "url_number_contamination"
+    if price >= 10_000 and entry is not None and entry < 1000:
+        return "url_number_contamination"
+    if price in _ALLOCATION_PCTS:
+        return "percentage_contamination"
+    if entry is not None and entry < 10 and price in _ALLOCATION_PCTS:
+        return "percentage_contamination"
+    if entry is not None and entry > 0:
+        ratio = abs(price - entry) / entry
+        if ratio > 5.0:
+            return "suspicious_target_contamination"
+        if entry < 10 and price == round(price) and price in _ALLOCATION_PCTS:
+            return "percentage_contamination"
+    # Bare round integers without decimals in sub-$10 context (allocation leak)
+    if entry is not None and entry < 10 and price == int(price) and price <= 100:
+        if _RE_PCT.search(raw_text) or _RE_PCT_PAREN.search(raw_text):
+            return "percentage_contamination"
+    return None
+
+
 def normalize_signal_text(text: str) -> str:
     """Strip URLs/links and normalize Unicode before level extraction."""
     out = text.replace("\u00a0", " ").replace("\u2009", " ").replace("\u202f", " ")
     out = _RE_MARKDOWN_LINK.sub(r"\1", out)
     out = _RE_URL.sub(" ", out)
-    out = _RE_TME.sub(" ", out)
     out = _RE_LATIN_C_STOP.sub(r"С\1", out)
     return out
 
@@ -138,7 +210,6 @@ def _extract_entry_section(text: str) -> ParsedSignalLevels:
             result.entry_high = hi
             result.entry_status = "numeric"
             return result
-    # Fallback: English entry regex on full text
     if ENTRY_RE.search(text):
         lo, hi = _parse_entry_range(text)
         if lo is not None:
@@ -173,37 +244,57 @@ def _extract_stop_section(text: str) -> tuple[float | None, str]:
     return None, "missing"
 
 
-def _is_plausible_target(price: float, *, entry: float | None) -> bool:
-    if price <= 0:
-        return False
-    # URL / referral ID contamination: large integers without realistic scale
-    if price >= 10_000 and entry is not None and entry < 1000:
-        return False
-    if price >= 100_000:
-        return False
-    # Common allocation percentages when entry is sub-dollar
-    if entry is not None and entry < 10 and price in (25.0, 50.0, 75.0, 100.0):
-        return False
-    return True
-
-
-def _parse_target_prices(span: str, *, entry: float | None) -> list[float]:
+def _clean_target_span(span: str) -> str:
     span = _truncate_at_boundary(span)
     span = _RE_PCT_PAREN.sub("", span)
+    span = _RE_PCT.sub("", span)
     span = _RE_LEVERAGE_INLINE.sub("", span)
+    span = _RE_TIMEFRAME_NUM.sub("", span)
     span = _RE_NOISE_AMOUNT.sub("", span)
+    return span
+
+
+def _is_plausible_target(
+    price: float,
+    *,
+    entry: float | None,
+    url_blacklist: set[float],
+    raw_text: str,
+) -> bool:
+    return is_contaminated_target(
+        price, entry=entry, url_blacklist=url_blacklist, raw_text=raw_text,
+    ) is None
+
+
+def _parse_target_prices(
+    span: str,
+    *,
+    entry: float | None,
+    url_blacklist: set[float],
+    raw_text: str,
+) -> list[float]:
+    span = _clean_target_span(span)
     prices: list[float] = []
     seen: set[float] = set()
     for m in _RE_NUM_SINGLE.finditer(span):
         raw = m.group(1)
-        # Prefer decimal trade prices; skip bare integers likely from IDs
-        if "." not in raw and len(raw) >= 4:
-            continue
+        # Skip bare long integers (URL/referral IDs) unless BTC-scale price
+        if "." not in raw:
+            try:
+                ival = int(raw)
+            except ValueError:
+                continue
+            if ival >= 10_000 and entry is not None and entry < 1000:
+                continue
+            if len(raw) >= 5 and entry is not None and entry < 1000:
+                continue
         try:
             val = float(raw)
         except ValueError:
             continue
-        if not _is_plausible_target(val, entry=entry):
+        if not _is_plausible_target(
+            val, entry=entry, url_blacklist=url_blacklist, raw_text=raw_text,
+        ):
             continue
         if val not in seen:
             seen.add(val)
@@ -212,7 +303,6 @@ def _parse_target_prices(span: str, *, entry: float | None) -> list[float]:
 
 
 def _lines_with_continuations(text: str) -> list[str]:
-    """Expand lines where a label line is followed by value-only continuation lines."""
     raw_lines = [ln.rstrip() for ln in text.splitlines()]
     expanded: list[str] = []
     i = 0
@@ -224,7 +314,6 @@ def _lines_with_continuations(text: str) -> list[str]:
         if _RE_TARGET_LABEL.search(line):
             m = _RE_TARGET_LABEL.search(line)
             assert m is not None
-            span = m.group(1).strip()
             j = i + 1
             cont: list[str] = []
             while j < len(raw_lines):
@@ -250,47 +339,91 @@ def _lines_with_continuations(text: str) -> list[str]:
     return expanded
 
 
-def _extract_targets_section(text: str, *, entry: float | None) -> list[float]:
+def _extract_targets_section(
+    text: str,
+    *,
+    entry: float | None,
+    url_blacklist: set[float],
+    raw_text: str,
+) -> list[float]:
     targets: list[float] = []
     seen: set[float] = set()
     for line in _lines_with_continuations(text):
         m = _RE_TARGET_LABEL.search(line.strip())
         if not m:
             continue
-        for price in _parse_target_prices(m.group(1), entry=entry):
+        for price in _parse_target_prices(
+            m.group(1), entry=entry, url_blacklist=url_blacklist, raw_text=raw_text,
+        ):
             if price not in seen:
                 seen.add(price)
                 targets.append(price)
     if targets:
         return targets
-    # Fallback: TP line regex on normalized text but section-bounded per line only
     for line in _lines_with_continuations(text):
         lm = re.search(
             r"(?i)(?:tp\d*|take\s*profit)\s*[:@]?\s*(.+)$",
             line.strip(),
         )
         if lm:
-            for price in _parse_target_prices(lm.group(1), entry=entry):
+            for price in _parse_target_prices(
+                lm.group(1),
+                entry=entry,
+                url_blacklist=url_blacklist,
+                raw_text=raw_text,
+            ):
                 if price not in seen:
                     seen.add(price)
                     targets.append(price)
     return targets
 
 
-def extract_signal_levels(text: str) -> ParsedSignalLevels:
-    """Extract entry/stop/target levels with section-aware Russian/English parsing."""
+def _first_group_price(match: re.Match[str]) -> float | None:
+    for g in match.groups():
+        if g:
+            try:
+                return float(g)
+            except ValueError:
+                pass
+    return None
+
+
+def extract_technical_levels(text: str) -> ParsedSignalLevels:
+    """Extract SUPPORT/RESISTANCE only — no trade targets from prose."""
     normalized = normalize_signal_text(text)
+    result = ParsedSignalLevels()
+    seen_s: set[float] = set()
+    seen_r: set[float] = set()
+
+    for m in _RE_SUPPORT_PRICE.finditer(normalized):
+        price = _first_group_price(m)
+        if price is not None and price not in seen_s:
+            seen_s.add(price)
+            result.support.append(price)
+
+    for m in _RE_RESISTANCE_PRICE.finditer(normalized):
+        price = _first_group_price(m)
+        if price is not None and price not in seen_r:
+            seen_r.add(price)
+            result.resistance.append(price)
+
+    return result
+
+
+def extract_signal_levels(text: str) -> ParsedSignalLevels:
+    """Extract entry/stop/target levels for explicit trade signals."""
+    raw_text = text
+    url_blacklist = extract_url_number_blacklist(raw_text)
+    normalized = normalize_signal_text(raw_text)
     entry_part = _extract_entry_section(normalized)
     entry_ref = entry_part.entry_low or entry_part.entry_high
     stop, stop_status = _extract_stop_section(normalized)
-    targets = _extract_targets_section(normalized, entry=entry_ref)
-
-    support: list[float] = []
-    resistance: list[float] = []
-    for m in _RE_SUPPORT.finditer(normalized):
-        support.append(float(m.group(1)))
-    for m in _RE_RESISTANCE.finditer(normalized):
-        resistance.append(float(m.group(1)))
+    targets = _extract_targets_section(
+        normalized,
+        entry=entry_ref,
+        url_blacklist=url_blacklist,
+        raw_text=raw_text,
+    )
 
     return ParsedSignalLevels(
         entry_low=entry_part.entry_low,
@@ -299,13 +432,19 @@ def extract_signal_levels(text: str) -> ParsedSignalLevels:
         stop=stop,
         stop_status=stop_status,
         targets=targets,
-        support=support,
-        resistance=resistance,
+        support=[],
+        resistance=[],
     )
 
 
+def extract_levels_for_content_type(text: str, content_type: str) -> ParsedSignalLevels:
+    """Route extraction by content type."""
+    if content_type == "TECHNICAL_LEVELS":
+        return extract_technical_levels(text)
+    return extract_signal_levels(text)
+
+
 def entry_status_from_text(text: str) -> str:
-    """Detect market entry from raw/normalized text when no numeric entry stored."""
     normalized = normalize_signal_text(text)
     if _RE_MARKET_ENTRY.search(normalized):
         return "market"

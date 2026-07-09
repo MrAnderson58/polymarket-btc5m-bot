@@ -13,6 +13,7 @@ from bot.research.futures.parser import (
 from bot.research.futures_agent.signal_level_extract import (
     ParsedSignalLevels,
     entry_status_from_text,
+    extract_levels_for_content_type,
     extract_signal_levels,
 )
 from bot.research.futures_agent.research_taxonomy import (
@@ -125,8 +126,8 @@ def _levels_from_parsed(parsed: ParsedSignalLevels) -> list[ExtractedLevel]:
     return levels
 
 
-def _extract_levels(text: str) -> list[ExtractedLevel]:
-    return _levels_from_parsed(extract_signal_levels(text))
+def _extract_levels(text: str, content_type: str = "EXPLICIT_SIGNAL") -> list[ExtractedLevel]:
+    return _levels_from_parsed(extract_levels_for_content_type(text, content_type))
 
 
 def _thesis_summary(text: str, *, max_len: int = 280) -> str:
@@ -179,7 +180,7 @@ def extract_theses_from_post(
         return []
 
     syms = symbols or extract_symbols(text)
-    levels = _extract_levels(text)
+    levels = _extract_levels(text, ctype.value)
     direction = _infer_direction(text, ctype)
     horizon = _extract_horizon(text)
     condition = _extract_condition(text)

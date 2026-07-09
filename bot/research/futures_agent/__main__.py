@@ -11,7 +11,8 @@ Usage:
   python -m bot.research.futures_agent thesis-extract --channel signalyp
   python -m bot.research.futures_agent thesis-quality-audit --channel signalyp --sample-size 100
   python -m bot.research.futures_agent research-rebuild-theses --channel signalyp
-  python -m bot.research.futures_agent pipeline-reconcile --channel signalyp
+  python -m bot.research.futures_agent target-contamination-audit --channel signalyp
+  python -m bot.research.futures_agent missing-thesis-audit --channel signalyp
   python -m bot.research.futures_agent research-stats
   python -m bot.research.futures_agent evaluate-theses
   python -m bot.research.futures_agent evaluate-sources
@@ -47,6 +48,7 @@ def main() -> int:
             "stage3-migrate", "ingest-research", "research-stats",
             "thesis-extract", "thesis-quality-audit", "pipeline-reconcile",
             "research-rebuild-theses",
+            "target-contamination-audit", "missing-thesis-audit",
             "research-classify-audit", "research-explicit-audit",
             "research-signal-format-audit",
             "evaluate-theses", "evaluate-sources", "source-report", "symbol-report",
@@ -208,6 +210,30 @@ def main() -> int:
                 channel=args.channel or "signalyp",
             )
             print(render_thesis_quality_audit_with_gate(report, gate))
+        return 0
+
+    if args.command == "target-contamination-audit":
+        from bot.research.futures_agent.target_contamination import (
+            render_target_contamination_audit,
+            run_target_contamination_audit,
+        )
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            report = run_target_contamination_audit(conn, channel=args.channel or "signalyp")
+            print(render_target_contamination_audit(report))
+        return 0
+
+    if args.command == "missing-thesis-audit":
+        from bot.research.futures_agent.missing_thesis_audit import (
+            render_missing_thesis_audit,
+            run_missing_thesis_audit,
+        )
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            report = run_missing_thesis_audit(conn, channel=args.channel or "signalyp")
+            print(render_missing_thesis_audit(report))
         return 0
 
     if args.command == "research-rebuild-theses":

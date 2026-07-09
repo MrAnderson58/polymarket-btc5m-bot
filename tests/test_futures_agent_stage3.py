@@ -30,7 +30,17 @@ from bot.research.futures_agent.research_reconciliation import (
 )
 from bot.research.futures_agent.research_rebuild_theses import rebuild_theses_for_channel
 from bot.research.futures_agent.research_reconciliation import render_thesis_eligibility_report
-from bot.research.futures_agent.signal_level_extract import extract_signal_levels
+from bot.research.futures_agent.signal_level_extract import (
+    extract_levels_for_content_type,
+    extract_signal_levels,
+    extract_technical_levels,
+    extract_url_number_blacklist,
+)
+from bot.research.futures_agent.target_contamination import (
+    diagnose_target_contamination,
+    run_target_contamination_audit,
+)
+from bot.research.futures_agent.missing_thesis_audit import run_missing_thesis_audit
 from bot.research.futures_agent.thesis_quality_audit import (
     ThesisQualityRow,
     _audit_row_suspicious,
@@ -175,6 +185,32 @@ SIGNALYP_LATIN_C_STOP = """#JTO LONG
 Вход: 3.55
 Тейки: 3.70
 Cтоп: 3.40"""
+
+# Phase C.3.3 — technical false targets + contamination patterns
+TECH_BTC_ANALYSIS = """BTC weekly analysis
+Dominance 58%. Price holding above key support at 94500.
+Resistance at 98000. Scenario: if breakout, next target 100k.
+22% of altcoins lagging. 4h chart constructive."""
+
+TECH_ETH_ANALYSIS = """ETH analysis
+22% weekly gain possible. Support at 3200, resistance at 3500.
+8h timeframe bullish. 8% pullback would be healthy."""
+
+TECH_RU_SUPPORT = "Цена у поддержки 1.25, жду отскок. Сопротивление 1.38"
+
+CONTAM_BYBIT_REMAINING = """#ORDI LONG
+Диапазон входа: 3.5 - 3.6
+Тейки: 3.8 4.0
+partner.bybit.com/b/76371"""
+
+CONTAM_ALLOC_REMAINING = """#NTRN LONG
+цели: 1.47 (25%) 1.49 (50%)
+Стоп: 1.30"""
+
+BTC_HIGH_PRICE_SIGNAL = """#BTC LONG
+Диапазон входа: 94500 - 95000
+Тейки: 98000 100000
+Стоп: 93000"""
 
 
 def _create_source_db(path: Path, rows: list[tuple]) -> None:
@@ -1189,6 +1225,113 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
             rendered = render_thesis_eligibility_report(conn, channel="signalyp")
         self.assertIn("THESIS ELIGIBILITY", rendered)
         self.assertIn("EXPLICIT_SIGNAL", rendered)
+
+    def test_technical_levels_no_prose_targets(self) -> None:
+        btc = extract_technical_levels(TECH_BTC_ANALYSIS)
+        self.assertEqual(btc.targets, [])
+        self.assertIn(94500.0, btc.support)
+        self.assertIn(98000.0, btc.resistance)
+        self.assertNotIn(100.0, btc.targets)
+
+        eth = extract_technical_levels(TECH_ETH_ANALYSIS)
+        self.assertEqual(eth.targets, [])
+        self.assertIn(3200.0, eth.support)
+        self.assertIn(3500.0, eth.resistance)
+        self.assertNotIn(22.0, eth.targets)
+        self.assertNotIn(8.0, eth.targets)
+
+    def test_technical_levels_russian_support_resistance(self) -> None:
+        p = extract_technical_levels(TECH_RU_SUPPORT)
+        self.assertIn(1.25, p.support)
+        self.assertIn(1.38, p.resistance)
+        self.assertEqual(p.targets, [])
+
+    def test_technical_thesis_extract_no_targets(self) -> None:
+        theses = extract_theses_from_post(
+            TECH_BTC_ANALYSIS, "TECHNICAL_LEVELS", symbols=["BTC"],
+        )
+        self.assertEqual(len(theses), 1)
+        level_types = {lv.level_type for lv in theses[0].levels}
+        self.assertNotIn("TARGET", level_types)
+        self.assertIn("SUPPORT", level_types)
+
+    def test_contamination_bybit_url_blocked(self) -> None:
+        p = extract_signal_levels(CONTAM_BYBIT_REMAINING)
+        self.assertNotIn(76371.0, p.targets)
+        self.assertIn(76371.0, extract_url_number_blacklist(CONTAM_BYBIT_REMAINING))
+
+    def test_contamination_allocation_blocked(self) -> None:
+        p = extract_signal_levels(CONTAM_ALLOC_REMAINING)
+        self.assertNotIn(25.0, p.targets)
+        self.assertNotIn(50.0, p.targets)
+
+    def test_btc_high_price_targets_preserved(self) -> None:
+        p = extract_signal_levels(BTC_HIGH_PRICE_SIGNAL)
+        self.assertEqual(p.entry_low, 94500.0)
+        self.assertIn(100000.0, p.targets)
+        self.assertIn(98000.0, p.targets)
+
+    def test_diagnose_contamination_detects_url_number(self) -> None:
+        reasons = diagnose_target_contamination(
+            CONTAM_BYBIT_REMAINING, [3.8, 76371.0], entry=3.5,
+        )
+        self.assertIn("url_number_contamination", reasons)
+
+    def test_target_contamination_audit_command(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            post_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "c1", "signalyp", 1_700_000_000, CONTAM_BYBIT_REMAINING,
+                    "hc1", "EXPLICIT_SIGNAL", "[]", 0.9,
+                ),
+            ).lastrowid
+            thesis_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_theses (
+                  post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (post_id, "ORDI", "LONG", "ordi", "1d", None, None, 0.9),
+            ).lastrowid
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_levels (
+                  thesis_id, level_type, price, ordinal, confidence
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (thesis_id, "TARGET", 76371.0, 1, 0.9),
+            )
+            conn.commit()
+            report = run_target_contamination_audit(conn, channel="signalyp")
+        self.assertEqual(len(report.contaminated_rows), 1)
+        self.assertIn("url_number_contamination", report.contaminated_rows[0].reasons)
+
+    def test_missing_thesis_audit_unresolved(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "m1", "signalyp", 1_700_000_000, ORDI_THESIS,
+                    "hm1", "TRADER_THESIS", "[]", 0.5,
+                ),
+            )
+            conn.commit()
+            report = run_missing_thesis_audit(conn, channel="signalyp")
+        self.assertGreaterEqual(report.missing_count, 1)
+        self.assertIn("TRADER_THESIS", report.by_content_type)
 
     def test_thesis_outcome_evaluation_deterministic(self) -> None:
         # Build a sqlite source DB with market_prices and feed a single thesis.
