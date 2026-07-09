@@ -14,6 +14,8 @@ from bot.research.futures_agent.signal_outcome_constants import (
     BOOTSTRAP_SAMPLES,
     BOOTSTRAP_SEED,
     DATA_QUALITY_COMPLETE_THRESHOLD,
+    DEFAULT_FEE_BPS,
+    DEFAULT_SLIPPAGE_BPS,
     ENGINE_VERSION,
     LEVERAGE_SCENARIOS,
     SAMPLE_INSUFFICIENT,
@@ -50,6 +52,8 @@ class OutcomeReport:
     cohorts: dict[str, dict[str, CohortStats]] = field(default_factory=dict)
     walk_forward: list[dict[str, Any]] = field(default_factory=list)
     rolling_quarters: list[dict[str, Any]] = field(default_factory=list)
+    entry_status: dict[str, int] = field(default_factory=dict)
+    outcome_status: dict[str, int] = field(default_factory=dict)
     policy_comparison: dict[str, CohortStats] = field(default_factory=dict)
     verdict: str = "INSUFFICIENT_DATA"
     verdict_reasons: list[str] = field(default_factory=list)
@@ -196,6 +200,17 @@ def run_outcome_report(
         if r["data_quality_status"] == "COMPLETE"
     )
 
+    report.entry_status = {
+        "ENTERED": sum(1 for r in rows if r["entry_status"] == "ENTERED"),
+        "NOT_ENTERED": sum(1 for r in rows if r["entry_status"] == "NOT_ENTERED"),
+        "SYMBOL_UNRESOLVED": sum(1 for r in rows if r["entry_status"] == "SYMBOL_UNRESOLVED"),
+        "NO_DATA": sum(1 for r in rows if r["entry_status"] == "NO_DATA"),
+    }
+    report.outcome_status = {}
+    for row in rows:
+        st = str(row["outcome_status"] or "UNKNOWN")
+        report.outcome_status[st] = report.outcome_status.get(st, 0) + 1
+
     report.data_quality = {
         "signals_total": len(rows),
         "symbols_total": len({r["symbol"] for r in rows if r["symbol"]}),
@@ -312,10 +327,10 @@ def run_outcome_report(
             report.verdict = "SOURCE_HAS_PERSISTENT_EDGE"
             report.verdict_reasons.append("Positive conservative mean with majority positive OOS years")
         elif report.conservative_results.mean_return > 0 and q_positive >= 2:
-            report.verdict = "SOURCE_HAS_CONDITIONAL_EDGE"
+            report.verdict = "CONDITIONAL_EDGE"
             report.verdict_reasons.append("Positive headline mean but mixed walk-forward blocks")
         else:
-            report.verdict = "SOURCE_EDGE_NOT_STABLE"
+            report.verdict = "NOT_STABLE"
             report.verdict_reasons.append("Conservative mean not positive across regimes")
 
     return report
@@ -333,7 +348,20 @@ def render_outcome_report(report: OutcomeReport, *, policy: str = "P1") -> str:
     for k, v in report.corpus.items():
         lines.append(f"  {k}: {v:,}" if isinstance(v, int) else f"  {k}: {v}")
 
-    lines.extend(["", "=== 2. DATA QUALITY ==="])
+    lines.extend(["", "=== 2. UNIVERSE & ENTRY STATUS ==="])
+    lines.append(f"  EXPLICIT_SIGNAL universe (expected): {report.corpus.get('expected_explicit_signals', 0):,}")
+    lines.append(f"  outcomes built: {report.corpus.get('outcomes_built', 0):,}")
+    for k, v in report.entry_status.items():
+        lines.append(f"  {k}: {v:,}")
+    if report.outcome_status:
+        lines.append("  outcome_status:")
+        for k, v in report.outcome_status.items():
+            lines.append(f"    {k}: {v:,}")
+    ambiguous_n = report.data_quality.get("ambiguous_intrabar_count", 0)
+    lines.append(f"  AMBIGUOUS_INTRABAR (entered subset): {ambiguous_n:,}")
+    lines.append(f"  deferred_stop cohort: {report.data_quality.get('deferred_stop_count', 0):,}")
+
+    lines.extend(["", "=== 3. DATA QUALITY ==="])
     for k, v in report.data_quality.items():
         if isinstance(v, float):
             lines.append(f"  {k}: {v:.1%}" if "pct" in k or "rate" in k else f"  {k}: {v:.4f}")
@@ -342,10 +370,16 @@ def render_outcome_report(report: OutcomeReport, *, policy: str = "P1") -> str:
 
     lines.extend([
         "",
-        "=== 3. ENTRY CONVERSION ===",
+        "=== 4. ENTRY CONVERSION ===",
         f"  entry_rate: {report.entry_conversion.get('entry_rate', 0):.1%}",
         "",
-        "=== 4. CONSERVATIVE UNLEVERAGED (MODEL A) ===",
+        "=== 5. RETURN MODEL ASSUMPTIONS ===",
+        "  MODEL A (headline): unleveraged underlying move, conservative execution (P1).",
+        f"  Fees: {DEFAULT_FEE_BPS} bps (not applied unless configured).",
+        f"  Slippage: {DEFAULT_SLIPPAGE_BPS} bps (not applied unless configured).",
+        "  Leverage scenarios below are research-only, not exchange simulation.",
+        "",
+        "=== 6. CONSERVATIVE UNLEVERAGED (MODEL A / P1) ===",
         f"  N: {report.conservative_results.n} ({report.conservative_results.sample_label})",
         f"  mean_return: {report.conservative_results.mean_return:.3f}%",
         f"  median_return: {report.conservative_results.median_return:.3f}%",
@@ -358,7 +392,7 @@ def render_outcome_report(report: OutcomeReport, *, policy: str = "P1") -> str:
         lo, hi = report.conservative_results.bootstrap_mean_ci
         lines.append(f"  bootstrap mean CI: [{lo:.3f}%, {hi:.3f}%]")
 
-    lines.extend(["", "=== 7. EXIT POLICY COMPARISON ==="])
+    lines.extend(["", "=== 8. EXIT POLICY COMPARISON (P1-P6, fixed, not optimized) ==="])
     for pol, cs in report.policy_comparison.items():
         lines.append(
             f"  {pol}: N={cs.n} mean={cs.mean_return:.3f}% win={cs.win_rate:.1%} [{cs.sample_label}]",
@@ -376,9 +410,14 @@ def render_outcome_report(report: OutcomeReport, *, policy: str = "P1") -> str:
         cohort = report.cohorts.get(key, {})
         items = sorted(cohort.items(), key=lambda x: -x[1].n)[:15]
         for label, cs in items:
+            if cs.sample_label == "INSUFFICIENT":
+                continue
             lines.append(
                 f"  {label}: N={cs.n} mean={cs.mean_return:.3f}% win={cs.win_rate:.1%} [{cs.sample_label}]",
             )
+        insufficient = [label for label, cs in cohort.items() if cs.sample_label == "INSUFFICIENT"]
+        if insufficient:
+            lines.append(f"  (insufficient N omitted: {', '.join(insufficient[:10])})")
 
     lines.extend(["", "=== 15. WALK-FORWARD (OOS BY YEAR) ==="])
     for w in report.walk_forward:

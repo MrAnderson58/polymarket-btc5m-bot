@@ -19,6 +19,7 @@ Usage:
   python -m bot.research.futures_agent outcome-report --channel signalyp
   python -m bot.research.futures_agent outcome-gate --channel signalyp
   python -m bot.research.futures_agent outcome-test-contamination-audit --channel signalyp
+  python -m bot.research.futures_agent outcome-test-contamination-cleanup --channel signalyp
   python -m bot.research.futures_agent research-stats
   python -m bot.research.futures_agent evaluate-theses
   python -m bot.research.futures_agent evaluate-sources
@@ -58,6 +59,7 @@ def main() -> int:
             "technical-levels-audit", "stage3-final-gate",
             "outcome-build", "outcome-report", "outcome-gate",
             "outcome-test-contamination-audit",
+            "outcome-test-contamination-cleanup",
             "research-classify-audit", "research-explicit-audit",
             "research-signal-format-audit",
             "evaluate-theses", "evaluate-sources", "source-report", "symbol-report",
@@ -131,6 +133,17 @@ def main() -> int:
         type=str,
         default="P1",
         help="Exit policy for outcome-report (P1-P6)",
+    )
+    parser.add_argument(
+        "--direction",
+        type=str,
+        default=None,
+        help="Filter outcome-report by direction (LONG or SHORT)",
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply destructive cleanup (outcome-test-contamination-cleanup only)",
     )
     args = parser.parse_args()
 
@@ -305,6 +318,7 @@ def main() -> int:
                 channel=args.channel or "signalyp",
                 engine_version=ev,
                 policy=args.policy,
+                direction=args.direction,
                 start_ts=args.start_ts,
                 end_ts=args.end_ts,
             )
@@ -336,6 +350,22 @@ def main() -> int:
             report = run_test_contamination_audit(conn, channel=args.channel or "signalyp")
             print(render_test_contamination_audit(report))
         return 0
+
+    if args.command == "outcome-test-contamination-cleanup":
+        from bot.research.futures_agent.outcome_test_contamination_audit import (
+            render_test_contamination_cleanup,
+            run_test_contamination_cleanup,
+        )
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            result = run_test_contamination_cleanup(
+                conn,
+                channel=args.channel or "signalyp",
+                apply=args.apply,
+            )
+            print(render_test_contamination_cleanup(result))
+        return 1 if result.errors else 0
 
     if args.command == "stage3-final-gate":
         from bot.research.futures_agent.stage3_final_gate import (

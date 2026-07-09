@@ -33,7 +33,9 @@ from bot.research.futures_agent.signal_outcome_path import (
 )
 from bot.research.futures_agent.signal_outcome_report import run_outcome_report
 from bot.research.futures_agent.outcome_test_contamination_audit import (
+    build_cleanup_plan,
     run_test_contamination_audit,
+    run_test_contamination_cleanup,
 )
 
 
@@ -452,6 +454,253 @@ class StageD1Tests(unittest.TestCase):
         self.assertGreaterEqual(len(report.posts), 1)
         self.assertIn("d1", report.posts[0].detail)
 
+    def _seed_three_fixture_posts(self, conn) -> list[int]:
+        thesis_ids = []
+        for post_id in ("d1", "fk1", "wf1"):
+            thesis_ids.append(self._seed_explicit_signal(
+                conn,
+                post_id=post_id,
+                raw="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
+                levels=[
+                    ("ENTRY_LOW", 100.0, 0),
+                    ("ENTRY_HIGH", 100.0, 0),
+                    ("STOP", 95.0, 0),
+                    ("TARGET", 110.0, 1),
+                ],
+            ))
+        return thesis_ids
+
+    def _seed_outcome_chain(self, conn, thesis_id: int, post_id: int) -> int:
+        from bot.research.futures_agent.signal_outcome_build import _persist_outcome
+        from bot.research.futures_agent.signal_outcome_path import (
+            MarkoutPoint,
+            PathEvaluation,
+            SignalEvent,
+        )
+
+        ev = PathEvaluation(
+            decision_ts=1_700_000_000,
+            direction="LONG",
+            entry_mode="NUMERIC_ZONE",
+            entry_status="ENTERED",
+            entry_ts=1_700_000_060,
+            entry_price=100.0,
+            entry_fill_model="conservative_boundary",
+            stop_mode="NUMERIC_STOP",
+            stop_price=95.0,
+            targets=[],
+            outcome_status="ENTERED",
+            data_quality_status="COMPLETE",
+            conservative_terminal="TP1",
+        )
+        ev.events = [
+            SignalEvent(
+                event_type="ENTRY",
+                event_ts=1_700_000_060,
+                event_price=100.0,
+                candle_open_ts=1_700_000_000,
+            ),
+            SignalEvent(
+                event_type="TP1",
+                event_ts=1_700_000_120,
+                event_price=110.0,
+                candle_open_ts=1_700_000_060,
+                target_index=0,
+            ),
+        ]
+        ev.markouts = [
+            MarkoutPoint(
+                horizon=h,
+                horizon_seconds=sec,
+                mark_ts=1_700_000_000 + sec,
+                mark_price=100.0 + i,
+                directional_return_pct=float(i),
+                mfe_pct=float(i),
+                mae_pct=-0.5,
+            )
+            for i, (h, sec) in enumerate((
+                ("15m", 900),
+                ("1h", 3600),
+                ("4h", 14400),
+                ("1d", 86400),
+                ("3d", 259200),
+                ("7d", 604800),
+            ), start=1)
+        ]
+        row = conn.execute(
+            """
+            SELECT t.id AS thesis_id, t.post_id, p.channel_name, p.message_ts,
+                   t.symbol, t.direction, p.raw_text
+            FROM futures_agent_trader_theses t
+            JOIN futures_agent_trader_posts p ON p.id = t.post_id
+            WHERE t.id = ?
+            """,
+            (thesis_id,),
+        ).fetchone()
+        oid, _, _ = _persist_outcome(
+            conn,
+            row=row,
+            exchange_symbol="BTCUSDT",
+            symbol_status="resolved",
+            candle_meta={"fetch_status": "mock"},
+            ev=ev,
+            engine_version=ENGINE_VERSION,
+        )
+        conn.commit()
+        return oid
+
+    def test_cleanup_dry_run_does_not_delete(self) -> None:
+        with self._conn() as conn:
+            apply_migrations(conn)
+            self._seed_explicit_signal(
+                conn,
+                post_id="d1",
+                raw="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
+                levels=[
+                    ("ENTRY_LOW", 100.0, 0),
+                    ("ENTRY_HIGH", 100.0, 0),
+                    ("STOP", 95.0, 0),
+                    ("TARGET", 110.0, 1),
+                ],
+            )
+            before = conn.execute(
+                "SELECT COUNT(*) AS n FROM futures_agent_trader_posts",
+            ).fetchone()["n"]
+            result = run_test_contamination_cleanup(conn, channel="signalyp", apply=False)
+            after = conn.execute(
+                "SELECT COUNT(*) AS n FROM futures_agent_trader_posts",
+            ).fetchone()["n"]
+        self.assertFalse(result.applied)
+        self.assertEqual(before, after)
+        self.assertGreaterEqual(result.plan.counts["posts"], 1)
+
+    def test_cleanup_apply_removes_fixture_chain(self) -> None:
+        with self._conn() as conn:
+            apply_migrations(conn)
+            thesis_id = self._seed_explicit_signal(
+                conn,
+                post_id="d1",
+                raw="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
+                levels=[
+                    ("ENTRY_LOW", 100.0, 0),
+                    ("ENTRY_HIGH", 100.0, 0),
+                    ("STOP", 95.0, 0),
+                    ("TARGET", 110.0, 1),
+                ],
+            )
+            self._seed_outcome_chain(conn, thesis_id, 1)
+            result = run_test_contamination_cleanup(conn, channel="signalyp", apply=True)
+            audit = run_test_contamination_audit(conn, channel="signalyp")
+        self.assertTrue(result.applied)
+        self.assertEqual(result.deleted["posts"], 1)
+        self.assertEqual(audit.total_suspicious, 0)
+
+    def test_cleanup_known_three_fixture_counts(self) -> None:
+        with self._conn() as conn:
+            apply_migrations(conn)
+            thesis_ids = self._seed_three_fixture_posts(conn)
+            for tid in thesis_ids:
+                self._seed_outcome_chain(conn, tid, 1)
+            plan = build_cleanup_plan(conn, channel="signalyp")
+            self.assertEqual(plan.counts["posts"], 3)
+            self.assertEqual(plan.counts["theses"], 3)
+            self.assertEqual(plan.counts["levels"], 12)
+            self.assertEqual(plan.counts["outcomes"], 3)
+            self.assertEqual(plan.counts["events"], 6)
+            self.assertEqual(plan.counts["markouts"], 18)
+            result = run_test_contamination_cleanup(conn, channel="signalyp", apply=True)
+        self.assertTrue(result.applied)
+        self.assertTrue(result.known_fixture_assertion_ok)
+        self.assertEqual(result.deleted, {
+            "markouts": 18,
+            "events": 6,
+            "outcomes": 3,
+            "levels": 12,
+            "theses": 3,
+            "posts": 3,
+        })
+
+    def test_cleanup_fk_safe_delete_order(self) -> None:
+        from bot.research.futures_agent import outcome_test_contamination_audit as mod
+
+        order: list[str] = []
+        original = mod._delete_by_ids
+
+        def recording_delete(conn, table, ids):
+            order.append(table)
+            return original(conn, table, ids)
+
+        with self._conn() as conn:
+            apply_migrations(conn)
+            thesis_id = self._seed_explicit_signal(
+                conn,
+                post_id="d1",
+                raw="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
+                levels=[
+                    ("ENTRY_LOW", 100.0, 0),
+                    ("ENTRY_HIGH", 100.0, 0),
+                    ("STOP", 95.0, 0),
+                    ("TARGET", 110.0, 1),
+                ],
+            )
+            self._seed_outcome_chain(conn, thesis_id, 1)
+            mod._delete_by_ids = recording_delete  # type: ignore[assignment]
+            try:
+                run_test_contamination_cleanup(conn, channel="signalyp", apply=True)
+            finally:
+                mod._delete_by_ids = original  # type: ignore[assignment]
+
+        self.assertEqual(order, [
+            "futures_agent_research_signal_markouts",
+            "futures_agent_research_signal_events",
+            "futures_agent_research_signal_outcomes",
+            "futures_agent_trader_levels",
+            "futures_agent_trader_theses",
+            "futures_agent_trader_posts",
+        ])
+
+    def test_cleanup_rollback_on_delete_failure(self) -> None:
+        from bot.research.futures_agent import outcome_test_contamination_audit as mod
+
+        original = mod._delete_by_ids
+        calls = {"n": 0}
+
+        def failing_delete(conn, table, ids):
+            calls["n"] += 1
+            if table == "futures_agent_research_signal_outcomes":
+                raise RuntimeError("simulated delete failure")
+            return original(conn, table, ids)
+
+        with self._conn() as conn:
+            apply_migrations(conn)
+            thesis_id = self._seed_explicit_signal(
+                conn,
+                post_id="d1",
+                raw="BTC LONG\nEntry: 100\nSL: 95\nTP: 110",
+                levels=[
+                    ("ENTRY_LOW", 100.0, 0),
+                    ("ENTRY_HIGH", 100.0, 0),
+                    ("STOP", 95.0, 0),
+                    ("TARGET", 110.0, 1),
+                ],
+            )
+            self._seed_outcome_chain(conn, thesis_id, 1)
+            mod._delete_by_ids = failing_delete  # type: ignore[assignment]
+            try:
+                result = run_test_contamination_cleanup(conn, channel="signalyp", apply=True)
+            finally:
+                mod._delete_by_ids = original  # type: ignore[assignment]
+            posts = conn.execute(
+                "SELECT COUNT(*) AS n FROM futures_agent_trader_posts",
+            ).fetchone()["n"]
+            outcomes = conn.execute(
+                "SELECT COUNT(*) AS n FROM futures_agent_research_signal_outcomes",
+            ).fetchone()["n"]
+        self.assertFalse(result.applied)
+        self.assertTrue(any("simulated" in e for e in result.errors))
+        self.assertGreaterEqual(posts, 1)
+        self.assertGreaterEqual(outcomes, 1)
+
     def test_walk_forward_report_structure(self) -> None:
         t0 = 1_700_000_000
         provider = MockCandleProvider({
@@ -475,8 +724,8 @@ class StageD1Tests(unittest.TestCase):
             report = run_outcome_report(conn, channel="signalyp")
         self.assertIn(report.verdict, (
             "SOURCE_HAS_PERSISTENT_EDGE",
-            "SOURCE_HAS_CONDITIONAL_EDGE",
-            "SOURCE_EDGE_NOT_STABLE",
+            "CONDITIONAL_EDGE",
+            "NOT_STABLE",
             "INSUFFICIENT_DATA",
         ))
         self.assertGreaterEqual(report.corpus["outcomes_built"], 1)
