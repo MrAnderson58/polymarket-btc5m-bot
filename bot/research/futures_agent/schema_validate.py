@@ -240,3 +240,47 @@ def validate_stage4_schema(conn: Any) -> dict[str, Any]:
             tables_ok.append(table)
 
     return {"valid": len(errors) == 0, "tables_ok": tables_ok, "errors": errors}
+
+
+STAGE5_TABLES = {
+    "futures_agent_research_market_data_cache": frozenset({
+        "id", "exchange_symbol", "interval", "open_ts",
+        "open_price", "high_price", "low_price", "close_price",
+        "data_source", "fetched_at",
+    }),
+    "futures_agent_research_signal_outcomes": frozenset({
+        "id", "thesis_id", "post_id", "channel", "symbol", "exchange_symbol",
+        "direction", "decision_ts", "entry_mode", "entry_status", "entry_ts",
+        "entry_price", "entry_fill_model", "stop_mode", "stop_price",
+        "outcome_status", "first_terminal_event", "first_terminal_ts",
+        "max_target_reached", "mfe_pct", "mae_pct", "ambiguous_intrabar",
+        "conservative_terminal", "optimistic_terminal", "raw_return_pct",
+        "data_quality_status", "symbol_resolve_status", "candle_meta_json",
+        "policy_results_json", "engine_version", "created_at",
+    }),
+    "futures_agent_research_signal_events": frozenset({
+        "id", "outcome_id", "event_type", "target_index", "event_ts",
+        "event_price", "candle_open_ts", "ambiguity_flag", "ordinal",
+    }),
+    "futures_agent_research_signal_markouts": frozenset({
+        "id", "outcome_id", "horizon", "horizon_seconds", "mark_ts",
+        "mark_price", "directional_return_pct", "mfe_pct", "mae_pct",
+    }),
+}
+
+
+def validate_stage5_schema(conn: Any) -> dict[str, Any]:
+    postgres = connection_is_postgres(conn)
+    errors: list[str] = []
+    tables_ok: list[str] = []
+    for table, required_cols in STAGE5_TABLES.items():
+        cols = _table_columns(conn, table, postgres=postgres)
+        if cols is None:
+            errors.append(f"missing table: {table}")
+            continue
+        missing = required_cols - set(cols)
+        if missing:
+            errors.append(f"{table} missing columns: {sorted(missing)}")
+        else:
+            tables_ok.append(table)
+    return {"valid": len(errors) == 0, "tables_ok": tables_ok, "errors": errors}

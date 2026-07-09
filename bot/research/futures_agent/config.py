@@ -7,7 +7,7 @@ import os
 from bot.research.futures_agent.env_bootstrap import bootstrap_config, resolve_agent_db_config
 
 PARSER_VERSION = "deterministic_v2"
-AGENT_SCHEMA_VERSION = 4
+AGENT_SCHEMA_VERSION = 5
 
 AGENT_TABLE_ALLOWLIST = frozenset({
     "futures_agent_migrations",
@@ -23,6 +23,10 @@ AGENT_TABLE_ALLOWLIST = frozenset({
     "futures_agent_thesis_outcomes",
     "futures_agent_source_scores",
     "futures_agent_source_scores_v2",
+    "futures_agent_research_market_data_cache",
+    "futures_agent_research_signal_outcomes",
+    "futures_agent_research_signal_events",
+    "futures_agent_research_signal_markouts",
 })
 
 INPUT_TYPE_FORWARDED = "forwarded"

@@ -10,6 +10,7 @@ from bot.research.futures_agent.schema_validate import (
     validate_stage2_schema,
     validate_stage3_schema,
     validate_stage4_schema,
+    validate_stage5_schema,
 )
 
 MIGRATIONS_TABLE = "futures_agent_migrations"
@@ -17,6 +18,7 @@ STAGE1_VERSION = 1
 STAGE2_VERSION = 2
 STAGE3_VERSION = 3
 STAGE4_VERSION = 4
+STAGE5_VERSION = 5
 
 STAGE1_DDL = """
 CREATE TABLE IF NOT EXISTS futures_agent_migrations (
@@ -521,6 +523,174 @@ CREATE INDEX IF NOT EXISTS idx_fa_scores_v2_channel ON futures_agent_source_scor
 CREATE INDEX IF NOT EXISTS idx_fa_scores_v2_symbol ON futures_agent_source_scores_v2(symbol);
 """
 
+STAGE5_DDL = """
+-- Stage 5: Phase D.1 historical signal outcome engine
+
+CREATE TABLE IF NOT EXISTS futures_agent_research_market_data_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    exchange_symbol TEXT NOT NULL,
+    interval TEXT NOT NULL,
+    open_ts INTEGER NOT NULL,
+    open_price REAL NOT NULL,
+    high_price REAL NOT NULL,
+    low_price REAL NOT NULL,
+    close_price REAL NOT NULL,
+    data_source TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL,
+    UNIQUE(exchange_symbol, interval, open_ts)
+);
+CREATE INDEX IF NOT EXISTS idx_fa_rmdc_symbol_ts
+  ON futures_agent_research_market_data_cache(exchange_symbol, interval, open_ts);
+
+CREATE TABLE IF NOT EXISTS futures_agent_research_signal_outcomes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thesis_id INTEGER NOT NULL,
+    post_id INTEGER NOT NULL,
+    channel TEXT NOT NULL,
+    symbol TEXT,
+    exchange_symbol TEXT,
+    direction TEXT NOT NULL,
+    decision_ts INTEGER NOT NULL,
+    entry_mode TEXT NOT NULL,
+    entry_status TEXT NOT NULL,
+    entry_ts INTEGER,
+    entry_price REAL,
+    entry_fill_model TEXT,
+    stop_mode TEXT NOT NULL,
+    stop_price REAL,
+    outcome_status TEXT NOT NULL,
+    first_terminal_event TEXT,
+    first_terminal_ts INTEGER,
+    max_target_reached INTEGER NOT NULL DEFAULT 0,
+    mfe_pct REAL,
+    mae_pct REAL,
+    ambiguous_intrabar INTEGER NOT NULL DEFAULT 0,
+    conservative_terminal TEXT,
+    optimistic_terminal TEXT,
+    raw_return_pct REAL,
+    data_quality_status TEXT NOT NULL,
+    symbol_resolve_status TEXT,
+    candle_meta_json TEXT,
+    policy_results_json TEXT,
+    engine_version TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(thesis_id, engine_version),
+    FOREIGN KEY (thesis_id) REFERENCES futures_agent_trader_theses(id),
+    FOREIGN KEY (post_id) REFERENCES futures_agent_trader_posts(id)
+);
+CREATE INDEX IF NOT EXISTS idx_fa_rso_channel ON futures_agent_research_signal_outcomes(channel);
+CREATE INDEX IF NOT EXISTS idx_fa_rso_decision_ts ON futures_agent_research_signal_outcomes(decision_ts);
+
+CREATE TABLE IF NOT EXISTS futures_agent_research_signal_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    outcome_id INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    target_index INTEGER,
+    event_ts INTEGER NOT NULL,
+    event_price REAL NOT NULL,
+    candle_open_ts INTEGER NOT NULL,
+    ambiguity_flag INTEGER NOT NULL DEFAULT 0,
+    ordinal INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (outcome_id) REFERENCES futures_agent_research_signal_outcomes(id)
+);
+CREATE INDEX IF NOT EXISTS idx_fa_rse_outcome ON futures_agent_research_signal_events(outcome_id);
+
+CREATE TABLE IF NOT EXISTS futures_agent_research_signal_markouts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    outcome_id INTEGER NOT NULL,
+    horizon TEXT NOT NULL,
+    horizon_seconds INTEGER NOT NULL,
+    mark_ts INTEGER NOT NULL,
+    mark_price REAL NOT NULL,
+    directional_return_pct REAL NOT NULL,
+    mfe_pct REAL NOT NULL,
+    mae_pct REAL NOT NULL,
+    UNIQUE(outcome_id, horizon),
+    FOREIGN KEY (outcome_id) REFERENCES futures_agent_research_signal_outcomes(id)
+);
+"""
+
+STAGE5_DDL_POSTGRES = """
+CREATE TABLE IF NOT EXISTS futures_agent_research_market_data_cache (
+    id BIGSERIAL PRIMARY KEY,
+    exchange_symbol TEXT NOT NULL,
+    interval TEXT NOT NULL,
+    open_ts BIGINT NOT NULL,
+    open_price DOUBLE PRECISION NOT NULL,
+    high_price DOUBLE PRECISION NOT NULL,
+    low_price DOUBLE PRECISION NOT NULL,
+    close_price DOUBLE PRECISION NOT NULL,
+    data_source TEXT NOT NULL,
+    fetched_at BIGINT NOT NULL,
+    UNIQUE(exchange_symbol, interval, open_ts)
+);
+CREATE INDEX IF NOT EXISTS idx_fa_rmdc_symbol_ts
+  ON futures_agent_research_market_data_cache(exchange_symbol, interval, open_ts);
+
+CREATE TABLE IF NOT EXISTS futures_agent_research_signal_outcomes (
+    id BIGSERIAL PRIMARY KEY,
+    thesis_id BIGINT NOT NULL REFERENCES futures_agent_trader_theses(id),
+    post_id BIGINT NOT NULL REFERENCES futures_agent_trader_posts(id),
+    channel TEXT NOT NULL,
+    symbol TEXT,
+    exchange_symbol TEXT,
+    direction TEXT NOT NULL,
+    decision_ts BIGINT NOT NULL,
+    entry_mode TEXT NOT NULL,
+    entry_status TEXT NOT NULL,
+    entry_ts BIGINT,
+    entry_price DOUBLE PRECISION,
+    entry_fill_model TEXT,
+    stop_mode TEXT NOT NULL,
+    stop_price DOUBLE PRECISION,
+    outcome_status TEXT NOT NULL,
+    first_terminal_event TEXT,
+    first_terminal_ts BIGINT,
+    max_target_reached INTEGER NOT NULL DEFAULT 0,
+    mfe_pct DOUBLE PRECISION,
+    mae_pct DOUBLE PRECISION,
+    ambiguous_intrabar INTEGER NOT NULL DEFAULT 0,
+    conservative_terminal TEXT,
+    optimistic_terminal TEXT,
+    raw_return_pct DOUBLE PRECISION,
+    data_quality_status TEXT NOT NULL,
+    symbol_resolve_status TEXT,
+    candle_meta_json TEXT,
+    policy_results_json TEXT,
+    engine_version TEXT NOT NULL,
+    created_at BIGINT NOT NULL,
+    UNIQUE(thesis_id, engine_version)
+);
+CREATE INDEX IF NOT EXISTS idx_fa_rso_channel ON futures_agent_research_signal_outcomes(channel);
+CREATE INDEX IF NOT EXISTS idx_fa_rso_decision_ts ON futures_agent_research_signal_outcomes(decision_ts);
+
+CREATE TABLE IF NOT EXISTS futures_agent_research_signal_events (
+    id BIGSERIAL PRIMARY KEY,
+    outcome_id BIGINT NOT NULL REFERENCES futures_agent_research_signal_outcomes(id),
+    event_type TEXT NOT NULL,
+    target_index INTEGER,
+    event_ts BIGINT NOT NULL,
+    event_price DOUBLE PRECISION NOT NULL,
+    candle_open_ts BIGINT NOT NULL,
+    ambiguity_flag INTEGER NOT NULL DEFAULT 0,
+    ordinal INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_fa_rse_outcome ON futures_agent_research_signal_events(outcome_id);
+
+CREATE TABLE IF NOT EXISTS futures_agent_research_signal_markouts (
+    id BIGSERIAL PRIMARY KEY,
+    outcome_id BIGINT NOT NULL REFERENCES futures_agent_research_signal_outcomes(id),
+    horizon TEXT NOT NULL,
+    horizon_seconds INTEGER NOT NULL,
+    mark_ts BIGINT NOT NULL,
+    mark_price DOUBLE PRECISION NOT NULL,
+    directional_return_pct DOUBLE PRECISION NOT NULL,
+    mfe_pct DOUBLE PRECISION NOT NULL,
+    mae_pct DOUBLE PRECISION NOT NULL,
+    UNIQUE(outcome_id, horizon)
+);
+"""
+
 
 def apply_migrations(conn: Any) -> list[str]:
     """Apply Stage 1 + Stage 2 + Stage 3 migrations idempotently."""
@@ -602,6 +772,18 @@ def apply_migrations(conn: Any) -> list[str]:
             (STAGE4_VERSION, "stage4_thesis_outcomes_and_source_scores_v2"),
         )
         applied.append(f"v{STAGE4_VERSION}: stage4_outcomes_scores")
+
+    if not _has_migration(conn, STAGE5_VERSION):
+        for stmt in _split_ddl(STAGE5_DDL_POSTGRES if postgres else STAGE5_DDL):
+            conn.execute(stmt)
+        validation5 = validate_stage5_schema(conn)
+        if not validation5["valid"]:
+            raise RuntimeError(f"Stage 5 schema validation failed after DDL: {validation5['errors']}")
+        conn.execute(
+            f"INSERT INTO {MIGRATIONS_TABLE} (version, description) VALUES (?, ?)",
+            (STAGE5_VERSION, "stage5_research_signal_outcome_engine"),
+        )
+        applied.append(f"v{STAGE5_VERSION}: stage5_signal_outcomes")
 
     return applied
 
