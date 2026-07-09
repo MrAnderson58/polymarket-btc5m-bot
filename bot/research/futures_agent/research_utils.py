@@ -18,6 +18,16 @@ _DOLLAR_TICKER_RE = re.compile(r"\$([A-Z]{2,10})\b")
 _HASH_TICKER_RE = re.compile(r"#([A-Z]{2,10})\b")
 _MARKET_WIDE = frozenset({"BTC", "ETH", "CRYPTO", "MARKET"})
 
+# Stage 3 research-only asset name aliases (high-confidence, not fuzzy)
+_RESEARCH_ASSET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"(?i)\bbitcoin\b"), "BTC"),
+    (re.compile(r"(?i)\bбиткоин\b"), "BTC"),
+    (re.compile(r"(?i)\bбиток\b"), "BTC"),
+    (re.compile(r"(?i)\bethereum\b"), "ETH"),
+    (re.compile(r"(?i)\bэфир(?:иум)?\b"), "ETH"),
+    (re.compile(r"(?:#TON|\$TON|TON/USDT|\bTON\b)"), "TON"),
+)
+
 
 def normalize_content_text(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip().lower())
@@ -55,6 +65,20 @@ def extract_symbols(text: str, *, max_symbols: int = 8) -> list[str]:
     primary, _ = extract_symbol_v2(text)
     if primary and primary not in seen:
         found.insert(0, primary)
+    return found[:max_symbols]
+
+
+def extract_research_symbols(text: str, *, max_symbols: int = 8) -> list[str]:
+    """Extract symbols for Stage 3 thesis path, including high-confidence name aliases."""
+    found = extract_symbols(text, max_symbols=max_symbols)
+    seen = set(found)
+    header = text[:800]
+    for pat, sym in _RESEARCH_ASSET_PATTERNS:
+        if pat.search(header) and sym not in seen:
+            found.insert(0, sym)
+            seen.add(sym)
+        if len(found) >= max_symbols:
+            break
     return found[:max_symbols]
 
 

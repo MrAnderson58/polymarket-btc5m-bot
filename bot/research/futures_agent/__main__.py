@@ -13,6 +13,8 @@ Usage:
   python -m bot.research.futures_agent research-rebuild-theses --channel signalyp
   python -m bot.research.futures_agent target-contamination-audit --channel signalyp
   python -m bot.research.futures_agent missing-thesis-audit --channel signalyp
+  python -m bot.research.futures_agent technical-levels-audit --channel signalyp
+  python -m bot.research.futures_agent stage3-final-gate --channel signalyp
   python -m bot.research.futures_agent research-stats
   python -m bot.research.futures_agent evaluate-theses
   python -m bot.research.futures_agent evaluate-sources
@@ -49,6 +51,7 @@ def main() -> int:
             "thesis-extract", "thesis-quality-audit", "pipeline-reconcile",
             "research-rebuild-theses",
             "target-contamination-audit", "missing-thesis-audit",
+            "technical-levels-audit", "stage3-final-gate",
             "research-classify-audit", "research-explicit-audit",
             "research-signal-format-audit",
             "evaluate-theses", "evaluate-sources", "source-report", "symbol-report",
@@ -234,6 +237,30 @@ def main() -> int:
             apply_migrations(conn)
             report = run_missing_thesis_audit(conn, channel=args.channel or "signalyp")
             print(render_missing_thesis_audit(report))
+        return 0
+
+    if args.command == "technical-levels-audit":
+        from bot.research.futures_agent.technical_levels_audit import (
+            render_technical_levels_audit,
+            run_technical_levels_audit,
+        )
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            report = run_technical_levels_audit(conn, channel=args.channel or "signalyp")
+            print(render_technical_levels_audit(report))
+        return 0
+
+    if args.command == "stage3-final-gate":
+        from bot.research.futures_agent.stage3_final_gate import (
+            render_stage3_final_gate,
+            run_stage3_final_gate,
+        )
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            report = run_stage3_final_gate(conn, channel=args.channel or "signalyp")
+            print(render_stage3_final_gate(report))
         return 0
 
     if args.command == "research-rebuild-theses":

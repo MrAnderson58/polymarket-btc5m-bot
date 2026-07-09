@@ -10,7 +10,10 @@ from typing import Any
 
 from bot.research.futures_agent.research_ingest import IngestResearchStats
 from bot.research.futures_agent.research_taxonomy import RESEARCH_THESIS_ELIGIBLE, ResearchContentType
-from bot.research.futures_agent.signal_level_extract import extract_levels_for_content_type
+from bot.research.futures_agent.signal_level_extract import (
+    entry_status_from_text,
+    extract_levels_for_content_type,
+)
 from bot.research.futures_agent.thesis_extract import _infer_direction
 
 
@@ -508,7 +511,7 @@ def _thesis_structure_counts(conn: Any, *, channel: str | None = None) -> dict[s
 
     rows = conn.execute(
         f"""
-        SELECT t.id, p.raw_text,
+        SELECT t.id, p.raw_text, p.content_type,
                SUM(CASE WHEN l.level_type IN ('ENTRY_LOW','ENTRY_HIGH') THEN 1 ELSE 0 END) AS has_entry,
                SUM(CASE WHEN l.level_type = 'STOP' THEN 1 ELSE 0 END) AS has_stop,
                SUM(CASE WHEN l.level_type = 'TARGET' THEN 1 ELSE 0 END) AS has_target
@@ -516,7 +519,7 @@ def _thesis_structure_counts(conn: Any, *, channel: str | None = None) -> dict[s
         JOIN futures_agent_trader_posts p ON p.id = t.post_id
         LEFT JOIN futures_agent_trader_levels l ON l.thesis_id = t.id
         WHERE 1=1{ch_clause}
-        GROUP BY t.id, p.raw_text
+        GROUP BY t.id, p.raw_text, p.content_type
         """,
         params,
     ).fetchall()
@@ -534,13 +537,19 @@ def _thesis_structure_counts(conn: Any, *, channel: str | None = None) -> dict[s
         "complete_structure": 0,
     }
     for row in rows:
-        parsed = extract_signal_levels(row["raw_text"] or "")
+        content_type = row["content_type"] or "OTHER"
+        raw = row["raw_text"] or ""
+        parsed = extract_levels_for_content_type(raw, content_type)
         has_entry = row["has_entry"] > 0 or parsed.entry_status == "numeric"
-        has_market = parsed.entry_status == "market" or entry_status_from_text(row["raw_text"] or "") == "market"
+        has_market = (
+            parsed.entry_status == "market" or entry_status_from_text(raw) == "market"
+        )
         has_stop = row["has_stop"] > 0 or parsed.stop is not None
-        has_target = row["has_target"] > 0 or bool(parsed.targets)
+        has_target = row["has_target"] > 0 or (
+            content_type != "TECHNICAL_LEVELS" and bool(parsed.targets)
+        )
         deferred = parsed.stop_status == "deferred" or (
-            bool(deferred_re.search(row["raw_text"] or "")) and not has_stop
+            bool(deferred_re.search(raw)) and not has_stop
         )
         if has_entry:
             out["with_entry"] += 1

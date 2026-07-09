@@ -26,7 +26,9 @@ from bot.research.futures_agent.research_ingest import ingest_research_posts, ru
 from bot.research.futures_agent.research_reconciliation import (
     render_ingest_reconciliation,
     render_pipeline_reconciliation,
+    render_thesis_extract_report,
     run_pipeline_reconciliation,
+    ThesisExtractStats,
 )
 from bot.research.futures_agent.research_rebuild_theses import rebuild_theses_for_channel
 from bot.research.futures_agent.research_reconciliation import render_thesis_eligibility_report
@@ -41,6 +43,11 @@ from bot.research.futures_agent.target_contamination import (
     run_target_contamination_audit,
 )
 from bot.research.futures_agent.missing_thesis_audit import run_missing_thesis_audit
+from bot.research.futures_agent.stage3_final_gate import run_stage3_final_gate, render_stage3_final_gate
+from bot.research.futures_agent.technical_levels_audit import (
+    _audit_level_suspicious,
+    run_technical_levels_audit,
+)
 from bot.research.futures_agent.thesis_quality_audit import (
     ThesisQualityRow,
     _audit_row_suspicious,
@@ -60,6 +67,7 @@ from bot.research.futures_agent.research_taxonomy import (
 )
 from bot.research.futures_agent.research_utils import (
     content_hash,
+    extract_research_symbols,
     extract_symbols,
     normalize_json_array,
     parse_symbols_json,
@@ -1398,6 +1406,193 @@ class FuturesAgentStage3TestCase(unittest.TestCase):
         self.assertAlmostEqual(out["price_at_thesis"], 100.0)
         self.assertAlmostEqual(out["mfe_pct"], 0.10, places=6)
         self.assertAlmostEqual(out["mae_pct"], -0.10, places=6)
+
+    def test_render_thesis_extract_report_no_name_error(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            post_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "r1", "signalyp", 1_700_000_000, TECH_BTC_ANALYSIS,
+                    "hr1", "TECHNICAL_LEVELS", '["BTC"]', 0.8,
+                ),
+            ).lastrowid
+            thesis_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_theses (
+                  post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (post_id, "BTC", "NEUTRAL", "btc tech", None, None, None, 0.7),
+            ).lastrowid
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_levels (
+                  thesis_id, level_type, price, ordinal, confidence
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (thesis_id, "SUPPORT", 94500.0, 1, 0.65),
+            )
+            conn.commit()
+            rendered = render_thesis_extract_report(
+                conn, ThesisExtractStats(), channel="signalyp",
+            )
+        self.assertIn("THESIS EXTRACT RECONCILIATION", rendered)
+        self.assertIn("theses with >=1 target", rendered)
+
+    def test_content_type_routing_technical_no_trade_targets(self) -> None:
+        explicit = extract_levels_for_content_type(AUTHOR_SIGNAL, "EXPLICIT_SIGNAL")
+        technical = extract_levels_for_content_type(TECH_BTC_ANALYSIS, "TECHNICAL_LEVELS")
+        self.assertTrue(explicit.targets)
+        self.assertEqual(technical.targets, [])
+        self.assertIn(94500.0, technical.support)
+
+    def test_technical_audit_flags_fibonacci_ratio(self) -> None:
+        reasons = _audit_level_suspicious(
+            post_id=1,
+            thesis_id=1,
+            symbol="ATOM",
+            raw_text="ATOM weekly outlook, key zone 0.5",
+            level_type="RESISTANCE",
+            value=0.5,
+        )
+        self.assertIn("likely_fibonacci_ratio_not_price", reasons)
+
+    def test_research_symbol_aliases_btc_eth(self) -> None:
+        self.assertIn("BTC", extract_research_symbols("Bitcoin holding support"))
+        self.assertIn("BTC", extract_research_symbols("Биткоин у поддержки"))
+        self.assertIn("ETH", extract_research_symbols("Ethereum breakout watch"))
+        self.assertIn("ETH", extract_research_symbols("Эфир у сопротивления"))
+        self.assertNotIn("TON", extract_research_symbols("tone of market commentary"))
+
+    def test_thesis_extract_rerun_report_and_levels_idempotent(self) -> None:
+        _create_source_db(
+            self.source_db,
+            [("signalyp", AUTHOR_SIGNAL, 1_700_000_000, "m1")],
+        )
+
+        def _reader():
+            conn = sqlite3.connect(self.source_db)
+            conn.row_factory = sqlite3.Row
+            from bot.research.futures.source_reader import SqliteSourceReader
+            return SqliteSourceReader(conn, path=str(self.source_db))
+
+        with patch(
+            "bot.research.futures_agent.research_ingest.open_stage3_source_reader",
+            side_effect=_reader,
+        ):
+            with self._agent_conn() as conn:
+                apply_migrations(conn)
+                ingest_research_posts(conn, channel="signalyp", limit=10)
+                stats1 = run_thesis_extract(conn, channel="signalyp")
+                rendered = render_thesis_extract_report(conn, stats1, channel="signalyp")
+                level_count_1 = conn.execute(
+                    "SELECT COUNT(*) AS n FROM futures_agent_trader_levels",
+                ).fetchone()["n"]
+                stats2 = run_thesis_extract(conn, channel="signalyp")
+                level_count_2 = conn.execute(
+                    "SELECT COUNT(*) AS n FROM futures_agent_trader_levels",
+                ).fetchone()["n"]
+                dup = conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM (
+                      SELECT post_id, symbol, direction, thesis_text, COUNT(*) AS c
+                      FROM futures_agent_trader_theses
+                      GROUP BY post_id, symbol, direction, thesis_text
+                      HAVING COUNT(*) > 1
+                    ) x
+                    """,
+                ).fetchone()["n"]
+
+        self.assertIn("THESIS EXTRACT RECONCILIATION", rendered)
+        self.assertEqual(stats2.theses_inserted, 0)
+        self.assertEqual(stats2.levels_inserted, 0)
+        self.assertEqual(level_count_1, level_count_2)
+        self.assertEqual(dup, 0)
+
+    def test_stage3_final_gate_go_when_clean(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            post_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "g1", "signalyp", 1_700_000_000, AUTHOR_SIGNAL,
+                    "hg1", "EXPLICIT_SIGNAL", '["ORDI"]', 0.9,
+                ),
+            ).lastrowid
+            thesis_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_theses (
+                  post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (post_id, "ORDI", "LONG", "ordi", "1d", None, None, 0.9),
+            ).lastrowid
+            for ltype, price, ord_ in (
+                ("ENTRY_LOW", 45.2, 0),
+                ("ENTRY_HIGH", 45.8, 0),
+                ("STOP", 43.5, 0),
+                ("TARGET", 48.0, 1),
+            ):
+                conn.execute(
+                    """
+                    INSERT INTO futures_agent_trader_levels (
+                      thesis_id, level_type, price, ordinal, confidence
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (thesis_id, ltype, price, ord_, 0.9),
+                )
+            conn.commit()
+            gate = run_stage3_final_gate(conn, channel="signalyp")
+            rendered = render_stage3_final_gate(gate)
+        self.assertTrue(gate.go)
+        self.assertIn("GO FOR PHASE D", rendered)
+
+    def test_stage3_final_gate_no_go_on_contamination(self) -> None:
+        with self._agent_conn() as conn:
+            apply_migrations(conn)
+            post_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_posts (
+                  source_message_id, channel_name, message_ts, raw_text,
+                  content_hash, content_type, symbols_json, deterministic_confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "ng1", "signalyp", 1_700_000_000, CONTAM_BYBIT_REMAINING,
+                    "hng1", "EXPLICIT_SIGNAL", '["ORDI"]', 0.9,
+                ),
+            ).lastrowid
+            thesis_id = conn.execute(
+                """
+                INSERT INTO futures_agent_trader_theses (
+                  post_id, symbol, direction, thesis_text, horizon, condition_text, invalidation_text, confidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (post_id, "ORDI", "LONG", "ordi", "1d", None, None, 0.9),
+            ).lastrowid
+            conn.execute(
+                """
+                INSERT INTO futures_agent_trader_levels (
+                  thesis_id, level_type, price, ordinal, confidence
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (thesis_id, "TARGET", 76371.0, 1, 0.9),
+            )
+            conn.commit()
+            gate = run_stage3_final_gate(conn, channel="signalyp")
+        self.assertFalse(gate.go)
+        self.assertTrue(any("contamination" in b.lower() for b in gate.blockers))
 
 
 if __name__ == "__main__":

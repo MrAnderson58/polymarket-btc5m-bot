@@ -20,7 +20,7 @@ from bot.research.futures_agent.research_taxonomy import (
     RESEARCH_THESIS_ELIGIBLE,
     ResearchContentType,
 )
-from bot.research.futures_agent.research_utils import extract_symbols, is_market_wide_news
+from bot.research.futures_agent.research_utils import extract_research_symbols, is_market_wide_news
 
 _RE_INVALIDATION = re.compile(
     r"(?i)(?:invalidat(?:e|ion)|if\s+.+\s+(?:fails?|breaks?|loses?)|"
@@ -179,7 +179,7 @@ def extract_theses_from_post(
     if not text:
         return []
 
-    syms = symbols or extract_symbols(text)
+    syms = symbols or extract_research_symbols(text)
     levels = _extract_levels(text, ctype.value)
     direction = _infer_direction(text, ctype)
     horizon = _extract_horizon(text)

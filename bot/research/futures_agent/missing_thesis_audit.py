@@ -8,7 +8,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from bot.research.futures_agent.research_reconciliation import THESIS_ELIGIBLE_TYPES
-from bot.research.futures_agent.research_utils import normalize_json_array
+from bot.research.futures_agent.research_utils import (
+    extract_research_symbols,
+    normalize_json_array,
+)
 from bot.research.futures_agent.thesis_extract import extract_theses_from_post
 
 
@@ -101,6 +104,8 @@ def run_missing_thesis_audit(
 
     for row in rows:
         symbols = [str(s) for s in normalize_json_array(row["symbols_json"])]
+        if not symbols:
+            symbols = extract_research_symbols(row["raw_text"] or "")
         reason = _classify_missing_reason(
             row["raw_text"], row["content_type"], symbols,
         )
