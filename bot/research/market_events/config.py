@@ -56,6 +56,13 @@ DEFAULT_FEE_BPS = float(os.getenv("ME_PAPER_FEE_BPS", "10"))
 DEFAULT_SLIPPAGE_BPS = float(os.getenv("ME_PAPER_SLIPPAGE_BPS", "10"))
 DEFAULT_HEARTBEAT_SEC = int(os.getenv("ME_HEARTBEAT_SEC", "60"))
 
+# Telegram alerts (opt-in, default off).
+# ME_TELEGRAM_ALERTS_ENABLED, ME_ALERT_SHOCK, ME_ALERT_REVERSAL, ME_ALERT_PAPER_UPDATES
+# ME_ALERT_CHAT_ID, ME_ALERT_AI_COMMENTARY — see alert_config.py
+
+# AI analyst shadow (opt-in, default off).
+# ME_AI_ANALYST_ENABLED, ME_AI_PROVIDER, ME_AI_MODEL, ME_AI_API_KEY — see ai_analyst/config.py
+
 # Context link windows (seconds before event).
 CONTEXT_WINDOWS_SEC = {
     "TELEGRAM_SIGNAL": 6 * 3600,

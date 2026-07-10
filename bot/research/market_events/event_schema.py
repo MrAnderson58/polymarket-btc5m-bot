@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -223,7 +223,7 @@ def apply_migrations(conn: Any) -> list[str]:
         applied.append("v5")
         current = 5
 
-    if current < SCHEMA_VERSION:
+    if current < 6:
         conn.executescript(E32_DDL)
         now = int(time.time())
         conn.execute(
@@ -234,6 +234,19 @@ def apply_migrations(conn: Any) -> list[str]:
             (6, now, "Phase E.3.2 near-miss summaries and collector observability"),
         )
         applied.append("v6")
+        current = 6
+
+    if current < SCHEMA_VERSION:
+        conn.executescript(E33_DDL)
+        now = int(time.time())
+        conn.execute(
+            f"""
+            INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+            VALUES (?, datetime(?, 'unixepoch'), ?)
+            """,
+            (7, now, "Phase E.3.3 Telegram alerts and AI analyst shadow"),
+        )
+        applied.append("v7")
         conn.commit()
     elif not applied:
         conn.commit()
@@ -471,4 +484,60 @@ CREATE TABLE IF NOT EXISTS market_events_near_miss_summaries (
 CREATE INDEX IF NOT EXISTS idx_me_near_miss_sym ON market_events_near_miss_summaries(symbol);
 CREATE INDEX IF NOT EXISTS idx_me_near_miss_prof ON market_events_near_miss_summaries(profile_name);
 CREATE INDEX IF NOT EXISTS idx_me_near_miss_ts ON market_events_near_miss_summaries(created_at);
+"""
+
+E33_DDL = """
+CREATE TABLE IF NOT EXISTS market_event_alert_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    alert_type TEXT NOT NULL,
+    dedupe_key TEXT NOT NULL UNIQUE,
+    message_text TEXT NOT NULL,
+    sent INTEGER NOT NULL DEFAULT 0,
+    latency_ms REAL,
+    error TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_alert_event ON market_event_alert_log(event_id);
+CREATE INDEX IF NOT EXISTS idx_me_alert_type ON market_event_alert_log(alert_type);
+
+CREATE TABLE IF NOT EXISTS market_event_analysis_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    prompt_version TEXT NOT NULL DEFAULT 'e33_shadow_v1',
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at INTEGER NOT NULL,
+    started_at INTEGER,
+    completed_at INTEGER,
+    updated_at INTEGER,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_ai_job_event ON market_event_analysis_jobs(event_id);
+CREATE INDEX IF NOT EXISTS idx_me_ai_job_status ON market_event_analysis_jobs(status);
+
+CREATE TABLE IF NOT EXISTS market_event_ai_analyses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    job_id INTEGER,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    structured_output_json TEXT NOT NULL,
+    movement_interpretation TEXT,
+    reversal_bias TEXT,
+    confidence REAL,
+    context_ids_json TEXT,
+    latency_ms REAL,
+    token_usage_json TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id),
+    FOREIGN KEY (job_id) REFERENCES market_event_analysis_jobs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_ai_analysis_event ON market_event_ai_analyses(event_id);
 """

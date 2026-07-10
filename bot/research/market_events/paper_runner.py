@@ -158,6 +158,7 @@ class ShockPaperRunner:
         entry_price: float,
         reversal: str,
     ) -> None:
+        created = 0
         for exit_id in EXIT_IDS:
             strategy_name = f"REVERSAL_{reversal}_{exit_id}"
             pos = open_paper_position(
@@ -189,11 +190,48 @@ class ShockPaperRunner:
             )
             if row_id == 0:
                 continue
+            created += 1
             if event_id in self._active:
                 self._active[event_id].positions.append(pos)
             elif event_id in self._pending:
                 self._pending[event_id].positions.append(pos)
             self.stats.paper_entries += 1
+
+        if created == 0:
+            return
+
+        try:
+            from bot.research.market_events.market_event_alerts import alert_reversal_confirmed
+            pending = conn.execute(
+                "SELECT * FROM market_events_pending_shocks WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+            path = json.loads(pending["path_from_extreme_json"] or "null") if pending else None
+            alert_reversal_confirmed(
+                conn,
+                event_id=event_id,
+                reversal_variant=reversal,
+                confirm_latency_sec=int(pending["confirm_latency_sec"]) if pending and pending["confirm_latency_sec"] else None,
+                extreme_price=float(pending["shock_extreme_price"]) if pending and pending["shock_extreme_price"] else None,
+                path_json=path if isinstance(path, dict) else None,
+                paper_runs=created,
+            )
+        except Exception as exc:
+            logger.debug("reversal alert skipped: %s", exc)
+
+        try:
+            from bot.research.market_events.market_event_alerts import alert_paper_position_update
+            alert_paper_position_update(
+                conn,
+                event_id=event_id,
+                update_type="PAPER_ENTRY",
+                symbol=shock.symbol,
+                reversal_variant=reversal,
+                exit_variant="ALL",
+                detail=f"entry_price={entry_price}",
+            )
+        except Exception:
+            pass
 
     def _classify_shock(self, shock: ShockCandidate, symbols: list[str], now: int) -> tuple[str, str | None, float | None, float | None, str | None, str | None, int | None]:
         eth_st = self.feed.get_state("ETH")
@@ -425,6 +463,16 @@ class ShockPaperRunner:
                     tracking_error_bps=tracking,
                 )
             link_event_context(conn, event_id=event_id, event_ts=shock.event_ts, symbol=shock.symbol)
+            try:
+                from bot.research.market_events.ai_analyst.job_queue import enqueue_analysis_job
+                enqueue_analysis_job(conn, event_id=event_id)
+            except Exception as exc:
+                logger.debug("analysis job enqueue skipped: %s", exc)
+            try:
+                from bot.research.market_events.market_event_alerts import alert_shock_detected
+                alert_shock_detected(conn, event_id)
+            except Exception as exc:
+                logger.debug("shock alert skipped: %s", exc)
 
             if state:
                 create_pending_shock(
@@ -476,6 +524,23 @@ class ShockPaperRunner:
                     continue
                 all_closed = False
                 tick = process_exit_tick(pos, ts=now, price=price)
+                if not pos.closed and pos.be_active and pos.stop_history:
+                    last = pos.stop_history[-1]
+                    if last.get("reason") == "BE_ACTIVATE":
+                        try:
+                            from bot.research.market_events.market_event_alerts import (
+                                alert_paper_position_update,
+                            )
+                            alert_paper_position_update(
+                                conn,
+                                event_id=eid,
+                                update_type="MOVE_TO_BE",
+                                symbol=active.shock.symbol,
+                                reversal_variant=pos.reversal_variant,
+                                exit_variant=pos.exit_variant,
+                            )
+                        except Exception:
+                            pass
                 if tick.closed and pos.exit_ts:
                     import json as _json
                     conn.execute(
@@ -496,6 +561,25 @@ class ShockPaperRunner:
                         ),
                     )
                     self.stats.paper_closed += 1
+                    try:
+                        from bot.research.market_events.market_event_alerts import (
+                            alert_paper_position_update,
+                        )
+                        reason = pos.exit_reason or "CLOSED"
+                        update_type = reason if reason in ("TP", "STOP", "BE_STOP") else "CLOSED"
+                        if update_type == "BE_STOP":
+                            update_type = "STOP"
+                        alert_paper_position_update(
+                            conn,
+                            event_id=eid,
+                            update_type=update_type,
+                            symbol=active.shock.symbol,
+                            reversal_variant=pos.reversal_variant,
+                            exit_variant=pos.exit_variant,
+                            detail=f"gross_return={pos.gross_return:.3f}%" if pos.gross_return else "",
+                        )
+                    except Exception:
+                        pass
             if all_closed:
                 del self._active[eid]
 
@@ -537,6 +621,12 @@ class ShockPaperRunner:
                 logger.info("multi-venue feed instruments=%s", len(instruments))
             logger.info("universe %s symbols=%s", version, ",".join(symbols))
             self._restore_state(conn)
+
+            try:
+                from bot.research.market_events.ai_analyst.job_queue import start_background_worker
+                start_background_worker(market_events_connection)
+            except Exception as exc:
+                logger.debug("AI background worker not started: %s", exc)
 
             cycles = 0
             while not self._shutdown:

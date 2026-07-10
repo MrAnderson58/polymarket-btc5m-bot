@@ -39,6 +39,10 @@ def main(argv: list[str] | None = None) -> int:
             "reversal-counterfactual-report",
             "shock-near-miss-report",
             "collector-path-audit",
+            "market-alert-audit",
+            "ai-analysis-audit",
+            "ai-event-report",
+            "ai-analyze-pending",
             "polymarket-paper-audit",
             "architecture-audit",
             "instrument-discover",
@@ -232,6 +236,20 @@ def main(argv: list[str] | None = None) -> int:
             print(run_collector_path_audit(
                 conn, universe=universe, seconds=args.seconds, explicit_symbols=explicit_symbols,
             ))
+        elif args.command == "market-alert-audit":
+            from bot.research.market_events.ai_analyst.reports import market_alert_audit
+            print(market_alert_audit(conn, days=args.days))
+        elif args.command == "ai-analysis-audit":
+            from bot.research.market_events.ai_analyst.reports import ai_analysis_audit
+            print(ai_analysis_audit(conn, days=args.days))
+        elif args.command == "ai-event-report":
+            from bot.research.market_events.ai_analyst.reports import ai_event_report
+            print(ai_event_report(conn, days=args.days))
+        elif args.command == "ai-analyze-pending":
+            from bot.research.market_events.ai_analyst.job_queue import process_pending_jobs
+            n = process_pending_jobs(conn)
+            conn.commit()
+            print(f"Processed {n} analysis job(s)")
     return 0
 
 
