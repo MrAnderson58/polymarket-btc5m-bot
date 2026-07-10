@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -192,7 +192,7 @@ def apply_migrations(conn: Any) -> list[str]:
         applied.append("v3")
         current = 3
 
-    if current < SCHEMA_VERSION:
+    if current < 4:
         conn.executescript(E3_DDL)
         now = int(time.time())
         conn.execute(
@@ -200,9 +200,29 @@ def apply_migrations(conn: Any) -> list[str]:
             INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
             VALUES (?, datetime(?, 'unixepoch'), ?)
             """,
-            (SCHEMA_VERSION, now, "Phase E.3 lifecycle and shadow research tables"),
+            (4, now, "Phase E.3 lifecycle and shadow research tables"),
         )
-        applied.append(f"v{SCHEMA_VERSION}")
+        applied.append("v4")
+        current = 4
+
+    if current < SCHEMA_VERSION:
+        conn.executescript(E31_DDL)
+        for stmt in E31_ALTER_STATEMENTS:
+            try:
+                conn.execute(stmt)
+            except Exception:
+                pass
+        now = int(time.time())
+        conn.execute(
+            f"""
+            INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+            VALUES (?, datetime(?, 'unixepoch'), ?)
+            """,
+            (5, now, "Phase E.3.1 pending reversal watcher and shadow research"),
+        )
+        applied.append("v5")
+        conn.commit()
+    elif not applied:
         conn.commit()
     return applied
 
@@ -329,3 +349,83 @@ CREATE TABLE IF NOT EXISTS market_events_shadow_candidates (
 CREATE INDEX IF NOT EXISTS idx_me_shadow_sym ON market_events_shadow_candidates(symbol);
 CREATE INDEX IF NOT EXISTS idx_me_shadow_ts ON market_events_shadow_candidates(event_ts);
 """
+
+E31_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_pending_shocks (
+    event_id INTEGER PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    phase TEXT NOT NULL DEFAULT 'MONITORING_REVERSAL',
+    detected_ts INTEGER NOT NULL,
+    shock_return_pct REAL,
+    shock_extreme_price REAL,
+    shock_extreme_ts INTEGER,
+    monitor_until_ts INTEGER NOT NULL,
+    monitor_horizons_json TEXT,
+    confirmed_reversal TEXT,
+    confirm_ts INTEGER,
+    confirm_latency_sec INTEGER,
+    confirm_price REAL,
+    path_from_extreme_json TEXT,
+    r5_first_confirm_ts INTEGER,
+    expired_ts INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_pending_phase ON market_events_pending_shocks(phase);
+CREATE INDEX IF NOT EXISTS idx_me_pending_sym ON market_events_pending_shocks(symbol);
+
+CREATE TABLE IF NOT EXISTS market_events_profile_shadow_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    profile_name TEXT NOT NULL,
+    profile_version TEXT NOT NULL,
+    event_ts INTEGER NOT NULL,
+    window_sec INTEGER NOT NULL,
+    direction TEXT NOT NULL,
+    return_pct REAL,
+    threshold_pct REAL,
+    min_abs_floor_pct REAL,
+    session_regime TEXT,
+    asset_class TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_prof_shadow_sym ON market_events_profile_shadow_candidates(symbol);
+CREATE INDEX IF NOT EXISTS idx_me_prof_shadow_prof ON market_events_profile_shadow_candidates(profile_name);
+
+CREATE TABLE IF NOT EXISTS market_events_counterfactual_studies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    profile_name TEXT NOT NULL,
+    episode_ts INTEGER NOT NULL,
+    direction TEXT NOT NULL,
+    shock_return_pct REAL,
+    max_continuation_pct REAL,
+    time_to_extreme_sec INTEGER,
+    max_reversal_pct REAL,
+    time_to_25_reclaim_sec INTEGER,
+    time_to_50_reclaim_sec INTEGER,
+    time_to_full_reclaim_sec INTEGER,
+    forward_returns_json TEXT,
+    mae_mfe_json TEXT,
+    session_regime TEXT,
+    has_context INTEGER DEFAULT 0,
+    classification TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_cf_sym ON market_events_counterfactual_studies(symbol);
+CREATE INDEX IF NOT EXISTS idx_me_cf_ts ON market_events_counterfactual_studies(episode_ts);
+"""
+
+E31_ALTER_STATEMENTS = [
+    "ALTER TABLE paper_strategy_runs ADD COLUMN stop_history_json TEXT",
+    "ALTER TABLE paper_strategy_runs ADD COLUMN be_helped INTEGER",
+    "ALTER TABLE market_events_shadow_candidates ADD COLUMN profile_name TEXT",
+    "ALTER TABLE market_events_shadow_candidates ADD COLUMN raw_tick_count INTEGER",
+    "ALTER TABLE market_events_shadow_candidates ADD COLUMN episode_id TEXT",
+    "ALTER TABLE market_events_shadow_candidates ADD COLUMN deduped INTEGER DEFAULT 0",
+]

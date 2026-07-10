@@ -32,6 +32,12 @@ from bot.research.market_events.paper_execution import (
     open_paper_position,
     process_exit_tick,
 )
+from bot.research.market_events.pending_reversal import (
+    PHASE_MANAGING,
+    create_pending_shock,
+    process_pending_shock,
+    restore_pending_map,
+)
 from bot.research.market_events.price_feed import BinanceFuturesPriceFeed
 from bot.research.market_events.reversal_confirmation import evaluate_all_reversals
 from bot.research.market_events.shock_classifier import classify_shock
@@ -76,6 +82,7 @@ class ShockPaperRunner:
         self.feed = feed or BinanceFuturesPriceFeed()
         self.stats = RunnerStats()
         self._active: dict[int, ActiveEvent] = {}
+        self._pending: dict[int, Any] = {}
         self._shutdown = False
         self._instrument_map: dict[str, dict[str, Any]] = {}
 
@@ -148,7 +155,7 @@ class ShockPaperRunner:
                 entry_price=entry_price,
             )
             cfg = EXIT_POLICIES[exit_id]
-            insert_returning_id(
+            row_id = insert_returning_id(
                 conn,
                 """
                 INSERT OR IGNORE INTO paper_strategy_runs (
@@ -165,8 +172,12 @@ class ShockPaperRunner:
                     10.0, 10.0, int(time.time()),
                 ),
             )
+            if row_id == 0:
+                continue
             if event_id in self._active:
                 self._active[event_id].positions.append(pos)
+            elif event_id in self._pending:
+                self._pending[event_id].positions.append(pos)
             self.stats.paper_entries += 1
 
     def _classify_shock(self, shock: ShockCandidate, symbols: list[str], now: int) -> tuple[str, str | None, float | None, float | None, str | None, str | None, int | None]:
@@ -239,11 +250,73 @@ class ShockPaperRunner:
             rejection_reason=qq.rejection_reason,
         )
 
+    def _process_pending_shocks(self, conn: Any, symbols: list[str], now: int) -> None:
+        expired: list[int] = []
+        for eid, pending in list(self._pending.items()):
+            state = self.feed.get_state(pending.symbol)
+            if not state:
+                continue
+            result = process_pending_shock(
+                conn, pending, state, now,
+                open_paper_fn=lambda evt, shock, ets, px, rev: self._open_paper_runs(
+                    conn, evt, shock, ets, px, rev,
+                ),
+            )
+            if result in ("expired", "done"):
+                expired.append(eid)
+            elif pending.phase == PHASE_MANAGING and eid not in self._active:
+                self._active[eid] = ActiveEvent(
+                    event_id=eid, shock=pending.shock, positions=pending.positions,
+                )
+        for eid in expired:
+            del self._pending[eid]
+
+    def _restore_state(self, conn: Any) -> None:
+        self._pending = restore_pending_map(conn)
+        rows = conn.execute(
+            """
+            SELECT DISTINCT event_id, reversal_variant FROM paper_strategy_runs
+            WHERE exit_ts IS NULL
+            """,
+        ).fetchall()
+        for r in rows:
+            eid = int(r["event_id"])
+            evt = conn.execute("SELECT * FROM market_events WHERE id = ?", (eid,)).fetchone()
+            if not evt:
+                continue
+            from bot.research.market_events.shock_detector import ShockCandidate, ShockTrigger
+            triggers = [
+                ShockTrigger(t, 60, float(evt["return_pct"] or 0))
+                for t in json.loads(evt["detector_triggers_json"] or "[]")
+            ]
+            shock = ShockCandidate(
+                symbol=evt["symbol"], direction=evt["direction"],
+                event_ts=int(evt["event_ts"]), detected_ts=int(evt["detected_ts"]),
+                triggers=triggers, return_pct=float(evt["return_pct"] or 0),
+            )
+            if eid not in self._active:
+                self._active[eid] = ActiveEvent(event_id=eid, shock=shock)
+            open_runs = conn.execute(
+                """
+                SELECT reversal_variant, exit_variant, entry_ts, entry_price
+                FROM paper_strategy_runs WHERE event_id = ? AND exit_ts IS NULL
+                """,
+                (eid,),
+            ).fetchall()
+            for run in open_runs:
+                pos = open_paper_position(
+                    event_id=eid, symbol=shock.symbol, direction=shock.direction,
+                    reversal_variant=run["reversal_variant"], exit_variant=run["exit_variant"],
+                    entry_ts=int(run["entry_ts"]), entry_price=float(run["entry_price"]),
+                )
+                self._active[eid].positions.append(pos)
+
     def run_once(self, conn: Any, symbols: list[str]) -> None:
         now = int(time.time())
         self.feed.poll_universe(symbols, max_age_sec=PRICE_HISTORY_SEC)
         self.stats.polls += 1
 
+        self._process_pending_shocks(conn, symbols, now)
         shocks = scan_universe_for_shocks(self.feed, symbols, now_ts=now)
         for shock in shocks:
             allowed, skip_reason = self._shock_allowed(shock.symbol, now)
@@ -287,16 +360,38 @@ class ShockPaperRunner:
                 )
             link_event_context(conn, event_id=event_id, event_ts=shock.event_ts, symbol=shock.symbol)
 
-            if not state:
-                continue
-            revs = evaluate_all_reversals(shock, state, now)
-            from bot.research.market_events.lifecycle_decisions import persist_reversal_decisions
-            persist_reversal_decisions(conn, event_id=event_id, decision_ts=now, results=revs)
-            for rev in revs:
-                if not rev.confirmed or rev.confirm_ts is None or rev.confirm_price is None:
-                    continue
-                self._open_paper_runs(conn, event_id, shock, rev.confirm_ts, rev.confirm_price, rev.variant)
-            self._active[event_id] = ActiveEvent(event_id=event_id, shock=shock)
+            if state:
+                create_pending_shock(
+                    conn,
+                    event_id=event_id,
+                    symbol=shock.symbol,
+                    direction=shock.direction,
+                    detected_ts=shock.detected_ts,
+                    shock_return_pct=shock.return_pct,
+                    extreme_price=state.last_price,
+                )
+                from bot.research.market_events.pending_reversal import row_to_pending_state
+                pending_row = conn.execute(
+                    "SELECT * FROM market_events_pending_shocks WHERE event_id = ?",
+                    (event_id,),
+                ).fetchone()
+                if pending_row:
+                    ps = row_to_pending_state(pending_row)
+                    ps.shock = shock
+                    self._pending[event_id] = ps
+                    process_pending_shock(
+                        conn, ps, state, now,
+                        open_paper_fn=lambda evt, sh, ets, px, rev: self._open_paper_runs(
+                            conn, evt, sh, ets, px, rev,
+                        ),
+                    )
+                    if ps.phase == PHASE_MANAGING and event_id not in self._active:
+                        self._active[event_id] = ActiveEvent(
+                            event_id=event_id, shock=shock, positions=ps.positions,
+                        )
+                revs = evaluate_all_reversals(shock, state, now)
+                from bot.research.market_events.lifecycle_decisions import persist_reversal_decisions
+                persist_reversal_decisions(conn, event_id=event_id, decision_ts=now, results=revs)
 
         self._process_open_positions(conn, now)
 
@@ -313,11 +408,13 @@ class ShockPaperRunner:
                 all_closed = False
                 tick = process_exit_tick(pos, ts=now, price=price)
                 if tick.closed and pos.exit_ts:
+                    import json as _json
                     conn.execute(
                         """
                         UPDATE paper_strategy_runs SET
                           exit_ts=?, exit_price=?, exit_reason=?, gross_return=?,
-                          net_return=?, mfe=?, mae=?, be_exit=?, duration_seconds=?
+                          net_return=?, mfe=?, mae=?, be_exit=?, duration_seconds=?,
+                          stop_history_json=?, be_helped=?
                         WHERE event_id=? AND reversal_variant=? AND exit_variant=?
                         """,
                         (
@@ -325,6 +422,7 @@ class ShockPaperRunner:
                             net_return(pos.gross_return or 0.0),
                             pos.mfe, pos.mae, 1 if pos.be_exit else 0,
                             pos.exit_ts - pos.entry_ts,
+                            _json.dumps(pos.stop_history), pos.be_helped,
                             eid, pos.reversal_variant, pos.exit_variant,
                         ),
                     )
@@ -369,6 +467,7 @@ class ShockPaperRunner:
                 self._instrument_map = {r["canonical_asset"]: r for r in instruments}
                 logger.info("multi-venue feed instruments=%s", len(instruments))
             logger.info("universe %s symbols=%s", version, ",".join(symbols))
+            self._restore_state(conn)
 
             cycles = 0
             while not self._shutdown:

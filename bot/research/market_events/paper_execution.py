@@ -39,6 +39,9 @@ class PaperPosition:
     gross_return: float | None = None
     be_exit: bool = False
     partial_taken: bool = False
+    stop_history: list[dict[str, Any]] = field(default_factory=list)
+    be_helped: int | None = None
+    peak_ret: float = 0.0
 
 
 @dataclass
@@ -97,6 +100,16 @@ def open_paper_position(
     return pos
 
 
+def _record_stop(pos: PaperPosition, ts: int, reason: str) -> None:
+    pos.stop_history.append({
+        "ts": ts,
+        "stop_price": pos.stop_price,
+        "be_active": pos.be_active,
+        "trail_active": pos.trail_active,
+        "reason": reason,
+    })
+
+
 def process_exit_tick(pos: PaperPosition, *, ts: int, price: float) -> ExitTickResult:
     if pos.closed:
         return ExitTickResult(closed=True, exit_reason=pos.exit_reason)
@@ -104,7 +117,9 @@ def process_exit_tick(pos: PaperPosition, *, ts: int, price: float) -> ExitTickR
     ret = _signed_return(pos.entry_price, price, pos.direction)
     pos.mfe = max(pos.mfe, ret)
     pos.mae = min(pos.mae, ret)
+    pos.peak_ret = max(pos.peak_ret, ret)
 
+    prev_stop = pos.stop_price
     if pos.direction == SHOCK_DIRECTION_UP:
         if price <= pos.stop_price:
             return _close(pos, ts, price, "STOP" if not pos.be_active else "BE_STOP")
@@ -115,10 +130,15 @@ def process_exit_tick(pos: PaperPosition, *, ts: int, price: float) -> ExitTickR
     if pos.be_trigger_pct is not None and not pos.be_active and ret >= pos.be_trigger_pct:
         pos.be_active = True
         pos.stop_price = pos.entry_price
+        if pos.stop_price != prev_stop:
+            _record_stop(pos, ts, "BE_ACTIVATE")
 
     if pos.trail_trigger_pct is not None and ret >= pos.trail_trigger_pct:
-        pos.trail_active = True
-        pos.trail_anchor = price
+        if not pos.trail_active:
+            pos.trail_active = True
+            pos.trail_anchor = price
+        else:
+            pos.trail_anchor = price
 
     if pos.trail_active and pos.trail_pct and pos.trail_anchor:
         trail_stop = (
@@ -127,9 +147,12 @@ def process_exit_tick(pos: PaperPosition, *, ts: int, price: float) -> ExitTickR
             else pos.trail_anchor * (1.0 + pos.trail_pct / 100.0)
         )
         if pos.direction == SHOCK_DIRECTION_UP:
-            pos.stop_price = max(pos.stop_price, trail_stop)
+            new_stop = max(pos.stop_price, trail_stop)
         else:
-            pos.stop_price = min(pos.stop_price, trail_stop)
+            new_stop = min(pos.stop_price, trail_stop)
+        if new_stop != pos.stop_price:
+            pos.stop_price = new_stop
+            _record_stop(pos, ts, "TRAIL_UPDATE")
 
     if pos.partial_tp_pct and not pos.partial_taken and ret >= pos.partial_tp_pct:
         pos.partial_taken = True
@@ -137,6 +160,7 @@ def process_exit_tick(pos: PaperPosition, *, ts: int, price: float) -> ExitTickR
         if pos.be_trigger_pct:
             pos.be_active = True
             pos.stop_price = pos.entry_price
+            _record_stop(pos, ts, "PARTIAL_TP_BE")
 
     if pos.tp_pct and ret >= pos.tp_pct:
         return _close(pos, ts, price, "TP")
@@ -155,6 +179,11 @@ def _close(pos: PaperPosition, ts: int, price: float, reason: str) -> ExitTickRe
         partial_ret = float(pos.partial_tp_pct or 0) * pos.partial_frac
         gross += partial_ret
     pos.gross_return = gross
+    if pos.be_exit:
+        pos.be_helped = 1 if gross >= 0 else 0
+        if pos.peak_ret > float(pos.be_trigger_pct or 0) and gross <= 0:
+            pos.be_helped = 0
+    _record_stop(pos, ts, reason)
     return ExitTickResult(closed=True, exit_reason=reason, exit_price=price, gross_return=gross)
 
 

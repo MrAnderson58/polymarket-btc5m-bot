@@ -31,8 +31,12 @@ def main(argv: list[str] | None = None) -> int:
             "shock-lifecycle-audit",
             "shock-opportunity-audit",
             "shock-f-shadow-audit",
+            "shock-f-v2-shadow-audit",
             "tradfi-shock-readiness",
             "shock-strategy-matrix-report",
+            "pending-reversal-report",
+            "shock-profile-report",
+            "reversal-counterfactual-report",
             "polymarket-paper-audit",
             "architecture-audit",
             "instrument-discover",
@@ -188,12 +192,32 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "shock-f-shadow-audit":
             from bot.research.market_events.shock_f_shadow import run_shock_f_shadow_audit
             print(run_shock_f_shadow_audit(conn, days=args.days))
+        elif args.command == "shock-f-v2-shadow-audit":
+            from bot.research.market_events.shock_f_v2_shadow import run_shock_f_v2_shadow_audit
+            print(run_shock_f_v2_shadow_audit(conn, days=args.days))
         elif args.command == "tradfi-shock-readiness":
             from bot.research.market_events.tradfi_shock_readiness import tradfi_shock_readiness
             print(tradfi_shock_readiness(conn, days=args.days))
         elif args.command == "shock-strategy-matrix-report":
             from bot.research.market_events.strategy_matrix_report import shock_strategy_matrix_report
             print(shock_strategy_matrix_report(conn, days=args.days))
+        elif args.command == "pending-reversal-report":
+            from bot.research.market_events.pending_reversal_report import pending_reversal_report
+            print(pending_reversal_report(conn, days=args.days))
+        elif args.command == "shock-profile-report":
+            from bot.research.market_events.profile_shadow import (
+                scan_profile_shadow_candidates,
+                shock_profile_report,
+            )
+            scan_profile_shadow_candidates(conn, days=args.days, persist=True)
+            print(shock_profile_report(conn, days=args.days))
+        elif args.command == "reversal-counterfactual-report":
+            from bot.research.market_events.counterfactual_reversal import (
+                reversal_counterfactual_report,
+                run_counterfactual_study,
+            )
+            run_counterfactual_study(conn, days=args.days, persist=True)
+            print(reversal_counterfactual_report(conn, days=args.days))
     return 0
 
 
