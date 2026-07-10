@@ -113,6 +113,8 @@ def process_telegram_message(
             forward_origin=forward_origin,
             received_at=received_at,
         )
+        from bot.research.futures_agent.telegram_inbound_bridge import bridge_input_to_research
+        bridge_input_to_research(conn, ing.input_id)
         if ing.duplicate:
             return InboundResult(chat_id, message_id, format_telegram_duplicate(), skipped=True)
         proc = process_input(conn, ing.input_id)

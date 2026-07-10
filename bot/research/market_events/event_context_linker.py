@@ -31,6 +31,7 @@ def _trades_conn():
 def link_event_context(conn: Any, *, event_id: int, event_ts: int, symbol: str) -> int:
     linked = 0
     linked += _link_agent_theses(conn, event_id, event_ts, symbol)
+    linked += _link_bridged_inbound_posts(conn, event_id, event_ts, symbol)
     linked += _link_polymarket_state(conn, event_id, event_ts)
     return linked
 
@@ -106,6 +107,63 @@ def _link_agent_theses(conn: Any, event_id: int, event_ts: int, symbol: str) -> 
                         "post_id": row["post_id"],
                         "direction": row["direction"],
                         "content_type": row["content_type"],
+                    },
+                ):
+                    n += 1
+    except Exception:
+        pass
+    return n
+
+
+def _link_bridged_inbound_posts(conn: Any, event_id: int, event_ts: int, symbol: str) -> int:
+    """Link bridged telegram_inbound posts without requiring thesis extraction."""
+    n = 0
+    ctx = _agent_conn()
+    if ctx is None:
+        return 0
+    try:
+        from bot.research.futures_agent.research_utils import parse_symbols_json
+        from bot.research.futures_agent.telegram_inbound_bridge import INBOUND_CHANNEL_PREFIX
+
+        with ctx as agent:
+            window = CONTEXT_WINDOWS_SEC["TELEGRAM_SIGNAL"]
+            rows = agent.execute(
+                """
+                SELECT p.id AS post_id, p.channel_name, p.message_ts, p.content_type,
+                       p.symbols_json, p.raw_text
+                FROM futures_agent_trader_posts p
+                JOIN futures_agent_telegram_research_bridge b ON b.post_id = p.id
+                WHERE p.channel_name LIKE ? AND p.message_ts BETWEEN ? AND ?
+                ORDER BY p.message_ts DESC
+                LIMIT 50
+                """,
+                (f"{INBOUND_CHANNEL_PREFIX}:%", event_ts - window, event_ts),
+            ).fetchall()
+            for row in rows:
+                symbols = parse_symbols_json(row["symbols_json"])
+                raw = row["raw_text"] or ""
+                if symbol not in symbols and symbol.upper() not in raw.upper():
+                    continue
+                ctype = "TELEGRAM_SIGNAL"
+                if row["content_type"] == "NEWS_EVENT":
+                    ctype = "NEWS"
+                elif row["content_type"] in ("MARKET_COMMENTARY", "TECHNICAL_LEVELS"):
+                    ctype = "MARKET_COMMENTARY"
+                elif row["content_type"] == "TRADE_UPDATE":
+                    ctype = "MARKET_COMMENTARY"
+                if _insert_context(
+                    conn,
+                    event_id=event_id,
+                    context_type=ctype,
+                    source=row["channel_name"] or "telegram_inbound",
+                    source_record_id=str(row["post_id"]),
+                    context_ts=int(row["message_ts"]),
+                    event_ts=event_ts,
+                    relevance_score=0.6,
+                    context_json={
+                        "post_id": row["post_id"],
+                        "content_type": row["content_type"],
+                        "bridge": "telegram_inbound",
                     },
                 ):
                     n += 1

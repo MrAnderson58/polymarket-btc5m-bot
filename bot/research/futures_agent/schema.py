@@ -19,6 +19,7 @@ STAGE2_VERSION = 2
 STAGE3_VERSION = 3
 STAGE4_VERSION = 4
 STAGE5_VERSION = 5
+STAGE6_VERSION = 6
 
 STAGE1_DDL = """
 CREATE TABLE IF NOT EXISTS futures_agent_migrations (
@@ -691,6 +692,31 @@ CREATE TABLE IF NOT EXISTS futures_agent_research_signal_markouts (
 );
 """
 
+STAGE6_DDL = """
+CREATE TABLE IF NOT EXISTS futures_agent_telegram_research_bridge (
+    input_id INTEGER PRIMARY KEY,
+    post_id INTEGER NOT NULL,
+    bridge_status TEXT NOT NULL DEFAULT 'bridged',
+    content_hash TEXT NOT NULL,
+    bridged_at INTEGER NOT NULL,
+    FOREIGN KEY (input_id) REFERENCES futures_agent_inputs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fa_tg_bridge_post ON futures_agent_telegram_research_bridge(post_id);
+"""
+
+STAGE6_DDL_POSTGRES = """
+CREATE TABLE IF NOT EXISTS futures_agent_telegram_research_bridge (
+    input_id BIGINT PRIMARY KEY REFERENCES futures_agent_inputs(id),
+    post_id BIGINT NOT NULL,
+    bridge_status TEXT NOT NULL DEFAULT 'bridged',
+    content_hash TEXT NOT NULL,
+    bridged_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_fa_tg_bridge_post ON futures_agent_telegram_research_bridge(post_id);
+"""
+
 
 def apply_migrations(conn: Any) -> list[str]:
     """Apply Stage 1 + Stage 2 + Stage 3 migrations idempotently."""
@@ -784,6 +810,15 @@ def apply_migrations(conn: Any) -> list[str]:
             (STAGE5_VERSION, "stage5_research_signal_outcome_engine"),
         )
         applied.append(f"v{STAGE5_VERSION}: stage5_signal_outcomes")
+
+    if not _has_migration(conn, STAGE6_VERSION):
+        for stmt in _split_ddl(STAGE6_DDL_POSTGRES if postgres else STAGE6_DDL):
+            conn.execute(stmt)
+        conn.execute(
+            f"INSERT INTO {MIGRATIONS_TABLE} (version, description) VALUES (?, ?)",
+            (STAGE6_VERSION, "stage6_telegram_inbound_research_bridge"),
+        )
+        applied.append(f"v{STAGE6_VERSION}: telegram_inbound_bridge")
 
     return applied
 

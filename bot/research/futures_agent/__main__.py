@@ -52,7 +52,8 @@ def main() -> int:
         choices=(
             "audit", "migrate", "ingest", "process-pending",
             "snapshot", "snapshot-pending", "context-report", "snapshot-audit",
-            "telegram-poll", "telegram-diagnose", "stage3-audit",
+            "telegram-poll", "telegram-diagnose", "telegram-inbound-audit",
+            "telegram-bridge-sync", "telegram-context-readiness", "stage3-audit",
             "stage3-migrate", "ingest-research", "research-stats",
             "thesis-extract", "thesis-quality-audit", "pipeline-reconcile",
             "research-rebuild-theses",
@@ -146,6 +147,8 @@ def main() -> int:
         action="store_true",
         help="Apply destructive cleanup (outcome-test-contamination-cleanup only)",
     )
+    parser.add_argument("--days", type=int, default=7, help="Lookback days for telegram-context-readiness")
+    parser.add_argument("--symbol", type=str, default=None, help="Filter by symbol (context readiness)")
     args = parser.parse_args()
 
     cfg = resolve_agent_db_config()
@@ -704,6 +707,45 @@ def main() -> int:
     if args.command == "telegram-diagnose":
         from bot.research.futures_agent.telegram_inbound import render_diagnose, run_diagnose
         print(render_diagnose(run_diagnose()))
+        return 0
+
+    if args.command == "telegram-inbound-audit":
+        from bot.research.futures_agent.db import agent_connection
+        from bot.research.futures_agent.schema import apply_migrations
+        from bot.research.futures_agent.telegram_inbound_audit import run_telegram_inbound_audit
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            print(run_telegram_inbound_audit(conn, limit=args.limit or 20))
+        return 0
+
+    if args.command == "telegram-bridge-sync":
+        from bot.research.futures_agent.db import agent_connection
+        from bot.research.futures_agent.schema import apply_migrations
+        from bot.research.futures_agent.telegram_inbound_audit import sync_unbridged_inputs
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            stats = sync_unbridged_inputs(conn, limit=args.limit)
+            print(
+                f"telegram-bridge-sync: scanned={stats['scanned']} bridged={stats['bridged']} "
+                f"duplicate={stats['duplicate']} skipped={stats['skipped']}",
+            )
+        return 0
+
+    if args.command == "telegram-context-readiness":
+        from bot.research.futures_agent.db import agent_connection
+        from bot.research.futures_agent.schema import apply_migrations
+        from bot.research.futures_agent.telegram_context_readiness import (
+            telegram_context_readiness_report,
+        )
+
+        days = args.days
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            print(telegram_context_readiness_report(
+                conn, symbol=args.symbol, days=days,
+            ))
         return 0
 
     if args.command == "telegram-poll":
