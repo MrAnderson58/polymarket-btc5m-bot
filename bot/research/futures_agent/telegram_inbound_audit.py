@@ -12,6 +12,9 @@ from bot.research.futures_agent.telegram_inbound_bridge import (
     bridge_input_to_research,
 )
 
+# Bound as query param — never embed in SQL literals (psycopg2 treats % as placeholders).
+TELEGRAM_SOURCE_LIKE = "telegram:%"
+
 DATA_FLOW_DOC = """
 DATA FLOW (telegram-poll → storage → reply)
   CLI: bot/research/futures_agent/__main__.py → run_poll_loop()
@@ -100,8 +103,9 @@ def run_telegram_inbound_audit(conn: Any, *, limit: int = 20) -> str:
     total = conn.execute(
         """
         SELECT COUNT(*) AS n FROM futures_agent_inputs
-        WHERE source LIKE 'telegram:%'
+        WHERE source LIKE ?
         """,
+        (TELEGRAM_SOURCE_LIKE,),
     ).fetchone()
     inbound_total = int(total["n"] if total else 0)
 
@@ -117,11 +121,11 @@ def run_telegram_inbound_audit(conn: Any, *, limit: int = 20) -> str:
                s.symbol, s.direction, s.taxonomy, s.passes_gate, s.gate_reason
         FROM futures_agent_inputs i
         LEFT JOIN futures_agent_signals s ON s.input_id = i.id
-        WHERE i.source LIKE 'telegram:%'
+        WHERE i.source LIKE ?
         ORDER BY i.received_at DESC
         LIMIT ?
         """,
-        (limit,),
+        (TELEGRAM_SOURCE_LIKE, limit),
     ).fetchall()
 
     lines = [
@@ -186,10 +190,10 @@ def sync_unbridged_inputs(conn: Any, *, limit: int | None = 500) -> dict[str, in
     q = """
         SELECT i.id FROM futures_agent_inputs i
         LEFT JOIN futures_agent_telegram_research_bridge b ON b.input_id = i.id
-        WHERE i.source LIKE 'telegram:%' AND b.input_id IS NULL
+        WHERE i.source LIKE ? AND b.input_id IS NULL
         ORDER BY i.received_at ASC
     """
-    params: list[Any] = []
+    params: list[Any] = [TELEGRAM_SOURCE_LIKE]
     if limit is not None:
         q += " LIMIT ?"
         params.append(limit)

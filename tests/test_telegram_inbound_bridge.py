@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from bot.research.futures_agent.db import agent_connection
+from bot.research.futures_agent.db import (
+    _PgConnWrapper,
+    _adapt_sql_placeholders,
+    agent_connection,
+)
 from bot.research.futures_agent.env_bootstrap import reset_bootstrap_for_tests
 from bot.research.futures_agent.ingestion import ingest_from_telegram
 from bot.research.futures_agent.pipeline import process_input
 from bot.research.futures_agent.schema import apply_migrations
 from bot.research.futures_agent.telegram_inbound_audit import (
+    TELEGRAM_SOURCE_LIKE,
     run_telegram_inbound_audit,
     sync_unbridged_inputs,
 )
@@ -158,6 +164,89 @@ class TelegramInboundBridgeTests(unittest.TestCase):
             self.assertIn("inbound_messages_total", text)
             self.assertIn("visible_trader_posts=True", text)
             self.assertNotIn("test-token", text)
+
+    def test_inbound_audit_limit_10(self) -> None:
+        with agent_connection(self.db_url) as conn:
+            apply_migrations(conn)
+            for i in range(12):
+                self._ingest(conn, f"msg {i}", msg_id=100 + i)
+            text = run_telegram_inbound_audit(conn, limit=10)
+            self.assertIn("=== Last 10 inbound messages ===", text)
+            self.assertEqual(text.count("    raw_text:"), 10)
+
+    def test_inbound_audit_zero_rows(self) -> None:
+        with agent_connection(self.db_url) as conn:
+            apply_migrations(conn)
+            text = run_telegram_inbound_audit(conn, limit=10)
+            self.assertIn("inbound_messages_total: 0", text)
+            self.assertIn("No telegram inbound messages in agent DB.", text)
+
+    def test_inbound_audit_unbridged_row(self) -> None:
+        with agent_connection(self.db_url) as conn:
+            apply_migrations(conn)
+            self._ingest(conn, COMMENTARY, msg_id=77)
+            text = run_telegram_inbound_audit(conn, limit=5)
+            self.assertIn("visible_trader_posts=False", text)
+
+    def test_inbound_audit_read_only(self) -> None:
+        with agent_connection(self.db_url) as conn:
+            apply_migrations(conn)
+            self._ingest(conn, EXPLICIT_LONG, msg_id=88)
+            counts_before = {
+                t: conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"]
+                for t in (
+                    "futures_agent_inputs",
+                    "futures_agent_trader_posts",
+                    "futures_agent_telegram_research_bridge",
+                )
+            }
+            run_telegram_inbound_audit(conn, limit=10)
+            counts_after = {
+                t: conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"]
+                for t in counts_before
+            }
+            self.assertEqual(counts_before, counts_after)
+
+    def test_pg_inbound_audit_sql_no_literal_percent(self) -> None:
+        """Regression: LIKE 'telegram:%' + LIMIT param crashed psycopg2."""
+        sql = """
+        SELECT i.id FROM futures_agent_inputs i
+        WHERE i.source LIKE ?
+        ORDER BY i.received_at DESC
+        LIMIT ?
+        """
+        params = (TELEGRAM_SOURCE_LIKE, 10)
+        pg_sql = _adapt_sql_placeholders(sql, params)
+        self.assertEqual(pg_sql.count("%s"), 2)
+        stripped = pg_sql.replace("%s", "")
+        self.assertNotIn("%", stripped)
+
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_cur.fetchall.return_value = []
+        mock_conn.cursor.return_value = mock_cur
+        psycopg2 = MagicMock()
+        extras = MagicMock()
+        extras.RealDictCursor = object
+        with patch.dict(sys.modules, {"psycopg2": psycopg2, "psycopg2.extras": extras}):
+            wrapper = _PgConnWrapper(mock_conn)
+            wrapper.execute(sql, params)
+        mock_cur.execute.assert_called_once_with(pg_sql, params)
+
+    def test_pg_context_readiness_sql_no_literal_percent(self) -> None:
+        from bot.research.futures_agent.telegram_inbound_bridge import INBOUND_CHANNEL_PREFIX
+
+        sql = """
+        SELECT p.id FROM futures_agent_trader_posts p
+        JOIN futures_agent_telegram_research_bridge b ON b.post_id = p.id
+        WHERE p.channel_name LIKE ? AND p.message_ts >= ?
+        LIMIT 100
+        """
+        params = (f"{INBOUND_CHANNEL_PREFIX}:%", 1_700_000_000)
+        pg_sql = _adapt_sql_placeholders(sql, params)
+        stripped = pg_sql.replace("%s", "")
+        self.assertNotIn("%", stripped)
+        self.assertEqual(pg_sql.count("%s"), 2)
 
     def test_sync_unbridged_inputs(self) -> None:
         with agent_connection(self.db_url) as conn:
