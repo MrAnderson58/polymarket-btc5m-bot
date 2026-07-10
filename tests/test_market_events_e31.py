@@ -79,7 +79,7 @@ class MarketEventsE31Tests(unittest.TestCase):
         with self._conn() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v5", applied)
-            self.assertEqual(SCHEMA_VERSION, 5)
+            self.assertGreaterEqual(SCHEMA_VERSION, 5)
             tables = {
                 r[0] for r in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'",

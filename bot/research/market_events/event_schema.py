@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -205,7 +205,7 @@ def apply_migrations(conn: Any) -> list[str]:
         applied.append("v4")
         current = 4
 
-    if current < SCHEMA_VERSION:
+    if current < 5:
         conn.executescript(E31_DDL)
         for stmt in E31_ALTER_STATEMENTS:
             try:
@@ -221,6 +221,19 @@ def apply_migrations(conn: Any) -> list[str]:
             (5, now, "Phase E.3.1 pending reversal watcher and shadow research"),
         )
         applied.append("v5")
+        current = 5
+
+    if current < SCHEMA_VERSION:
+        conn.executescript(E32_DDL)
+        now = int(time.time())
+        conn.execute(
+            f"""
+            INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+            VALUES (?, datetime(?, 'unixepoch'), ?)
+            """,
+            (6, now, "Phase E.3.2 near-miss summaries and collector observability"),
+        )
+        applied.append("v6")
         conn.commit()
     elif not applied:
         conn.commit()
@@ -429,3 +442,33 @@ E31_ALTER_STATEMENTS = [
     "ALTER TABLE market_events_shadow_candidates ADD COLUMN episode_id TEXT",
     "ALTER TABLE market_events_shadow_candidates ADD COLUMN deduped INTEGER DEFAULT 0",
 ]
+
+E32_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_near_miss_summaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    profile_name TEXT NOT NULL,
+    window_sec INTEGER NOT NULL,
+    direction TEXT NOT NULL,
+    session_regime TEXT,
+    max_abs_return_pct REAL,
+    current_abs_return_pct REAL,
+    p95_abs_return_pct REAL,
+    p99_abs_return_pct REAL,
+    threshold_pct REAL NOT NULL,
+    max_threshold_reached_pct REAL,
+    max_volume_zscore REAL,
+    max_relative_return_pct REAL,
+    episodes_25pct INTEGER DEFAULT 0,
+    episodes_50pct INTEGER DEFAULT 0,
+    episodes_75pct INTEGER DEFAULT 0,
+    episodes_90pct INTEGER DEFAULT 0,
+    period_start INTEGER NOT NULL,
+    period_end INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_near_miss_sym ON market_events_near_miss_summaries(symbol);
+CREATE INDEX IF NOT EXISTS idx_me_near_miss_prof ON market_events_near_miss_summaries(profile_name);
+CREATE INDEX IF NOT EXISTS idx_me_near_miss_ts ON market_events_near_miss_summaries(created_at);
+"""

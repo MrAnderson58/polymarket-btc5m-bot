@@ -11,12 +11,18 @@ from typing import Any
 
 from bot.research.market_events import DETECTOR_VERSION, PAPER_ENGINE_VERSION
 from bot.research.market_events.config import (
+    DEFAULT_HEARTBEAT_SEC,
     EXIT_POLICIES,
     POLL_INTERVAL_SEC,
     PRICE_HISTORY_SEC,
     REVERSAL_CONFIGS,
 )
+from bot.research.market_events.collector_heartbeat import CollectorMetrics
 from bot.research.market_events.db import insert_returning_id, market_events_connection
+from bot.research.market_events.detector_diagnostics import (
+    REJECTION_DUPLICATE,
+    diagnose_universe,
+)
 from bot.research.market_events.event_context_linker import link_event_context
 from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.event_types import (
@@ -37,6 +43,10 @@ from bot.research.market_events.pending_reversal import (
     create_pending_shock,
     process_pending_shock,
     restore_pending_map,
+)
+from bot.research.market_events.near_miss_shadow import (
+    persist_near_miss_snapshots,
+    update_near_miss_from_state,
 )
 from bot.research.market_events.price_feed import BinanceFuturesPriceFeed
 from bot.research.market_events.reversal_confirmation import evaluate_all_reversals
@@ -74,13 +84,17 @@ class ShockPaperRunner:
         max_cycles: int | None = None,
         explicit_symbols: list[str] | None = None,
         feed: BinanceFuturesPriceFeed | None = None,
+        heartbeat_sec: int | None = None,
     ) -> None:
         self.universe_mode = universe_mode
         self.paper_only = paper_only
         self.max_cycles = max_cycles
         self.explicit_symbols = explicit_symbols
         self.feed = feed or BinanceFuturesPriceFeed()
+        self.heartbeat_sec = heartbeat_sec if heartbeat_sec is not None else DEFAULT_HEARTBEAT_SEC
         self.stats = RunnerStats()
+        self.metrics = CollectorMetrics()
+        self._near_miss: dict = {}
         self._active: dict[int, ActiveEvent] = {}
         self._pending: dict[int, Any] = {}
         self._shutdown = False
@@ -132,6 +146,7 @@ class ShockPaperRunner:
             )
         except Exception:
             self.stats.shocks_deduped += 1
+            self.metrics.detector_diag.record("SHOCK_A", REJECTION_DUPLICATE, symbol=shock.symbol)
             return None
 
     def _open_paper_runs(
@@ -311,10 +326,61 @@ class ShockPaperRunner:
                 )
                 self._active[eid].positions.append(pos)
 
-    def run_once(self, conn: Any, symbols: list[str]) -> None:
+    def _count_open_paper_runs(self, conn: Any) -> int:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM paper_strategy_runs WHERE exit_ts IS NULL",
+        ).fetchone()
+        return int(row["n"] if row else 0)
+
+    def _maybe_heartbeat(self, conn: Any, symbols: list[str]) -> None:
         now = int(time.time())
-        self.feed.poll_universe(symbols, max_age_sec=PRICE_HISTORY_SEC)
+        if not self.metrics.should_heartbeat(now, self.heartbeat_sec):
+            return
+        open_runs = self._count_open_paper_runs(conn)
+        text = self.metrics.render_heartbeat(
+            universe=self.universe_mode,
+            events_detected=self.stats.shocks_detected,
+            pending_reversals=len(self._pending),
+            paper_runs_open=open_runs,
+        )
+        self.metrics.emit_heartbeat(text)
+        if self._near_miss:
+            persist_near_miss_snapshots(
+                conn, self._near_miss,
+                period_start=self.metrics.startup_ts, period_end=now,
+            )
+
+    def run_once(self, conn: Any, symbols: list[str]) -> None:
+        cycle_start = time.perf_counter()
+        now = int(time.time())
+        poll_out = self.feed.poll_universe(symbols, max_age_sec=PRICE_HISTORY_SEC)
+        fetch_ok = len(poll_out)
+        fetch_failed = len(symbols) - fetch_ok
         self.stats.polls += 1
+
+        btc = self.feed.get_state("BTC")
+        for sym in symbols:
+            state = self.feed.get_state(sym)
+            if not state:
+                continue
+            session = None
+            inst = self._instrument_map.get(sym.upper())
+            if inst:
+                from bot.research.market_events.session_regime import classify_session_regime
+                session = classify_session_regime(
+                    now, asset_class=inst["asset_class"],
+                    trading_hours_mode=inst["trading_hours_mode"],
+                )
+            update_near_miss_from_state(
+                self._near_miss, state, now_ts=now,
+                btc_state=btc, session_regime=session,
+            )
+
+        diag = diagnose_universe(
+            self.feed, symbols, now_ts=now,
+            shock_allowed_fn=self._shock_allowed if self._instrument_map else None,
+        )
+        self.metrics.detector_diag = diag
 
         self._process_pending_shocks(conn, symbols, now)
         shocks = scan_universe_for_shocks(self.feed, symbols, now_ts=now)
@@ -395,6 +461,9 @@ class ShockPaperRunner:
 
         self._process_open_positions(conn, now)
 
+        latency_ms = (time.perf_counter() - cycle_start) * 1000.0
+        self.metrics.record_cycle(latency_ms, fetch_ok=fetch_ok, fetch_failed=fetch_failed)
+
     def _process_open_positions(self, conn: Any, now: int) -> None:
         for eid, active in list(self._active.items()):
             state = self.feed.get_state(active.shock.symbol)
@@ -474,6 +543,7 @@ class ShockPaperRunner:
                 try:
                     self.run_once(conn, symbols)
                     conn.commit()
+                    self._maybe_heartbeat(conn, symbols)
                 except Exception as exc:
                     self.stats.errors.append(str(exc))
                     logger.error("cycle error: %s", exc)
@@ -496,10 +566,12 @@ def run_shock_paper(
     paper_only: bool = True,
     max_cycles: int | None = None,
     explicit_symbols: list[str] | None = None,
+    heartbeat_sec: int | None = None,
 ) -> RunnerStats:
     return ShockPaperRunner(
         universe_mode=universe,
         paper_only=paper_only,
         max_cycles=max_cycles,
         explicit_symbols=explicit_symbols,
+        heartbeat_sec=heartbeat_sec,
     ).run()

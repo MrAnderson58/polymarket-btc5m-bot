@@ -54,6 +54,7 @@ EXIT_POLICIES = {
 
 DEFAULT_FEE_BPS = float(os.getenv("ME_PAPER_FEE_BPS", "10"))
 DEFAULT_SLIPPAGE_BPS = float(os.getenv("ME_PAPER_SLIPPAGE_BPS", "10"))
+DEFAULT_HEARTBEAT_SEC = int(os.getenv("ME_HEARTBEAT_SEC", "60"))
 
 # Context link windows (seconds before event).
 CONTEXT_WINDOWS_SEC = {

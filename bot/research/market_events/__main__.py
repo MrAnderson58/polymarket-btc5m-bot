@@ -37,6 +37,8 @@ def main(argv: list[str] | None = None) -> int:
             "pending-reversal-report",
             "shock-profile-report",
             "reversal-counterfactual-report",
+            "shock-near-miss-report",
+            "collector-path-audit",
             "polymarket-paper-audit",
             "architecture-audit",
             "instrument-discover",
@@ -62,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--paper-only", action="store_true", default=True)
     parser.add_argument("--max-cycles", type=int, default=None, help="Limit poll cycles (testing)")
+    parser.add_argument("--heartbeat-sec", type=int, default=None, help="Heartbeat interval (default 60)")
+    parser.add_argument("--seconds", type=int, default=30, help="Duration for collector-path-audit")
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--strategy", type=str, default=None, help="Strategy name prefix filter")
     parser.add_argument("--symbol", default=None, help="Single symbol for activation-explain")
@@ -169,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
             paper_only=True,
             max_cycles=args.max_cycles,
             explicit_symbols=explicit_symbols,
+            heartbeat_sec=args.heartbeat_sec,
         )
         return 1 if stats.errors else 0
 
@@ -218,6 +223,15 @@ def main(argv: list[str] | None = None) -> int:
             )
             run_counterfactual_study(conn, days=args.days, persist=True)
             print(reversal_counterfactual_report(conn, days=args.days))
+        elif args.command == "shock-near-miss-report":
+            from bot.research.market_events.near_miss_shadow import shock_near_miss_report
+            print(shock_near_miss_report(conn, days=args.days, persist=True))
+        elif args.command == "collector-path-audit":
+            from bot.research.market_events.collector_path_audit import run_collector_path_audit
+            universe = args.universe or "tradfi-liquid"
+            print(run_collector_path_audit(
+                conn, universe=universe, seconds=args.seconds, explicit_symbols=explicit_symbols,
+            ))
     return 0
 
 
