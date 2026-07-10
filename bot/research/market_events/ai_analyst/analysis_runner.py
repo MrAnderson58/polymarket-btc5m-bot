@@ -85,30 +85,14 @@ def run_analysis_job(conn: Any, job_id: int) -> bool:
 
 def _maybe_send_ai_commentary(conn: Any, event_id: int, analysis: Any) -> None:
     try:
+        from bot.research.market_events.alert_format import (
+            build_shock_alert_context,
+            format_ai_research_note,
+        )
         from bot.research.market_events.market_event_alerts import alert_ai_research_note
 
-        evt = conn.execute(
-            "SELECT symbol, return_pct FROM market_events WHERE id = ?",
-            (event_id,),
-        ).fetchone()
-        ret = evt["return_pct"] if evt else 0
-        sym = evt["symbol"] if evt else analysis.symbol
-        lines = [
-            f"{sym} {ret:+.2f}%",
-            f"Interpretation: {analysis.movement_interpretation}",
-            "",
-            "Supporting:",
-        ]
-        lines.extend(f"- {s}" for s in analysis.supporting_factors[:5])
-        if analysis.contradicting_factors:
-            lines.append("")
-            lines.append("Against immediate fade:")
-            lines.extend(f"- {c}" for c in analysis.contradicting_factors[:5])
-        lines.extend([
-            "",
-            f"Bias: {analysis.reversal_bias}",
-            f"Confidence: {analysis.confidence:.2f}",
-        ])
-        alert_ai_research_note(conn, event_id, "\n".join(lines))
+        ctx = build_shock_alert_context(conn, event_id)
+        msg = format_ai_research_note(analysis, ctx if ctx.get("found") else None)
+        alert_ai_research_note(conn, event_id, msg)
     except Exception:
         pass

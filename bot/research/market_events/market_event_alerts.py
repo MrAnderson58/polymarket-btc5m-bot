@@ -128,51 +128,13 @@ def _safe_alert(
 
 
 def format_shock_alert(conn: Any, event_id: int) -> str:
-    row = conn.execute(
-        """
-        SELECT e.*, p.phase AS pending_phase
-        FROM market_events e
-        LEFT JOIN market_events_pending_shocks p ON p.event_id = e.id
-        WHERE e.id = ?
-        """,
-        (event_id,),
-    ).fetchone()
-    if not row:
-        return f"SHOCK_DETECTED event_id={event_id} (not found)"
-    triggers = json.loads(row["detector_triggers_json"] or "[]")
-    window = row["trigger_window_seconds"] or "?"
-    lines = [
-        f"SHOCK DETECTED — {PAPER_LABEL}",
-        "",
-        f"event_id: {event_id}",
-        f"symbol: {row['symbol']}  direction: {row['direction']}",
-        f"return: {row['return_pct']:.2f}%  window: {window}s",
-        f"detectors: {', '.join(triggers)}",
-        f"classification: {row['classification']}",
-    ]
-    if _col(row, "cross_classification"):
-        lines.append(f"cross_asset: {row['cross_classification']}")
-    if _col(row, "asset_class"):
-        lines.append(f"asset_class: {row['asset_class']}")
-    if _col(row, "session_regime"):
-        lines.append(f"session: {row['session_regime']}")
-    if _col(row, "btc_return_pct") is not None:
-        lines.append(f"btc_return: {row['btc_return_pct']:.2f}%")
-    if _col(row, "market_return_pct") is not None:
-        lines.append(f"market_median: {row['market_return_pct']:.2f}%")
-    if _col(row, "relative_return_pct") is not None:
-        lines.append(f"relative_btc: {row['relative_return_pct']:.2f}%")
-    if _col(row, "volume_zscore") is not None:
-        lines.append(f"volume_z: {row['volume_zscore']:.2f}")
-    if _col(row, "basis_bps") is not None:
-        lines.append(f"basis_bps: {row['basis_bps']:.1f}")
-    phase = _col(row, "pending_phase") or row["phase"]
-    lines.extend([
-        f"lifecycle: {phase}",
-        "",
-        "Monitoring reversal — no confirmed entry yet.",
-    ])
-    return "\n".join(lines)
+    from bot.research.market_events.alert_format import (
+        build_shock_alert_context,
+        format_structured_shock_alert,
+    )
+
+    ctx = build_shock_alert_context(conn, event_id)
+    return format_structured_shock_alert(ctx)
 
 
 def alert_shock_detected(conn: Any, event_id: int) -> bool:
@@ -266,13 +228,7 @@ def alert_paper_position_update(
 def alert_ai_research_note(conn: Any, event_id: int, commentary: str) -> bool:
     if not alert_ai_commentary_enabled():
         return False
-    msg = "\n".join([
-        "AI RESEARCH NOTE — SHADOW ONLY",
-        "",
-        commentary,
-        "",
-        "This is research commentary, not a live trade signal.",
-    ])
+    msg = commentary
     return _safe_alert(
         conn, event_id=event_id, alert_type=ALERT_AI, detail="shadow",
         message=msg, enabled=True,

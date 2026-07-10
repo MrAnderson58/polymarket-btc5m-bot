@@ -40,3 +40,8 @@ def alert_chat_id() -> str | None:
 
 ALERT_MAX_RETRIES = int(os.getenv("ME_ALERT_MAX_RETRIES", "2"))
 ALERT_RETRY_DELAY_SEC = float(os.getenv("ME_ALERT_RETRY_DELAY_SEC", "1.0"))
+
+
+def alert_locale() -> str:
+    """Alert text locale: en | ru."""
+    return os.getenv("ME_ALERT_LOCALE", "ru").strip().lower()[:2] or "en"

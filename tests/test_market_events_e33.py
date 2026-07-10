@@ -169,7 +169,9 @@ class MarketEventsE33Tests(unittest.TestCase):
             eid = self._seed_event(conn)
             msg = format_shock_alert(conn, eid)
             self.assertIn("PAPER", msg)
-            self.assertIn("no live order", msg.lower())
+            self.assertIn("EVENT", msg)
+            self.assertIn("MARKET", msg)
+            self.assertIn("HISTORY", msg)
 
     @patch("bot.research.market_events.market_event_alerts._send_telegram")
     @patch("bot.research.market_events.market_event_alerts.alerts_enabled", return_value=True)

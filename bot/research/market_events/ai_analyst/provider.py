@@ -84,6 +84,11 @@ class DeterministicShadowProvider(AnalystProvider):
         rel = me.get("relative_return_pct")
         btc = me.get("btc_return_pct")
         confirmed = context_bundle.get("price_structure", {}).get("confirmed_reversal")
+        tg = context_bundle.get("telegram_context", [])
+        has_news = any(
+            c.get("type") == "NEWS" or c.get("type") == "NEWS_EVENT"
+            for c in tg
+        )
 
         supporting: list[str] = []
         contradicting: list[str] = []
@@ -91,8 +96,8 @@ class DeterministicShadowProvider(AnalystProvider):
         bias = "WAIT_FOR_CONFIRMATION"
 
         if classification == "ASSET_SPECIFIC":
-            interp = "ASSET_SPECIFIC"
-            supporting.append("Classification: asset-specific move")
+            interp = "LIQUIDITY_SWEEP" if not has_news else "ASSET_SPECIFIC"
+            supporting.append("BTC did not confirm move" if btc is not None and abs(me.get("return_pct") or 0) > abs(btc) * 2 else "Classification: asset-specific move")
         elif classification == "MARKET_WIDE":
             interp = "MARKET_WIDE"
             supporting.append("Classification: market-wide move")
@@ -102,17 +107,40 @@ class DeterministicShadowProvider(AnalystProvider):
         if btc is not None and me.get("return_pct") is not None:
             if abs(me["return_pct"]) > abs(btc) * 1.5:
                 supporting.append("Move exceeds BTC magnitude")
+        if not has_news:
+            supporting.append("No matching news context")
 
         if not confirmed:
-            contradicting.append("R1-R5 reversal not yet confirmed")
+            contradicting.append("Reversal R1-R5 not yet confirmed")
             bias = "WAIT_FOR_CONFIRMATION"
         else:
             bias = "FADE_FAVORED"
             supporting.append(f"Reversal confirmed: {confirmed}")
 
+        if me.get("return_pct") is not None and abs(me["return_pct"]) > 1.0:
+            contradicting.append("Momentum remains elevated")
+
         ctx_ids = [
-            str(c.get("context_id")) for c in context_bundle.get("telegram_context", [])
+            str(c.get("context_id")) for c in tg
         ][:8]
+
+        if interp == "LIQUIDITY_SWEEP" and not has_news:
+            from bot.research.market_events.alert_config import alert_locale
+            if alert_locale() == "ru":
+                commentary = (
+                    "Вероятность технического liquidity sweep выше,\n"
+                    "чем news-driven continuation."
+                )
+            else:
+                commentary = (
+                    "Technical liquidity sweep probability is higher than "
+                    "news-driven continuation."
+                )
+        else:
+            commentary = (
+                f"{symbol} {me.get('return_pct', 0):+.2f}% shock; "
+                f"interpretation {interp}; bias {bias}."
+            )
 
         analysis = StructuredAnalysis(
             event_id=event_id,
@@ -120,16 +148,13 @@ class DeterministicShadowProvider(AnalystProvider):
             analysis_status="COMPLETE",
             movement_interpretation=interp,
             reversal_bias=bias,
-            confidence=0.55 if supporting else 0.35,
+            confidence=0.64 if supporting else 0.35,
             supporting_factors=supporting,
             contradicting_factors=contradicting,
             relevant_context_ids=ctx_ids,
             risk_notes=["Shadow deterministic analyst — not LLM"],
             what_would_change_view=["Reversal confirmation", "BTC confirmation of direction"],
-            short_commentary=(
-                f"{symbol} {me.get('return_pct', 0):+.2f}% shock; "
-                f"interpretation {interp}; bias {bias}."
-            ),
+            short_commentary=commentary,
         )
         return AnalysisResult(
             analysis=analysis,

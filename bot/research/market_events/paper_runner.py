@@ -435,6 +435,13 @@ class ShockPaperRunner:
                 cross = asset_class = session_regime = ref_ret = basis_bps = instrument_id = None
                 venue = "binance_futures"
 
+            eth_st = self.feed.get_state("ETH")
+            if eth_st:
+                window = shock.triggers[0].window_sec if shock.triggers else 60
+                eth_ret = eth_st.return_over(window, now)
+                if eth_ret is not None:
+                    shock.raw_metrics["eth_return_pct"] = eth_ret
+
             event_id = self._persist_event(
                 conn, shock, classification,
                 venue=venue,
