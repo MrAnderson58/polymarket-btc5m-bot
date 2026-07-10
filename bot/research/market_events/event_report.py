@@ -6,6 +6,8 @@ import statistics
 from datetime import datetime, timezone
 from typing import Any
 
+from bot.research.market_events.db_helpers import scalar
+
 
 def _days_ago_ts(days: int) -> int:
     return int(datetime.now(tz=timezone.utc).timestamp()) - days * 86400
@@ -134,18 +136,18 @@ def shock_context_report(conn: Any, *, days: int = 7) -> str:
         """,
         (since,),
     ).fetchall()
-    events_with = conn.execute(
+    events_with = scalar(conn.execute(
         """
-        SELECT COUNT(DISTINCT e.id) FROM market_events e
+        SELECT COUNT(DISTINCT e.id) AS n FROM market_events e
         JOIN market_event_context c ON c.event_id = e.id
         WHERE e.event_ts >= ?
         """,
         (since,),
-    ).fetchone()["n"]
-    total = conn.execute(
+    ).fetchone())
+    total = scalar(conn.execute(
         "SELECT COUNT(*) AS n FROM market_events WHERE event_ts >= ?",
         (since,),
-    ).fetchone()["n"]
+    ).fetchone())
     lines = [
         "SHOCK CONTEXT REPORT",
         f"events: {total}",

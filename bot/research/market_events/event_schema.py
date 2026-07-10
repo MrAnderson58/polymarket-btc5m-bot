@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -175,7 +175,7 @@ def apply_migrations(conn: Any) -> list[str]:
         applied.append("v2")
         current = 2
 
-    if current < SCHEMA_VERSION:
+    if current < 3:
         for stmt in E21_ALTER_STATEMENTS:
             try:
                 conn.execute(stmt)
@@ -187,7 +187,20 @@ def apply_migrations(conn: Any) -> list[str]:
             INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
             VALUES (?, datetime(?, 'unixepoch'), ?)
             """,
-            (SCHEMA_VERSION, now, "Phase E.2.1 activation tiers and observation mode"),
+            (3, now, "Phase E.2.1 activation tiers and observation mode"),
+        )
+        applied.append("v3")
+        current = 3
+
+    if current < SCHEMA_VERSION:
+        conn.executescript(E3_DDL)
+        now = int(time.time())
+        conn.execute(
+            f"""
+            INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+            VALUES (?, datetime(?, 'unixepoch'), ?)
+            """,
+            (SCHEMA_VERSION, now, "Phase E.3 lifecycle and shadow research tables"),
         )
         applied.append(f"v{SCHEMA_VERSION}")
         conn.commit()
@@ -280,3 +293,39 @@ E21_ALTER_STATEMENTS = [
     "ALTER TABLE market_events_price_observations ADD COLUMN reference_provider TEXT",
     "ALTER TABLE market_events_price_observations ADD COLUMN same_venue_reference INTEGER DEFAULT 1",
 ]
+
+E3_DDL = """
+CREATE TABLE IF NOT EXISTS market_event_lifecycle_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    decision_ts INTEGER NOT NULL,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL,
+    reason TEXT,
+    details_json TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_lifecycle_event ON market_event_lifecycle_decisions(event_id);
+CREATE INDEX IF NOT EXISTS idx_me_lifecycle_stage ON market_event_lifecycle_decisions(stage);
+
+CREATE TABLE IF NOT EXISTS market_events_shadow_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    event_ts INTEGER NOT NULL,
+    detector_id TEXT NOT NULL DEFAULT 'SHOCK_F',
+    direction TEXT NOT NULL,
+    return_pct REAL,
+    z_score REAL,
+    vol_scale_pct REAL,
+    overlap_detectors_json TEXT,
+    forward_returns_json TEXT,
+    path_class TEXT,
+    detector_version TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_shadow_sym ON market_events_shadow_candidates(symbol);
+CREATE INDEX IF NOT EXISTS idx_me_shadow_ts ON market_events_shadow_candidates(event_ts);
+"""

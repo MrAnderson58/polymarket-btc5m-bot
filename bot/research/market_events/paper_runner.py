@@ -290,6 +290,8 @@ class ShockPaperRunner:
             if not state:
                 continue
             revs = evaluate_all_reversals(shock, state, now)
+            from bot.research.market_events.lifecycle_decisions import persist_reversal_decisions
+            persist_reversal_decisions(conn, event_id=event_id, decision_ts=now, results=revs)
             for rev in revs:
                 if not rev.confirmed or rev.confirm_ts is None or rev.confirm_price is None:
                     continue

@@ -28,6 +28,11 @@ def main(argv: list[str] | None = None) -> int:
             "shock-event-report",
             "shock-strategy-report",
             "shock-context-report",
+            "shock-lifecycle-audit",
+            "shock-opportunity-audit",
+            "shock-f-shadow-audit",
+            "tradfi-shock-readiness",
+            "shock-strategy-matrix-report",
             "polymarket-paper-audit",
             "architecture-audit",
             "instrument-discover",
@@ -174,6 +179,21 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "shock-context-report":
             from bot.research.market_events.event_report import shock_context_report
             print(shock_context_report(conn, days=args.days))
+        elif args.command == "shock-lifecycle-audit":
+            from bot.research.market_events.lifecycle_audit import shock_lifecycle_audit
+            print(shock_lifecycle_audit(conn, days=args.days))
+        elif args.command == "shock-opportunity-audit":
+            from bot.research.market_events.shock_opportunity_audit import shock_opportunity_audit
+            print(shock_opportunity_audit(conn, days=args.days))
+        elif args.command == "shock-f-shadow-audit":
+            from bot.research.market_events.shock_f_shadow import run_shock_f_shadow_audit
+            print(run_shock_f_shadow_audit(conn, days=args.days))
+        elif args.command == "tradfi-shock-readiness":
+            from bot.research.market_events.tradfi_shock_readiness import tradfi_shock_readiness
+            print(tradfi_shock_readiness(conn, days=args.days))
+        elif args.command == "shock-strategy-matrix-report":
+            from bot.research.market_events.strategy_matrix_report import shock_strategy_matrix_report
+            print(shock_strategy_matrix_report(conn, days=args.days))
     return 0
 
 
