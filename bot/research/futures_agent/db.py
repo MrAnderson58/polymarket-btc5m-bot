@@ -159,6 +159,48 @@ def insert_returning_id(conn: Any, sql: str, params: tuple | list | None = None)
     return int(lid)
 
 
+def insert_telegram_research_bridge(
+    conn: Any,
+    *,
+    input_id: int,
+    post_id: int,
+    bridge_status: str,
+    content_hash: str,
+    bridged_at: int,
+) -> bool:
+    """Insert bridge row idempotently. Returns True when a new row is created."""
+    validate_write_table("futures_agent_telegram_research_bridge")
+    params = (input_id, post_id, bridge_status, content_hash, bridged_at)
+    if connection_is_postgres(conn):
+        row = conn.execute(
+            """
+            INSERT INTO futures_agent_telegram_research_bridge (
+              input_id, post_id, bridge_status, content_hash, bridged_at
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (input_id) DO NOTHING
+            RETURNING input_id
+            """,
+            params,
+        ).fetchone()
+        return row is not None
+
+    existing = conn.execute(
+        "SELECT input_id FROM futures_agent_telegram_research_bridge WHERE input_id = ?",
+        (input_id,),
+    ).fetchone()
+    if existing:
+        return False
+    conn.execute(
+        """
+        INSERT INTO futures_agent_telegram_research_bridge (
+          input_id, post_id, bridge_status, content_hash, bridged_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        params,
+    )
+    return True
+
+
 def validate_write_table(table_name: str) -> None:
     if table_name not in AGENT_TABLE_ALLOWLIST:
         raise AgentDbError(f"Write to table {table_name!r} not allowed for agent adapter")

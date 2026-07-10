@@ -14,6 +14,7 @@ from bot.research.futures_agent.db import (
     _PgConnWrapper,
     _adapt_sql_placeholders,
     agent_connection,
+    insert_telegram_research_bridge,
 )
 from bot.research.futures_agent.env_bootstrap import reset_bootstrap_for_tests
 from bot.research.futures_agent.ingestion import ingest_from_telegram
@@ -21,10 +22,18 @@ from bot.research.futures_agent.pipeline import process_input
 from bot.research.futures_agent.schema import apply_migrations
 from bot.research.futures_agent.telegram_inbound_audit import (
     TELEGRAM_SOURCE_LIKE,
+    run_bridge_artifact_audit,
     run_telegram_inbound_audit,
     sync_unbridged_inputs,
 )
-from bot.research.futures_agent.telegram_inbound_bridge import bridge_input_to_research
+from bot.research.futures_agent.telegram_inbound_bridge import (
+    OUTCOME_ALREADY_BRIDGED,
+    OUTCOME_BRIDGED_NEW,
+    OUTCOME_CONTENT_DEDUPED,
+    OUTCOME_POSTS_REUSED,
+    bridge_input_to_research,
+    channel_for_chat,
+)
 from bot.research.futures_agent.telegram_context_readiness import (
     telegram_context_readiness_report,
 )
@@ -119,10 +128,12 @@ class TelegramInboundBridgeTests(unittest.TestCase):
             input_id = self._ingest(conn, EXPLICIT_LONG, msg_id=99)
             r1 = bridge_input_to_research(conn, input_id)
             r2 = bridge_input_to_research(conn, input_id)
-            self.assertTrue(r1.bridged)
-            self.assertTrue(r2.duplicate)
+            self.assertEqual(r1.outcome, OUTCOME_BRIDGED_NEW)
+            self.assertEqual(r2.outcome, OUTCOME_ALREADY_BRIDGED)
             n = conn.execute("SELECT COUNT(*) AS n FROM futures_agent_trader_posts").fetchone()["n"]
             self.assertEqual(n, 1)
+            b = conn.execute("SELECT COUNT(*) AS n FROM futures_agent_telegram_research_bridge").fetchone()["n"]
+            self.assertEqual(b, 1)
 
     def test_content_hash_duplicate_no_second_post(self) -> None:
         with agent_connection(self.db_url) as conn:
@@ -131,9 +142,11 @@ class TelegramInboundBridgeTests(unittest.TestCase):
             id2 = self._ingest(conn, EXPLICIT_LONG, msg_id=2)
             bridge_input_to_research(conn, id1)
             r2 = bridge_input_to_research(conn, id2)
-            self.assertTrue(r2.duplicate)
+            self.assertEqual(r2.outcome, OUTCOME_CONTENT_DEDUPED)
             n = conn.execute("SELECT COUNT(*) AS n FROM futures_agent_trader_posts").fetchone()["n"]
             self.assertEqual(n, 1)
+            b = conn.execute("SELECT COUNT(*) AS n FROM futures_agent_telegram_research_bridge").fetchone()["n"]
+            self.assertEqual(b, 2)
 
     def test_timestamp_preserved(self) -> None:
         with agent_connection(self.db_url) as conn:
@@ -253,7 +266,100 @@ class TelegramInboundBridgeTests(unittest.TestCase):
             apply_migrations(conn)
             self._ingest(conn, COMMENTARY, msg_id=50)
             stats = sync_unbridged_inputs(conn)
-            self.assertEqual(stats["bridged"], 1)
+            self.assertEqual(stats["bridged_new"], 1)
+            self.assertEqual(stats["errors"], 0)
+
+    def test_reuse_post_when_bridge_missing(self) -> None:
+        """Simulate partial sync: post exists, bridge row missing."""
+        with agent_connection(self.db_url) as conn:
+            apply_migrations(conn)
+            input_id = self._ingest(conn, EXPLICIT_LONG, msg_id=70)
+            r1 = bridge_input_to_research(conn, input_id)
+            post_id = r1.post_id
+            conn.execute(
+                "DELETE FROM futures_agent_telegram_research_bridge WHERE input_id = ?",
+                (input_id,),
+            )
+            r2 = bridge_input_to_research(conn, input_id)
+            self.assertIn(r2.outcome, (OUTCOME_POSTS_REUSED, OUTCOME_CONTENT_DEDUPED))
+            self.assertTrue(r2.bridged)
+            n_posts = conn.execute("SELECT COUNT(*) AS n FROM futures_agent_trader_posts").fetchone()["n"]
+            self.assertEqual(n_posts, 1)
+
+    def test_bridge_artifact_audit_read_only(self) -> None:
+        with agent_connection(self.db_url) as conn:
+            apply_migrations(conn)
+            self._ingest(conn, COMMENTARY, msg_id=71)
+            text = run_bridge_artifact_audit(conn)
+            self.assertIn("TELEGRAM BRIDGE ARTIFACT AUDIT", text)
+            self.assertIn("unbridged_inbound_inputs: 1", text)
+
+    def test_pg_bridge_insert_on_conflict_not_or_ignore(self) -> None:
+        bridge_src = Path(
+            __import__("bot.research.futures_agent.telegram_inbound_bridge", fromlist=["x"]).__file__,
+        ).read_text()
+        self.assertNotIn("INSERT OR IGNORE", bridge_src)
+        self.assertNotIn("INSERT OR REPLACE", bridge_src)
+
+        db_src = Path(__import__("bot.research.futures_agent.db", fromlist=["x"]).__file__).read_text()
+        self.assertIn("ON CONFLICT (input_id) DO NOTHING", db_src)
+
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_cur.fetchone.side_effect = [{"input_id": 7}, None]
+        mock_conn.cursor.return_value = mock_cur
+        psycopg2 = MagicMock()
+        extras = MagicMock()
+        extras.RealDictCursor = object
+        with patch.dict(sys.modules, {"psycopg2": psycopg2, "psycopg2.extras": extras}):
+            wrapper = _PgConnWrapper(mock_conn)
+            ok1 = insert_telegram_research_bridge(
+                wrapper, input_id=7, post_id=99, bridge_status="bridged",
+                content_hash="abc", bridged_at=1,
+            )
+            ok2 = insert_telegram_research_bridge(
+                wrapper, input_id=7, post_id=99, bridge_status="bridged",
+                content_hash="abc", bridged_at=1,
+            )
+        self.assertTrue(ok1)
+        self.assertFalse(ok2)
+        pg_sql = mock_cur.execute.call_args_list[0][0][0]
+        self.assertIn("ON CONFLICT (input_id) DO NOTHING", pg_sql)
+        self.assertNotIn("INSERT OR IGNORE", pg_sql)
+
+    def test_sync_restart_safe_after_simulated_bridge_failure(self) -> None:
+        with agent_connection(self.db_url) as conn:
+            apply_migrations(conn)
+            input_id = self._ingest(conn, NEWS_TEXT, msg_id=72)
+            channel = channel_for_chat(12345)
+            from bot.research.futures_agent.research_ingest import _insert_post
+            from bot.research.futures_agent.research_taxonomy import classify_research_content
+            from bot.research.futures_agent.research_utils import content_hash as ch
+
+            text = NEWS_TEXT
+            c_hash = ch(text)
+            cls = classify_research_content(text)
+            post_id = _insert_post(
+                conn,
+                source_message_id="72",
+                channel_name=channel,
+                message_ts=1_700_000_000,
+                raw_text=text,
+                c_hash=c_hash,
+                content_type=cls.content_type,
+                symbols=["BTC"],
+                confidence=cls.confidence,
+            )
+            self.assertIsNotNone(post_id)
+            stats = sync_unbridged_inputs(conn)
+            self.assertEqual(stats["posts_reused"] + stats["content_deduped"], 1)
+            self.assertEqual(stats["errors"], 0)
+            row = conn.execute(
+                "SELECT post_id FROM futures_agent_telegram_research_bridge WHERE input_id = ?",
+                (input_id,),
+            ).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(int(row["post_id"]), int(post_id))
 
     def test_context_readiness_report(self) -> None:
         with agent_connection(self.db_url) as conn:

@@ -9,7 +9,15 @@ from bot.research.futures_agent.env_bootstrap import resolve_agent_db_config
 from bot.research.futures_agent.research_taxonomy import classify_research_content
 from bot.research.futures_agent.telegram_inbound_bridge import (
     INBOUND_CHANNEL_PREFIX,
+    OUTCOME_ALREADY_BRIDGED,
+    OUTCOME_BRIDGED_NEW,
+    OUTCOME_CONTENT_DEDUPED,
+    OUTCOME_ERROR,
+    OUTCOME_POSTS_REUSED,
+    OUTCOME_SKIPPED,
     bridge_input_to_research,
+    channel_for_chat,
+    is_telegram_inbound_source,
 )
 
 # Bound as query param — never embed in SQL literals (psycopg2 treats % as placeholders).
@@ -185,8 +193,111 @@ def run_telegram_inbound_audit(conn: Any, *, limit: int = 20) -> str:
     return "\n".join(lines)
 
 
+def run_bridge_artifact_audit(conn: Any) -> str:
+    """Read-only audit for partial bridge sync artifacts (no deletes)."""
+    unbridged = conn.execute(
+        """
+        SELECT i.id, i.telegram_message_id, i.source, i.received_at, i.status_detail
+        FROM futures_agent_inputs i
+        LEFT JOIN futures_agent_telegram_research_bridge b ON b.input_id = i.id
+        WHERE i.source LIKE ? AND b.input_id IS NULL
+        ORDER BY i.received_at ASC
+        """,
+        (TELEGRAM_SOURCE_LIKE,),
+    ).fetchall()
+
+    orphan_posts = conn.execute(
+        """
+        SELECT p.id, p.channel_name, p.source_message_id, p.content_hash
+        FROM futures_agent_trader_posts p
+        WHERE p.channel_name LIKE ?
+          AND NOT EXISTS (
+            SELECT 1 FROM futures_agent_telegram_research_bridge b WHERE b.post_id = p.id
+          )
+        ORDER BY p.id ASC
+        """,
+        (f"{INBOUND_CHANNEL_PREFIX}:%",),
+    ).fetchall()
+
+    hash_dupes = conn.execute(
+        """
+        SELECT content_hash, COUNT(*) AS n
+        FROM futures_agent_trader_posts
+        WHERE channel_name LIKE ?
+        GROUP BY content_hash
+        HAVING COUNT(*) > 1
+        ORDER BY n DESC
+        LIMIT 20
+        """,
+        (f"{INBOUND_CHANNEL_PREFIX}:%",),
+    ).fetchall()
+
+    reconcilable: list[str] = []
+    for row in unbridged:
+        detail = _parse_status_detail(row["status_detail"])
+        chat_id = detail.get("telegram_chat_id")
+        if chat_id is None and is_telegram_inbound_source(row["source"]):
+            try:
+                chat_id = int(row["source"].split(":", 1)[1])
+            except (IndexError, ValueError):
+                chat_id = None
+        if chat_id is None:
+            continue
+        channel = channel_for_chat(int(chat_id))
+        post = conn.execute(
+            """
+            SELECT id FROM futures_agent_trader_posts
+            WHERE channel_name = ? AND source_message_id = ?
+            """,
+            (channel, str(row["telegram_message_id"])),
+        ).fetchone()
+        if post:
+            reconcilable.append(
+                f"  input_id={row['id']} msg={row['telegram_message_id']} → post_id={post['id']} (bridge missing)",
+            )
+
+    lines = [
+        "TELEGRAM BRIDGE ARTIFACT AUDIT (read-only — no deletes)",
+        "",
+        f"unbridged_inbound_inputs: {len(unbridged)}",
+        f"orphan_telegram_inbound_posts: {len(orphan_posts)}",
+        f"duplicate_inbound_content_hashes: {len(hash_dupes)}",
+        f"reconcilable_input_post_pairs: {len(reconcilable)}",
+        "",
+    ]
+    if unbridged:
+        lines.append("Unbridged input IDs:")
+        for r in unbridged[:50]:
+            lines.append(
+                f"  input_id={r['id']} msg={r['telegram_message_id']} source={r['source']} ts={r['received_at']}",
+            )
+        lines.append("")
+    if orphan_posts:
+        lines.append("Orphan telegram_inbound trader_posts (no bridge row):")
+        for p in orphan_posts[:50]:
+            lines.append(
+                f"  post_id={p['id']} channel={p['channel_name']} msg={p['source_message_id']} hash={p['content_hash'][:12]}",
+            )
+        lines.append("")
+    if hash_dupes:
+        lines.append("Duplicate content_hash groups:")
+        for h in hash_dupes:
+            lines.append(f"  hash={h['content_hash'][:12]}... count={h['n']}")
+        lines.append("")
+    if reconcilable:
+        lines.append("Reconcilable (post exists, bridge missing — safe for telegram-bridge-sync):")
+        lines.extend(reconcilable[:50])
+        lines.append("")
+    if not unbridged and not orphan_posts:
+        lines.append("No bridge artifacts detected.")
+    return "\n".join(lines)
+
+
 def sync_unbridged_inputs(conn: Any, *, limit: int | None = 500) -> dict[str, int]:
     """Backfill bridge for historical inbound messages (idempotent)."""
+    import logging
+
+    logger = logging.getLogger(__name__)
     q = """
         SELECT i.id FROM futures_agent_inputs i
         LEFT JOIN futures_agent_telegram_research_bridge b ON b.input_id = i.id
@@ -198,14 +309,40 @@ def sync_unbridged_inputs(conn: Any, *, limit: int | None = 500) -> dict[str, in
         q += " LIMIT ?"
         params.append(limit)
     rows = conn.execute(q, params).fetchall()
-    stats = {"scanned": 0, "bridged": 0, "duplicate": 0, "skipped": 0}
+    stats = {
+        "scanned": 0,
+        "bridged_new": 0,
+        "already_bridged": 0,
+        "posts_reused": 0,
+        "content_deduped": 0,
+        "skipped": 0,
+        "errors": 0,
+        # legacy keys for callers expecting old names
+        "bridged": 0,
+        "duplicate": 0,
+    }
     for r in rows:
         stats["scanned"] += 1
-        result = bridge_input_to_research(conn, int(r["id"]))
-        if result.bridged:
+        try:
+            result = bridge_input_to_research(conn, int(r["id"]))
+        except Exception as exc:
+            stats["errors"] += 1
+            logger.warning("bridge sync input_id=%s failed: %s", r["id"], exc)
+            continue
+        if result.outcome == OUTCOME_BRIDGED_NEW:
+            stats["bridged_new"] += 1
             stats["bridged"] += 1
-        elif result.duplicate:
+        elif result.outcome == OUTCOME_POSTS_REUSED:
+            stats["posts_reused"] += 1
+            stats["bridged"] += 1
+        elif result.outcome == OUTCOME_CONTENT_DEDUPED:
+            stats["content_deduped"] += 1
             stats["duplicate"] += 1
+        elif result.outcome == OUTCOME_ALREADY_BRIDGED:
+            stats["already_bridged"] += 1
+            stats["duplicate"] += 1
+        elif result.outcome == OUTCOME_ERROR:
+            stats["errors"] += 1
         else:
             stats["skipped"] += 1
     return stats

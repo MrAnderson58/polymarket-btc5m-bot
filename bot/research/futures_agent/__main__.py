@@ -53,7 +53,7 @@ def main() -> int:
             "audit", "migrate", "ingest", "process-pending",
             "snapshot", "snapshot-pending", "context-report", "snapshot-audit",
             "telegram-poll", "telegram-diagnose", "telegram-inbound-audit",
-            "telegram-bridge-sync", "telegram-context-readiness", "stage3-audit",
+            "telegram-bridge-artifact-audit", "telegram-bridge-sync", "telegram-context-readiness", "stage3-audit",
             "stage3-migrate", "ingest-research", "research-stats",
             "thesis-extract", "thesis-quality-audit", "pipeline-reconcile",
             "research-rebuild-theses",
@@ -719,6 +719,16 @@ def main() -> int:
             print(run_telegram_inbound_audit(conn, limit=args.limit or 20))
         return 0
 
+    if args.command == "telegram-bridge-artifact-audit":
+        from bot.research.futures_agent.db import agent_connection
+        from bot.research.futures_agent.schema import apply_migrations
+        from bot.research.futures_agent.telegram_inbound_audit import run_bridge_artifact_audit
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            print(run_bridge_artifact_audit(conn))
+        return 0
+
     if args.command == "telegram-bridge-sync":
         from bot.research.futures_agent.db import agent_connection
         from bot.research.futures_agent.schema import apply_migrations
@@ -728,10 +738,16 @@ def main() -> int:
             apply_migrations(conn)
             stats = sync_unbridged_inputs(conn, limit=args.limit)
             print(
-                f"telegram-bridge-sync: scanned={stats['scanned']} bridged={stats['bridged']} "
-                f"duplicate={stats['duplicate']} skipped={stats['skipped']}",
+                "telegram-bridge-sync: "
+                f"scanned={stats['scanned']} "
+                f"bridged_new={stats['bridged_new']} "
+                f"already_bridged={stats['already_bridged']} "
+                f"posts_reused={stats['posts_reused']} "
+                f"content_deduped={stats['content_deduped']} "
+                f"skipped={stats['skipped']} "
+                f"errors={stats['errors']}",
             )
-        return 0
+        return 0 if stats["errors"] == 0 else 1
 
     if args.command == "telegram-context-readiness":
         from bot.research.futures_agent.db import agent_connection
