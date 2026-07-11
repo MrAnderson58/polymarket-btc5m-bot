@@ -8,8 +8,6 @@ import time
 from typing import Any
 
 from bot.research.market_events.alert_config import (
-    ALERT_MAX_RETRIES,
-    ALERT_RETRY_DELAY_SEC,
     alert_ai_commentary_enabled,
     alert_chat_id,
     alert_paper_updates_enabled,
@@ -48,25 +46,19 @@ def _already_sent(conn: Any, dedupe_key: str) -> bool:
     return row is not None
 
 
-def _send_telegram(text: str) -> tuple[bool, str | None]:
-    from bot.research.futures_agent.responses import send_telegram_reply
-    from bot.research.futures_agent.telegram_config import get_telegram_bot_token
+def _send_telegram(
+    text: str,
+    *,
+    conn: Any | None = None,
+    alert_type: str = "UNKNOWN",
+    event_id: int = 0,
+) -> tuple[bool, str | None]:
+    from bot.research.market_events.alert_engine.telegram_delivery import deliver_telegram
 
-    if not get_telegram_bot_token():
-        return False, "no_token"
-    chat = alert_chat_id()
-    if not chat:
-        return False, "no_chat_id"
-    for attempt in range(ALERT_MAX_RETRIES + 1):
-        try:
-            ok = send_telegram_reply(chat, text)
-            if ok:
-                return True, None
-        except Exception as exc:
-            logger.warning("alert send attempt %s failed: %s", attempt + 1, exc)
-        if attempt < ALERT_MAX_RETRIES:
-            time.sleep(ALERT_RETRY_DELAY_SEC)
-    return False, "send_failed"
+    result = deliver_telegram(
+        text, conn=conn, alert_type=alert_type, event_id=event_id,
+    )
+    return result.ok, result.error
 
 
 def _record_alert(
@@ -112,7 +104,9 @@ def _safe_alert(
     t0 = time.perf_counter()
     sent, err = False, None
     try:
-        sent, err = _send_telegram(message)
+        sent, err = _send_telegram(
+            message, conn=conn, alert_type=alert_type, event_id=event_id,
+        )
     except Exception as exc:
         err = str(exc)
         logger.warning("alert %s event=%s failed: %s", alert_type, event_id, exc)

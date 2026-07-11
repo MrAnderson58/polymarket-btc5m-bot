@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -263,17 +263,31 @@ def apply_migrations(conn: Any) -> list[str]:
         current = 8
 
     if current < SCHEMA_VERSION:
-        conn.executescript(E5_DDL)
-        now = int(time.time())
-        conn.execute(
-            f"""
-            INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
-            VALUES (?, datetime(?, 'unixepoch'), ?)
-            """,
-            (9, now, "Phase E.5 alert engine dashboard and research ops"),
-        )
-        applied.append("v9")
-        current = 9
+        if current < 9:
+            conn.executescript(E5_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (9, now, "Phase E.5 alert engine dashboard and research ops"),
+            )
+            applied.append("v9")
+            current = 9
+
+        if current < 10:
+            conn.executescript(E53_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (10, now, "Phase E.5.3 Telegram delivery log and ops"),
+            )
+            applied.append("v10")
+            current = 10
 
     if not applied:
         conn.commit()
@@ -772,4 +786,28 @@ CREATE TABLE IF NOT EXISTS market_events_scheduler_state (
 );
 
 INSERT OR IGNORE INTO market_events_scheduler_state (id, updated_at) VALUES (1, 0);
+"""
+
+E53_DDL = """
+CREATE TABLE IF NOT EXISTS market_event_telegram_delivery_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL DEFAULT 0,
+    alert_type TEXT NOT NULL,
+    chat_id TEXT,
+    message_preview TEXT,
+    status TEXT NOT NULL,
+    latency_ms REAL,
+    http_code INTEGER,
+    telegram_message_id INTEGER,
+    attempt INTEGER NOT NULL DEFAULT 1,
+    error TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_tg_delivery_created
+  ON market_event_telegram_delivery_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_me_tg_delivery_status
+  ON market_event_telegram_delivery_log(status);
+CREATE INDEX IF NOT EXISTS idx_me_tg_delivery_alert_type
+  ON market_event_telegram_delivery_log(alert_type);
 """

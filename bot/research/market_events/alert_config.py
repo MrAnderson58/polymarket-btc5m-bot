@@ -40,6 +40,8 @@ def alert_chat_id() -> str | None:
 
 ALERT_MAX_RETRIES = int(os.getenv("ME_ALERT_MAX_RETRIES", "2"))
 ALERT_RETRY_DELAY_SEC = float(os.getenv("ME_ALERT_RETRY_DELAY_SEC", "1.0"))
+ALERT_RETRY_BACKOFF_MULTIPLIER = float(os.getenv("ME_ALERT_RETRY_BACKOFF_MULTIPLIER", "2.0"))
+ALERT_RETRY_MAX_DELAY_SEC = float(os.getenv("ME_ALERT_RETRY_MAX_DELAY_SEC", "30.0"))
 
 
 def alert_locale() -> str:

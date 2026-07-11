@@ -71,6 +71,10 @@ def main(argv: list[str] | None = None) -> int:
             "stop-all",
             "status",
             "ai-worker-run",
+            "telegram-alert-test",
+            "ai-test",
+            "demo-event",
+            "telegram-health",
         ),
     )
     parser.add_argument(
@@ -106,6 +110,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-load", action="store_true", help="Skip synthetic load test")
     parser.add_argument("--load-events", type=int, default=200, help="Synthetic load test event count")
     parser.add_argument("--json", action="store_true", help="JSON output for system-validation")
+    parser.add_argument(
+        "--send-telegram",
+        action="store_true",
+        help="ai-test: send AI research note to Telegram",
+    )
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
 
@@ -129,6 +138,40 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         from bot.research.market_events.process_manager import status_report
         print(status_report())
+        return 0
+
+    if args.command == "telegram-alert-test":
+        from bot.research.market_events.telegram_ops.cli import run_telegram_alert_test
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            code, text = run_telegram_alert_test(conn)
+            conn.commit()
+            print(text)
+        return code
+
+    if args.command == "ai-test":
+        from bot.research.market_events.telegram_ops.cli import run_ai_test
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            code, text = run_ai_test(conn, send_telegram=args.send_telegram)
+            conn.commit()
+            print(text)
+        return code
+
+    if args.command == "demo-event":
+        from bot.research.market_events.telegram_ops.cli import run_demo_event
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            code, text = run_demo_event(conn)
+            conn.commit()
+            print(text)
+        return code
+
+    if args.command == "telegram-health":
+        from bot.research.market_events.telegram_ops.cli import run_telegram_health
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(run_telegram_health(conn))
         return 0
 
     if args.command == "system-validation":
