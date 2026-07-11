@@ -490,6 +490,11 @@ class ShockPaperRunner:
                 on_shock_detected(conn, event_id=event_id)
             except Exception as exc:
                 logger.debug("e5 shock hook skipped: %s", exc)
+            try:
+                from bot.research.market_events.signal_intelligence.hooks import on_shock_f0
+                on_shock_f0(conn, event_id=event_id)
+            except Exception as exc:
+                logger.debug("f0 shock hook skipped: %s", exc)
 
             if state:
                 create_pending_shock(

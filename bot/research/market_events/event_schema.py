@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -305,6 +305,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v11")
             current = 11
+
+        if current < 12:
+            conn.executescript(F0_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (12, now, "Phase F.0 signal intelligence research"),
+            )
+            applied.append("v12")
+            current = 12
 
     if not applied:
         conn.commit()
@@ -832,3 +845,130 @@ CREATE INDEX IF NOT EXISTS idx_me_tg_delivery_alert_type
 E531_ALTER_STATEMENTS = (
     "ALTER TABLE market_event_telegram_delivery_log ADD COLUMN message_text TEXT",
 )
+
+F0_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_multitimeframe (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    detector_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    event_ts INTEGER NOT NULL,
+    window_minutes INTEGER NOT NULL,
+    return_pct REAL NOT NULL,
+    atr_multiple REAL,
+    volume_multiple REAL,
+    direction TEXT NOT NULL,
+    source_event_id INTEGER,
+    dedup_key TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_mtf_detector ON market_events_multitimeframe(detector_id);
+CREATE INDEX IF NOT EXISTS idx_me_mtf_symbol_ts ON market_events_multitimeframe(symbol, event_ts);
+
+CREATE TABLE IF NOT EXISTS market_events_exhaustion (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    event_ts INTEGER NOT NULL,
+    event_type TEXT NOT NULL DEFAULT 'TREND_EXHAUSTION',
+    exhaustion_score REAL NOT NULL,
+    reasons_json TEXT NOT NULL,
+    consecutive_candles INTEGER,
+    cumulative_return_pct REAL,
+    atr_expansion REAL,
+    volume_expansion REAL,
+    vwap_distance_pct REAL,
+    ema20_distance_pct REAL,
+    ema50_distance_pct REAL,
+    source_event_id INTEGER,
+    dedup_key TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_exhaustion_symbol ON market_events_exhaustion(symbol, event_ts);
+
+CREATE TABLE IF NOT EXISTS market_event_exchange_symbols (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    canonical_symbol TEXT NOT NULL UNIQUE,
+    resolved_venue TEXT,
+    resolved_symbol TEXT,
+    status TEXT NOT NULL,
+    exchange_attempts_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_event_exchange_context (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    venue TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    funding REAL,
+    open_interest REAL,
+    long_short_ratio REAL,
+    volume_24h REAL,
+    spread_bps REAL,
+    vwap REAL,
+    atr REAL,
+    ema20_distance_pct REAL,
+    ema50_distance_pct REAL,
+    raw_json TEXT,
+    created_at INTEGER NOT NULL,
+    UNIQUE(event_id, venue),
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_opportunity_scores_v2 (
+    event_id INTEGER PRIMARY KEY,
+    score REAL NOT NULL,
+    score_breakdown_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE TABLE IF NOT EXISTS market_event_ai_analyses_f0 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    job_id INTEGER,
+    prompt_version TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    bias TEXT,
+    confidence REAL,
+    continuation_probability REAL,
+    reversal_probability REAL,
+    summary_ru TEXT,
+    summary_en TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_signal_ranking_weekly (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_key TEXT NOT NULL UNIQUE,
+    ranking_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_mtf_paper_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mtf_signal_id INTEGER NOT NULL,
+    detector_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    entry_ts INTEGER,
+    exit_ts INTEGER,
+    pnl_pct REAL,
+    status TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (mtf_signal_id) REFERENCES market_events_multitimeframe(id)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_mtf_replay_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_tag TEXT NOT NULL,
+    detector_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    signal_ts INTEGER NOT NULL,
+    metrics_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(run_tag, detector_id, symbol, signal_ts)
+);
+"""

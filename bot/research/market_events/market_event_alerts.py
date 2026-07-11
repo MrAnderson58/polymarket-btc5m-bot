@@ -123,6 +123,15 @@ def _safe_alert(
 
 
 def format_shock_alert(conn: Any, event_id: int) -> str:
+    from bot.research.market_events.signal_intelligence.config import F0_TELEGRAM_FORMAT
+    if F0_TELEGRAM_FORMAT:
+        row = conn.execute(
+            "SELECT 1 FROM market_events_opportunity_scores_v2 WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        if row:
+            from bot.research.market_events.signal_intelligence.telegram_f0 import format_shock_f0
+            return format_shock_f0(conn, event_id)
     from bot.research.market_events.alert_engine.format_v2 import format_shock_alert_v2
     return format_shock_alert_v2(conn, event_id)
 

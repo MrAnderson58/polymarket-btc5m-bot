@@ -77,6 +77,11 @@ def main(argv: list[str] | None = None) -> int:
             "telegram-health",
             "telegram-config",
             "telegram-retry-unsent",
+            "multitimeframe-report",
+            "exhaustion-report",
+            "exchange-context-report",
+            "signal-quality-report",
+            "weekly-signal-ranking",
         ),
     )
     parser.add_argument(
@@ -197,6 +202,35 @@ def main(argv: list[str] | None = None) -> int:
             failed = sum(1 for line in lines if line.startswith("✗ id=") and "failed" in line)
             sent = sum(1 for line in lines if line.startswith("✓ id="))
             return 1 if failed and not sent else 0
+
+    if args.command in (
+        "multitimeframe-report",
+        "exhaustion-report",
+        "exchange-context-report",
+        "signal-quality-report",
+        "weekly-signal-ranking",
+    ):
+        from bot.research.market_events.signal_intelligence.reports import (
+            exchange_context_report,
+            exhaustion_report,
+            multitimeframe_report,
+            signal_quality_report,
+            weekly_ranking_report,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            if args.command == "multitimeframe-report":
+                print(multitimeframe_report(conn, days=args.days))
+            elif args.command == "exhaustion-report":
+                print(exhaustion_report(conn, days=args.days))
+            elif args.command == "exchange-context-report":
+                print(exchange_context_report(conn, days=args.days))
+            elif args.command == "signal-quality-report":
+                print(signal_quality_report(conn, days=args.days))
+            elif args.command == "weekly-signal-ranking":
+                print(weekly_ranking_report(conn))
+                conn.commit()
+        return 0
 
     if args.command == "system-validation":
         from bot.research.market_events.system_validation.report import format_health_report, report_to_json

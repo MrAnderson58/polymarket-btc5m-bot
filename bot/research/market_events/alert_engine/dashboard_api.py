@@ -116,10 +116,63 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     eid = int(path.split("/")[-1])
                     timeline = build_event_timeline(conn, event_id=eid)
                     _json_response(self, {"event_id": eid, "timeline": timeline})
+                elif path == "/exhaustion":
+                    limit = _query_int(qs, "limit", 50)
+                    rows = conn.execute(
+                        "SELECT * FROM market_events_exhaustion ORDER BY event_ts DESC LIMIT ?",
+                        (limit,),
+                    ).fetchall()
+                    _json_response(self, {"exhaustion": [dict(r) for r in rows]})
+                elif path == "/opportunity":
+                    limit = _query_int(qs, "limit", 50)
+                    rows = conn.execute(
+                        """
+                        SELECT o.*, e.symbol FROM market_events_opportunity_scores_v2 o
+                        JOIN market_events e ON e.id = o.event_id
+                        ORDER BY o.score DESC LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                    _json_response(self, {"opportunity_v2": [dict(r) for r in rows]})
+                elif path == "/multitimeframe":
+                    det = qs.get("detector", [None])[0]
+                    limit = _query_int(qs, "limit", 50)
+                    if det:
+                        rows = conn.execute(
+                            "SELECT * FROM market_events_multitimeframe WHERE detector_id = ? ORDER BY event_ts DESC LIMIT ?",
+                            (det, limit),
+                        ).fetchall()
+                    else:
+                        rows = conn.execute(
+                            "SELECT * FROM market_events_multitimeframe ORDER BY event_ts DESC LIMIT ?",
+                            (limit,),
+                        ).fetchall()
+                    _json_response(self, {"multitimeframe": [dict(r) for r in rows]})
+                elif path == "/exchanges":
+                    rows = conn.execute(
+                        "SELECT * FROM market_event_exchange_symbols ORDER BY updated_at DESC LIMIT 100",
+                    ).fetchall()
+                    _json_response(self, {"exchanges": [dict(r) for r in rows]})
+                elif path == "/signals":
+                    limit = _query_int(qs, "limit", 50)
+                    events = conn.execute(
+                        """
+                        SELECT e.id, e.symbol, e.return_pct, e.event_ts,
+                               o.score AS opp_score, a.confidence AS ai_conf
+                        FROM market_events e
+                        LEFT JOIN market_events_opportunity_scores_v2 o ON o.event_id = e.id
+                        LEFT JOIN market_event_ai_analyses_f0 a ON a.event_id = e.id
+                        ORDER BY e.event_ts DESC LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                    _json_response(self, {"signals": [dict(r) for r in events]})
                 else:
                     _json_response(self, {
                         "endpoints": [
-                            "/events", "/paper", "/alerts", "/daily", "/weekly", "/stats", "/timeline/{id}",
+                            "/events", "/paper", "/alerts", "/daily", "/weekly", "/stats",
+                            "/timeline/{id}", "/exhaustion", "/opportunity", "/multitimeframe",
+                            "/exchanges", "/signals",
                         ],
                     })
         except Exception as exc:
