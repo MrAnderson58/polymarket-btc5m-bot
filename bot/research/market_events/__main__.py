@@ -66,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
             "market-opportunity-report",
             "market-ai-comparison-report",
             "dashboard-api-serve",
+            "system-validation",
         ),
     )
     parser.add_argument(
@@ -97,8 +98,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeframe", default="1m", help="Candle timeframe for backfill")
     parser.add_argument("--event-id", type=int, default=None, help="Event id for timeline/opportunity reports")
     parser.add_argument("--port", type=int, default=None, help="Dashboard API port")
+    parser.add_argument("--read-only", action="store_true", help="Skip mutating validation checks")
+    parser.add_argument("--skip-load", action="store_true", help="Skip synthetic load test")
+    parser.add_argument("--load-events", type=int, default=200, help="Synthetic load test event count")
+    parser.add_argument("--json", action="store_true", help="JSON output for system-validation")
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
+
+    if args.command == "system-validation":
+        from bot.research.market_events.system_validation.report import format_health_report, report_to_json
+        from bot.research.market_events.system_validation.runner import run_system_validation
+
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            results = run_system_validation(
+                conn,
+                days=args.days,
+                load_events=args.load_events,
+                skip_load=args.skip_load,
+                skip_mutating=args.read_only,
+            )
+            if args.json:
+                print(report_to_json(results))
+            else:
+                print(format_health_report(results))
+            failed = sum(1 for r in results if r.status == "FAIL")
+            return 1 if failed else 0
 
     if args.command == "dashboard-api-serve":
         from bot.research.market_events.alert_engine.config import DASHBOARD_API_HOST, DASHBOARD_API_PORT
