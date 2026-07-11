@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 
 from bot.research.market_events.db import market_events_connection
 from bot.research.market_events.event_schema import apply_migrations
@@ -89,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             "migrate-to-postgres",
             "market-db-benchmark",
             "market-db-backup",
+            "market-db-restore",
         ),
     )
     parser.add_argument(
@@ -133,6 +135,11 @@ def main(argv: list[str] | None = None) -> int:
         "--all",
         action="store_true",
         help="telegram-retry-unsent: retry all failed deliveries (default: last 100)",
+    )
+    parser.add_argument(
+        "--file",
+        default=None,
+        help="Backup archive path for market-db-restore",
     )
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
@@ -510,7 +517,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "market-db-backup":
         from bot.research.market_events.db_tools import db_backup
-        print(db_backup())
+        dest = Path(args.file) if args.file else None
+        print(db_backup(dest=dest))
+        return 0
+
+    if args.command == "market-db-restore":
+        from bot.research.market_events.db_tools import db_restore
+        archive = Path(args.file) if args.file else None
+        print(db_restore(archive=archive))
         return 0
 
     if args.command == "market-event-migrate":

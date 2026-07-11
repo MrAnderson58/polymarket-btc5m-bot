@@ -21,6 +21,14 @@ class MarketEventsDbConfig:
     config_source: str
     postgres_url_configured: bool
 
+    @property
+    def database_name(self) -> str:
+        if self.backend == "postgresql":
+            from urllib.parse import urlparse
+            name = (urlparse(self.url).path or "/trading_ai").lstrip("/")
+            return name or "trading_ai"
+        return self.sqlite_path.name
+
 
 def _is_postgres_url(url: str) -> bool:
     return url.startswith(("postgres://", "postgresql://"))

@@ -97,15 +97,15 @@ class SqliteConcurrentStartupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "info.db"
             ensure_wal_enabled(db_path=db)
+            from bot.research.market_events.db import format_db_info
             info = format_db_info(db_path=db)
             for token in (
+                "schema_version:",
                 "journal_mode:",
                 "busy_timeout:",
                 "foreign_keys:",
-                "page_size:",
-                "cache_size:",
                 "sqlite_version:",
-                "database_list:",
+                "total_rows:",
             ):
                 self.assertIn(token, info)
 
