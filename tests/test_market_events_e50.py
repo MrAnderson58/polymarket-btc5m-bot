@@ -186,6 +186,15 @@ class MarketEventsE50Tests(unittest.TestCase):
         with self._conn() as conn:
             apply_migrations(conn)
             eid = self._seed_event(conn)
+            now = int(time.time())
+            conn.execute(
+                """
+                INSERT INTO market_event_analysis_jobs (
+                  id, event_id, prompt_version, status, attempts, created_at
+                ) VALUES (1, ?, 'v1', 'complete', 1, ?)
+                """,
+                (eid, now),
+            )
             conn.execute(
                 """
                 INSERT INTO market_event_ai_analyses (
@@ -195,7 +204,7 @@ class MarketEventsE50Tests(unittest.TestCase):
                 ) VALUES (?, 1, 'test', 'test', 'v1', ?, 'LIQUIDITY_SWEEP', 'FADE_FAVORED',
                   0.7, '[]', 1.0, '{}', ?)
                 """,
-                (eid, json.dumps({"reversal_bias": "FADE_FAVORED"}), int(time.time())),
+                (eid, json.dumps({"reversal_bias": "FADE_FAVORED"}), now),
             )
             conn.execute(
                 """

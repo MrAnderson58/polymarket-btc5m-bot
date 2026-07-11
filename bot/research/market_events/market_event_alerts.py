@@ -15,7 +15,7 @@ from bot.research.market_events.alert_config import (
     alert_shock_enabled,
     alerts_enabled,
 )
-from bot.research.market_events.db import insert_returning_id
+from bot.research.market_events.db import execute_with_retry, insert_returning_id
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,8 @@ def _record_alert(
     latency_ms: float,
     error: str | None = None,
 ) -> None:
-    conn.execute(
+    execute_with_retry(
+        conn,
         """
         INSERT OR IGNORE INTO market_event_alert_log (
           event_id, alert_type, dedupe_key, message_text, sent, latency_ms,

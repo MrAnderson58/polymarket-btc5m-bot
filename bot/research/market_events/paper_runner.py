@@ -625,32 +625,35 @@ class ShockPaperRunner:
         signal.signal(signal.SIGTERM, _handle_sig)
 
         with market_events_connection() as conn:
-            apply_migrations(conn)
-            symbols, version = select_universe(
-                conn, mode=self.universe_mode, explicit_symbols=self.explicit_symbols,
-            )
-            if needs_multi_venue_feed(self.universe_mode, self.explicit_symbols):
-                from bot.research.market_events.instrument_master import (
-                    load_active_instruments,
-                    load_paper_instruments,
-                    resolve_instruments_by_symbols,
+            from bot.research.market_events.startup_lock import market_events_startup_lock
+
+            with market_events_startup_lock():
+                apply_migrations(conn)
+                symbols, version = select_universe(
+                    conn, mode=self.universe_mode, explicit_symbols=self.explicit_symbols,
                 )
-                from bot.research.market_events.multi_venue_feed import MultiVenuePriceFeed
-                if self.explicit_symbols:
-                    instruments = resolve_instruments_by_symbols(conn, self.explicit_symbols)
-                elif self.universe_mode == "tradfi-liquid":
-                    instruments = [dict(r) for r in load_paper_instruments(conn, tradfi_only=True)]
-                elif self.universe_mode == "multi-paper":
-                    instruments = [dict(r) for r in load_paper_instruments(conn)]
-                elif self.universe_mode == "multi":
-                    instruments = [dict(r) for r in load_active_instruments(conn)]
-                else:
-                    instruments = [dict(r) for r in load_paper_instruments(conn)]
-                self.feed = MultiVenuePriceFeed(instruments)
-                self._instrument_map = {r["canonical_asset"]: r for r in instruments}
-                logger.info("multi-venue feed instruments=%s", len(instruments))
-            logger.info("universe %s symbols=%s", version, ",".join(symbols))
-            self._restore_state(conn)
+                if needs_multi_venue_feed(self.universe_mode, self.explicit_symbols):
+                    from bot.research.market_events.instrument_master import (
+                        load_active_instruments,
+                        load_paper_instruments,
+                        resolve_instruments_by_symbols,
+                    )
+                    from bot.research.market_events.multi_venue_feed import MultiVenuePriceFeed
+                    if self.explicit_symbols:
+                        instruments = resolve_instruments_by_symbols(conn, self.explicit_symbols)
+                    elif self.universe_mode == "tradfi-liquid":
+                        instruments = [dict(r) for r in load_paper_instruments(conn, tradfi_only=True)]
+                    elif self.universe_mode == "multi-paper":
+                        instruments = [dict(r) for r in load_paper_instruments(conn)]
+                    elif self.universe_mode == "multi":
+                        instruments = [dict(r) for r in load_active_instruments(conn)]
+                    else:
+                        instruments = [dict(r) for r in load_paper_instruments(conn)]
+                    self.feed = MultiVenuePriceFeed(instruments)
+                    self._instrument_map = {r["canonical_asset"]: r for r in instruments}
+                    logger.info("multi-venue feed instruments=%s", len(instruments))
+                logger.info("universe %s symbols=%s", version, ",".join(symbols))
+                self._restore_state(conn)
 
             try:
                 from bot.research.market_events.ai_analyst.config import AI_EMBEDDED_IN_PAPER_RUN

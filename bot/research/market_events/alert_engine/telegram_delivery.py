@@ -16,6 +16,7 @@ from bot.research.market_events.alert_config import (
     ALERT_RETRY_MAX_DELAY_SEC,
     resolve_alert_chat_id,
 )
+from bot.research.market_events.db import execute_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,8 @@ def log_delivery_attempt(
     if conn is None:
         return
     try:
-        conn.execute(
+        execute_with_retry(
+            conn,
             """
             INSERT INTO market_event_telegram_delivery_log (
               event_id, alert_type, chat_id, message_preview, message_text, status,

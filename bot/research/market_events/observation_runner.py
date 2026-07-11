@@ -266,10 +266,13 @@ class ObservationRunner:
         signal.signal(signal.SIGTERM, lambda *_: self.request_shutdown())
 
         with market_events_connection() as conn:
-            apply_migrations(conn)
-            instruments, version = select_observe_universe(
-                conn, mode=self.universe_mode, explicit_symbols=self.explicit_symbols,
-            )
+            from bot.research.market_events.startup_lock import market_events_startup_lock
+
+            with market_events_startup_lock():
+                apply_migrations(conn)
+                instruments, version = select_observe_universe(
+                    conn, mode=self.universe_mode, explicit_symbols=self.explicit_symbols,
+                )
             self._progress(
                 f"startup universe={version} instruments={len(instruments)} "
                 f"mode={self.universe_mode} (sequential poll, isolated errors)",

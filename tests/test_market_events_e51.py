@@ -75,6 +75,17 @@ class MarketEventsE51Tests(unittest.TestCase):
             now = int(time.time())
             conn.execute(
                 """
+                INSERT INTO market_events (
+                  id, event_ts, detected_ts, venue, symbol, direction, phase,
+                  trigger_window_seconds, return_pct, classification,
+                  detector_version, detector_triggers_json, dedup_key, created_at
+                ) VALUES (1, ?, ?, 'binance_futures', 'BTC', 'DOWN', 'SHOCK_DETECTED',
+                  60, -2.0, 'ASSET_SPECIFIC', 'v1', '[]', 'dedupe-e51', ?)
+                """,
+                (now, now, now),
+            )
+            conn.execute(
+                """
                 INSERT INTO market_event_alert_log (
                   event_id, alert_type, dedupe_key, message_text, sent, latency_ms, created_at
                 ) VALUES (1, 'SHOCK_DETECTED', 'unique-key-1', 'x', 1, 1.0, ?)
