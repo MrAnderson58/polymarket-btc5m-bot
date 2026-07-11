@@ -2,16 +2,32 @@
 
 Ensures parallel collectors (shock-paper core/tradfi, observe, ai-worker, dashboard) do not hit `database is locked`.
 
-## Connection pragmas (every open)
+## WAL mode (once, before workers)
+
+`PRAGMA journal_mode=WAL` must **not** run on every `connect()` — if another process already holds the DB, the mode switch fails with `database is locked`.
+
+Use `ensure_wal_enabled()` instead — called **once** from:
+
+- `market-event-migrate`
+- `start-all` (before spawning workers)
+
+## Per-connection pragmas
+
+Applied in `apply_sqlite_pragmas()` on every open:
 
 ```sql
-PRAGMA journal_mode=WAL;
-PRAGMA synchronous=NORMAL;
+PRAGMA synchronous=NORMAL;   -- only when journal_mode is already WAL
 PRAGMA busy_timeout=10000;
 PRAGMA foreign_keys=ON;
 ```
 
-Applied in `bot/research/market_events/db.py` → `apply_sqlite_pragmas()`.
+## Diagnostics
+
+```bash
+python -m bot.research.market_events db-info
+```
+
+Shows `journal_mode`, `busy_timeout`, `foreign_keys`, `page_size`, `cache_size`, `sqlite_version`, `database_list`, and WAL/SHM file presence.
 
 ## Lock retry
 
@@ -34,7 +50,15 @@ Used at startup by:
 - `observe-run` (migrations + observe universe log)
 - `ai-worker-run` (migrations once)
 
-After startup, processes run in parallel under WAL.
+After WAL is enabled and startup completes, processes run in parallel.
+
+## Mac Mini deploy
+
+```bash
+python -m bot.research.market_events market-event-migrate   # enables WAL + schema
+python -m bot.research.market_events db-info                # verify journal_mode: wal
+python -m bot.research.market_events start-all
+```
 
 ## Tests
 

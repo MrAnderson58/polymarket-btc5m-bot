@@ -82,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
             "exchange-context-report",
             "signal-quality-report",
             "weekly-signal-ranking",
+            "db-info",
         ),
     )
     parser.add_argument(
@@ -481,9 +482,17 @@ def main(argv: list[str] | None = None) -> int:
             print(observation_report(conn, days=args.days))
         return 0
 
+    if args.command == "db-info":
+        from bot.research.market_events.db import format_db_info
+        print(format_db_info())
+        return 0
+
     if args.command == "market-event-migrate":
+        from bot.research.market_events.db import ensure_wal_enabled
+        wal = ensure_wal_enabled()
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
+        print(f"WAL mode: {wal}")
         print(f"Migrations applied: {applied or ['already up to date']}")
         return 0
 

@@ -185,6 +185,21 @@ def stop_service(svc: ManagedService) -> tuple[bool, str]:
 
 def start_all() -> list[str]:
     lines: list[str] = ["Starting market events supervisor...", ""]
+    try:
+        from bot.research.market_events.db import ensure_wal_enabled, market_events_connection
+        from bot.research.market_events.event_schema import apply_migrations
+
+        wal = ensure_wal_enabled()
+        lines.append(f"✓ database WAL mode: {wal}")
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+        lines.append("✓ migrations up to date")
+        lines.append("")
+    except Exception as exc:
+        lines.append(f"✗ database init failed: {exc}")
+        lines.append("")
+        return lines
+
     for svc in START_ORDER:
         ok, msg = start_service(svc)
         prefix = "✓" if ok else "✗"

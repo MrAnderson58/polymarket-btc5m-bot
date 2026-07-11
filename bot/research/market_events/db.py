@@ -58,10 +58,78 @@ def retry_on_db_locked(fn: Callable[[], T]) -> T:
 
 
 def apply_sqlite_pragmas(conn: sqlite3.Connection) -> None:
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    """Per-connection pragmas — never switches journal_mode (see ensure_wal_enabled)."""
+    journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
+    if str(journal).lower() == "wal":
+        conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA foreign_keys=ON")
+
+
+def ensure_wal_enabled(db_path: Path | None = None) -> str:
+    """Switch database to WAL once — call from migrate/start-all before workers."""
+    path = db_path or ensure_db_dir()
+
+    def _enable() -> str:
+        conn = sqlite3.connect(str(path), timeout=BUSY_TIMEOUT_MS / 1000.0)
+        try:
+            current = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            if str(current).lower() == "wal":
+                return "wal"
+            result = conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+            return str(result).lower()
+        finally:
+            conn.close()
+
+    return retry_on_db_locked(_enable)
+
+
+def format_db_info(db_path: Path | None = None) -> str:
+    """Human-readable SQLite configuration and WAL file status."""
+    path = db_path or ensure_db_dir()
+    wal_path = Path(f"{path}-wal")
+    shm_path = Path(f"{path}-shm")
+
+    lines = [
+        "MARKET EVENTS DATABASE INFO",
+        "",
+        f"path: {path}",
+        f"exists: {path.exists()}",
+        f"wal_file: {'present' if wal_path.exists() else 'absent'} ({wal_path})",
+        f"shm_file: {'present' if shm_path.exists() else 'absent'} ({shm_path})",
+        "",
+        f"sqlite_version: {sqlite3.sqlite_version}",
+        "",
+    ]
+
+    if not path.exists():
+        lines.append("(database file does not exist yet)")
+        return "\n".join(lines)
+
+    conn = sqlite3.connect(str(path), timeout=BUSY_TIMEOUT_MS / 1000.0)
+    try:
+        apply_sqlite_pragmas(conn)
+        journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+        fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+        page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+        cache_size = conn.execute("PRAGMA cache_size").fetchone()[0]
+        db_list = conn.execute("PRAGMA database_list").fetchall()
+    finally:
+        conn.close()
+
+    lines.extend([
+        f"journal_mode: {journal}",
+        f"busy_timeout: {timeout}",
+        f"foreign_keys: {fk}",
+        f"page_size: {page_size}",
+        f"cache_size: {cache_size}",
+        "",
+        "database_list:",
+    ])
+    for row in db_list:
+        lines.append(f"  seq={row[0]} name={row[1]!r} file={row[2]!r}")
+    return "\n".join(lines)
 
 
 def ensure_db_dir() -> Path:

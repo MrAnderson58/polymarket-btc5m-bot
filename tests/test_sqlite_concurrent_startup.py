@@ -12,7 +12,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from bot.research.market_events.db import (
+    ensure_wal_enabled,
     execute_with_retry,
+    format_db_info,
     insert_returning_id,
     is_database_locked,
     lock_retry_sleep_schedule,
@@ -52,9 +54,10 @@ def _startup_worker(db_path: str, mode: str, lock_path: str, out_queue: multipro
 
 
 class SqliteConcurrentStartupTests(unittest.TestCase):
-    def test_pragmas_applied(self) -> None:
+    def test_pragmas_applied_after_wal_init(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "pragma.db"
+            ensure_wal_enabled(db_path=db)
             with market_events_connection(db_path=db) as conn:
                 journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
                 sync = conn.execute("PRAGMA synchronous").fetchone()[0]
@@ -64,6 +67,47 @@ class SqliteConcurrentStartupTests(unittest.TestCase):
             self.assertEqual(int(sync), 1)  # NORMAL
             self.assertGreaterEqual(int(timeout), 10000)
             self.assertEqual(int(fk), 1)
+
+    def test_connect_does_not_switch_journal_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "delete.db"
+            conn = sqlite3.connect(str(db))
+            conn.execute("PRAGMA journal_mode=DELETE")
+            conn.close()
+            with market_events_connection(db_path=db) as conn:
+                journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            self.assertEqual(journal.lower(), "delete")
+            ensure_wal_enabled(db_path=db)
+            with market_events_connection(db_path=db) as conn:
+                journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            self.assertEqual(journal.lower(), "wal")
+
+    def test_ensure_wal_enables_wal_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "wal.db"
+            mode = ensure_wal_enabled(db_path=db)
+            self.assertEqual(mode, "wal")
+            with market_events_connection(db_path=db) as conn:
+                conn.execute("CREATE TABLE IF NOT EXISTS _wal_probe (id INTEGER PRIMARY KEY)")
+            info = format_db_info(db_path=db)
+            self.assertIn("journal_mode: wal", info)
+            self.assertIn("wal_file:", info)
+
+    def test_format_db_info_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "info.db"
+            ensure_wal_enabled(db_path=db)
+            info = format_db_info(db_path=db)
+            for token in (
+                "journal_mode:",
+                "busy_timeout:",
+                "foreign_keys:",
+                "page_size:",
+                "cache_size:",
+                "sqlite_version:",
+                "database_list:",
+            ):
+                self.assertIn(token, info)
 
     def test_lock_retry_schedule_caps_at_10s(self) -> None:
         schedule = lock_retry_sleep_schedule()
@@ -94,6 +138,7 @@ class SqliteConcurrentStartupTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "shared.db"
+            ensure_wal_enabled(db_path=db)
 
             def insert_worker(i: int) -> None:
                 try:
@@ -142,6 +187,7 @@ class SqliteConcurrentStartupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = str(Path(tmp) / "concurrent.db")
             lock_path = str(Path(tmp) / "startup.lock")
+            ensure_wal_enabled(db_path=Path(db_path))
             queue: multiprocessing.Queue = multiprocessing.Queue()
             modes = ("core", "tradfi-liquid", "observe")
             procs = [
