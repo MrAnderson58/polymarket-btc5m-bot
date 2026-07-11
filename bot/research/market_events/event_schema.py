@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 14
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -324,6 +324,32 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v12")
             current = 12
+
+        if current < 13:
+            conn.executescript(F1_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (13, now, "Phase F.1 Telegram signal intelligence reports"),
+            )
+            applied.append("v13")
+            current = 13
+
+        if current < 14:
+            conn.executescript(F2_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (14, now, "Phase F.2 professional trading intelligence"),
+            )
+            applied.append("v14")
+            current = 14
 
     if not applied:
         conn.commit()
@@ -977,4 +1003,101 @@ CREATE TABLE IF NOT EXISTS market_events_mtf_replay_results (
     created_at INTEGER NOT NULL,
     UNIQUE(run_tag, detector_id, symbol, signal_ts)
 );
+"""
+
+F1_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_signal_reports_f1 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL UNIQUE,
+    confidence_score REAL NOT NULL,
+    confidence_breakdown_json TEXT NOT NULL,
+    reversal_probability REAL NOT NULL,
+    explanation_json TEXT NOT NULL,
+    entry_recommendation TEXT NOT NULL,
+    expected_target_pct REAL NOT NULL,
+    expected_stop_pct REAL NOT NULL,
+    matching_events_json TEXT NOT NULL,
+    historical_reversal_rate REAL NOT NULL,
+    prompt_version TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_sig_f1_event ON market_events_signal_reports_f1(event_id);
+
+CREATE TABLE IF NOT EXISTS market_events_signal_outcomes_f1 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    paper_run_id INTEGER,
+    confidence_score REAL,
+    entry_recommendation TEXT,
+    expected_target_pct REAL,
+    realized_pnl_pct REAL,
+    holding_seconds INTEGER,
+    ai_agreed INTEGER,
+    historical_matched INTEGER,
+    outcome_json TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_sig_out_f1_event ON market_events_signal_outcomes_f1(event_id);
+"""
+
+F2_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_funding_oi_history_f2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    venue TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    funding REAL,
+    open_interest REAL,
+    funding_delta REAL,
+    oi_delta REAL,
+    funding_regime TEXT,
+    oi_regime TEXT,
+    raw_json TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id),
+    UNIQUE(event_id, venue, timeframe)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_foi_f2_event ON market_events_funding_oi_history_f2(event_id);
+
+CREATE TABLE IF NOT EXISTS market_events_signal_reports_f2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL UNIQUE,
+    exchange_consensus TEXT NOT NULL,
+    exchange_detail_json TEXT NOT NULL,
+    funding_regime TEXT,
+    oi_regime TEXT,
+    rvol_20 REAL,
+    rvol_100 REAL,
+    vwap_deviation_pct REAL,
+    volume_label TEXT,
+    market_structure_json TEXT NOT NULL,
+    market_structure_labels TEXT NOT NULL,
+    atr_percentile REAL,
+    atr_expansion REAL,
+    atr_exhaustion INTEGER,
+    correlation_snapshot_json TEXT NOT NULL,
+    correlation_verdict TEXT NOT NULL,
+    historical_count INTEGER NOT NULL,
+    historical_reversal_count INTEGER NOT NULL,
+    historical_reversal_rate REAL NOT NULL,
+    historical_similarity_json TEXT NOT NULL,
+    confidence_score REAL NOT NULL,
+    confidence_breakdown_json TEXT NOT NULL,
+    reversal_probability REAL NOT NULL,
+    entry_recommendation TEXT NOT NULL,
+    expected_target_pct REAL NOT NULL,
+    expected_stop_pct REAL NOT NULL,
+    ai_summary_v2_ru TEXT NOT NULL,
+    telegram_rendered TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_sig_f2_event ON market_events_signal_reports_f2(event_id);
 """

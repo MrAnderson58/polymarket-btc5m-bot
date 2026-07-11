@@ -12,6 +12,12 @@ F0_ENABLED = os.getenv("ME_F0_SIGNAL_INTELLIGENCE", "true").lower() in ("1", "tr
 F0_TELEGRAM_FORMAT = os.getenv("ME_TELEGRAM_F0_FORMAT", "true").lower() in ("1", "true", "yes")
 F0_AI_ENABLED = os.getenv("ME_F0_AI_ENABLED", "true").lower() in ("1", "true", "yes")
 
+F1_ENABLED = os.getenv("ME_F1_TELEGRAM_INTELLIGENCE", "true").lower() in ("1", "true", "yes")
+F1_TELEGRAM_FORMAT = os.getenv("ME_F1_TELEGRAM_FORMAT", "true").lower() in ("1", "true", "yes")
+
+F2_ENABLED = os.getenv("ME_F2_PROFESSIONAL_INTEL", "true").lower() in ("1", "true", "yes")
+F2_TELEGRAM_FORMAT = os.getenv("ME_F2_TELEGRAM_FORMAT", "true").lower() in ("1", "true", "yes")
+
 PROMPT_VERSION_F0 = "f0_signal_v1"
 
 MTF_DETECTORS = {

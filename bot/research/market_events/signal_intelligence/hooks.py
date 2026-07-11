@@ -56,3 +56,19 @@ def on_shock_f0(conn: Any, *, event_id: int) -> None:
             run_f0_ai_analysis(conn, event_id)
         except Exception as exc:
             logger.debug("f0 ai skipped: %s", exc)
+
+    try:
+        from bot.research.market_events.signal_intelligence.config import F1_ENABLED
+        if F1_ENABLED:
+            from bot.research.market_events.signal_intelligence.signal_report_f1 import run_signal_report_f1
+            run_signal_report_f1(conn, event_id)
+    except Exception as exc:
+        logger.debug("f1 signal report skipped: %s", exc)
+
+    try:
+        from bot.research.market_events.signal_intelligence.config import F2_ENABLED
+        if F2_ENABLED:
+            from bot.research.market_events.signal_intelligence.signal_report_f2 import run_signal_report_f2
+            run_signal_report_f2(conn, event_id)
+    except Exception as exc:
+        logger.debug("f2 signal report skipped: %s", exc)

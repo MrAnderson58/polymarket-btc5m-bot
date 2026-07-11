@@ -1,4 +1,4 @@
-"""Phase G.0 — PostgreSQL DDL for market_events (schema v12)."""
+"""Phase G.0 — PostgreSQL DDL for market_events (schema v13)."""
 
 from __future__ import annotations
 
@@ -21,6 +21,8 @@ from bot.research.market_events.event_schema import (
     E53_DDL,
     E5_DDL,
     F0_DDL,
+    F1_DDL,
+    F2_DDL,
     MIGRATIONS_TABLE,
     SCHEMA_VERSION,
 )
@@ -38,6 +40,8 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     10: "Phase E.5.3 Telegram delivery log and ops",
     11: "Phase E.5.3.1 delivery log message_text for retries",
     12: "Phase F.0 signal intelligence research",
+    13: "Phase F.1 Telegram signal intelligence reports",
+    14: "Phase F.2 professional trading intelligence",
 }
 
 
@@ -89,6 +93,8 @@ def full_pg_ddl() -> str:
         ),
         E53_DDL,
         F0_DDL,
+        F1_DDL,
+        F2_DDL,
     ]
     ddl = sqlite_ddl_to_pg("\n".join(blocks))
     alters = [pg_alter_add_column(s) for s in (
@@ -183,4 +189,8 @@ ALL_TABLES: tuple[str, ...] = (
     "market_events_signal_ranking_weekly",
     "market_events_mtf_paper_runs",
     "market_events_mtf_replay_results",
+    "market_events_signal_reports_f1",
+    "market_events_signal_outcomes_f1",
+    "market_events_funding_oi_history_f2",
+    "market_events_signal_reports_f2",
 )

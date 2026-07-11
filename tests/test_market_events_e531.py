@@ -47,8 +47,8 @@ class MarketEventsE531Tests(unittest.TestCase):
         with self._conn() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v11", applied)
-            self.assertIn("v12", applied)
-            self.assertEqual(SCHEMA_VERSION, 12)
+            self.assertIn("v14", applied)
+            self.assertEqual(SCHEMA_VERSION, 14)
             cols = {
                 r[1] for r in conn.execute(
                     "PRAGMA table_info(market_event_telegram_delivery_log)",
