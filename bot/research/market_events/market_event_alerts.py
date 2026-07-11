@@ -128,13 +128,8 @@ def _safe_alert(
 
 
 def format_shock_alert(conn: Any, event_id: int) -> str:
-    from bot.research.market_events.alert_format import (
-        build_shock_alert_context,
-        format_structured_shock_alert,
-    )
-
-    ctx = build_shock_alert_context(conn, event_id)
-    return format_structured_shock_alert(ctx)
+    from bot.research.market_events.alert_engine.format_v2 import format_shock_alert_v2
+    return format_shock_alert_v2(conn, event_id)
 
 
 def alert_shock_detected(conn: Any, event_id: int) -> bool:
@@ -155,26 +150,16 @@ def format_reversal_alert(
     path_json: dict | None,
     paper_runs: int,
 ) -> str:
-    row = conn.execute("SELECT * FROM market_events WHERE id = ?", (event_id,)).fetchone()
-    lines = [
-        f"REVERSAL CONFIRMED — {PAPER_LABEL}",
-        "",
-        f"event_id: {event_id}",
-        f"symbol: {row['symbol'] if row else '?'}  direction: {row['direction'] if row else '?'}",
-        f"original_shock: {row['return_pct']:.2f}%" if row and row["return_pct"] else "original_shock: ?",
-        f"reversal_rule: {reversal_variant}",
-        f"confirmation_latency: {confirm_latency_sec}s" if confirm_latency_sec else "confirmation_latency: ?",
-    ]
-    if extreme_price:
-        lines.append(f"shock_extreme_price: {extreme_price:.6g}")
-    if path_json and path_json.get("reclaim_pct") is not None:
-        lines.append(f"pullback_from_extreme: {path_json['reclaim_pct']:.3f}%")
-    lines.extend([
-        f"paper_strategy_runs_created: {paper_runs}",
-        "",
-        "Reversal confirmed — paper entries opened (research only).",
-    ])
-    return "\n".join(lines)
+    from bot.research.market_events.alert_engine.format_v2 import format_reversal_alert_v2
+    return format_reversal_alert_v2(
+        conn,
+        event_id=event_id,
+        reversal_variant=reversal_variant,
+        confirm_latency_sec=confirm_latency_sec,
+        extreme_price=extreme_price,
+        path_json=path_json,
+        paper_runs=paper_runs,
+    )
 
 
 def alert_reversal_confirmed(
@@ -210,14 +195,26 @@ def alert_paper_position_update(
 ) -> bool:
     if not alert_paper_updates_enabled():
         return False
-    msg = "\n".join([
-        f"PAPER POSITION UPDATE — {PAPER_LABEL}",
-        "",
-        f"event_id: {event_id}  symbol: {symbol}",
-        f"update: {update_type}",
-        f"strategy: REVERSAL_{reversal_variant}_{exit_variant}",
-        detail,
-    ])
+    if update_type in ("TP", "STOP", "BE_STOP", "CLOSED"):
+        from bot.research.market_events.alert_engine.format_v2 import format_paper_result_v2
+        msg = format_paper_result_v2(
+            conn,
+            event_id=event_id,
+            symbol=symbol,
+            reversal_variant=reversal_variant,
+            exit_variant=exit_variant,
+            update_type=update_type if update_type != "BE_STOP" else "STOP",
+            detail=detail,
+        )
+    else:
+        msg = "\n".join([
+            f"PAPER POSITION UPDATE — {PAPER_LABEL}",
+            "",
+            f"event_id: {event_id}  symbol: {symbol}",
+            f"update: {update_type}",
+            f"strategy: REVERSAL_{reversal_variant}_{exit_variant}",
+            detail,
+        ])
     dedupe_detail = f"{update_type}:{reversal_variant}:{exit_variant}"
     return _safe_alert(
         conn, event_id=event_id, alert_type=ALERT_PAPER,

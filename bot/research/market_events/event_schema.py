@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -249,7 +249,7 @@ def apply_migrations(conn: Any) -> list[str]:
         applied.append("v7")
         current = 7
 
-    if current < SCHEMA_VERSION:
+    if current < 8:
         conn.executescript(E4_DDL)
         now = int(time.time())
         conn.execute(
@@ -260,8 +260,24 @@ def apply_migrations(conn: Any) -> list[str]:
             (8, now, "Phase E.4 historical replay and context intelligence"),
         )
         applied.append("v8")
+        current = 8
+
+    if current < SCHEMA_VERSION:
+        conn.executescript(E5_DDL)
+        now = int(time.time())
+        conn.execute(
+            f"""
+            INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+            VALUES (?, datetime(?, 'unixepoch'), ?)
+            """,
+            (9, now, "Phase E.5 alert engine dashboard and research ops"),
+        )
+        applied.append("v9")
+        current = 9
+
+    if not applied:
         conn.commit()
-    elif not applied:
+    else:
         conn.commit()
     return applied
 
@@ -708,4 +724,52 @@ CREATE TABLE IF NOT EXISTS market_events_replay_ai_critic (
     FOREIGN KEY (shock_id) REFERENCES market_events_replay_shocks(id),
     UNIQUE(shock_id)
 );
+"""
+
+E5_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_opportunity_scores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL UNIQUE,
+    score REAL NOT NULL,
+    components_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_ai_comparisons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL UNIQUE,
+    prediction_json TEXT NOT NULL,
+    reality_json TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    compared_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_digest_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    digest_type TEXT NOT NULL,
+    period_key TEXT NOT NULL,
+    message_text TEXT,
+    sent INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    UNIQUE(digest_type, period_key)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_timeline_cache (
+    event_id INTEGER PRIMARY KEY,
+    timeline_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_scheduler_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_heartbeat_telegram_ts INTEGER,
+    last_daily_digest_ts INTEGER,
+    last_weekly_digest_ts INTEGER,
+    updated_at INTEGER NOT NULL
+);
+
+INSERT OR IGNORE INTO market_events_scheduler_state (id, updated_at) VALUES (1, 0);
 """

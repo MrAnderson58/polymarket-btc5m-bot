@@ -382,6 +382,11 @@ class ShockPaperRunner:
             paper_runs_open=open_runs,
         )
         self.metrics.emit_heartbeat(text)
+        try:
+            from bot.research.market_events.alert_engine.scheduler import scheduler_tick
+            scheduler_tick(conn)
+        except Exception as exc:
+            logger.debug("scheduler tick skipped: %s", exc)
         if self._near_miss:
             persist_near_miss_snapshots(
                 conn, self._near_miss,
@@ -480,6 +485,11 @@ class ShockPaperRunner:
                 alert_shock_detected(conn, event_id)
             except Exception as exc:
                 logger.debug("shock alert skipped: %s", exc)
+            try:
+                from bot.research.market_events.alert_engine.scheduler import on_shock_detected
+                on_shock_detected(conn, event_id=event_id)
+            except Exception as exc:
+                logger.debug("e5 shock hook skipped: %s", exc)
 
             if state:
                 create_pending_shock(
@@ -585,6 +595,11 @@ class ShockPaperRunner:
                             exit_variant=pos.exit_variant,
                             detail=f"gross_return={pos.gross_return:.3f}%" if pos.gross_return else "",
                         )
+                    except Exception:
+                        pass
+                    try:
+                        from bot.research.market_events.alert_engine.scheduler import on_event_resolved
+                        on_event_resolved(conn, event_id=eid)
                     except Exception:
                         pass
             if all_closed:

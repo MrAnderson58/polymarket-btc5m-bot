@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from bot.research.market_events.db import market_events_connection
@@ -58,6 +59,13 @@ def main(argv: list[str] | None = None) -> int:
             "historical-strategy-matrix",
             "historical-context-report",
             "ai-critic-replay-report",
+            "market-heartbeat-preview",
+            "market-daily-digest",
+            "market-weekly-report",
+            "market-timeline-report",
+            "market-opportunity-report",
+            "market-ai-comparison-report",
+            "dashboard-api-serve",
         ),
     )
     parser.add_argument(
@@ -87,8 +95,82 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--start", type=int, default=None, help="Backfill start unix ts")
     parser.add_argument("--end", type=int, default=None, help="Backfill end unix ts")
     parser.add_argument("--timeframe", default="1m", help="Candle timeframe for backfill")
+    parser.add_argument("--event-id", type=int, default=None, help="Event id for timeline/opportunity reports")
+    parser.add_argument("--port", type=int, default=None, help="Dashboard API port")
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
+
+    if args.command == "dashboard-api-serve":
+        from bot.research.market_events.alert_engine.config import DASHBOARD_API_HOST, DASHBOARD_API_PORT
+        from bot.research.market_events.alert_engine.dashboard_api import run_dashboard_api
+        run_dashboard_api(host=DASHBOARD_API_HOST, port=args.port or DASHBOARD_API_PORT)
+        return 0
+
+    if args.command == "market-heartbeat-preview":
+        from bot.research.market_events.alert_engine.heartbeat import build_heartbeat_message
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(build_heartbeat_message(conn))
+        return 0
+
+    if args.command == "market-daily-digest":
+        from bot.research.market_events.alert_engine.daily_digest import build_daily_digest, send_daily_digest
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            msg, _ = build_daily_digest(conn)
+            print(msg)
+            if os.getenv("ME_DAILY_DIGEST_SEND", "").lower() in ("1", "true", "yes"):
+                send_daily_digest(conn)
+        return 0
+
+    if args.command == "market-weekly-report":
+        from bot.research.market_events.alert_engine.weekly_report import build_weekly_report, send_weekly_report
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            msg, _ = build_weekly_report(conn)
+            print(msg)
+            if os.getenv("ME_WEEKLY_DIGEST_SEND", "").lower() in ("1", "true", "yes"):
+                send_weekly_report(conn)
+        return 0
+
+    if args.command == "market-timeline-report":
+        from bot.research.market_events.alert_engine.timeline import (
+            build_event_timeline,
+            format_timeline_text,
+        )
+        if not args.event_id:
+            print("market-timeline-report requires --event-id")
+            return 1
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_timeline_text(build_event_timeline(conn, event_id=args.event_id)))
+        return 0
+
+    if args.command == "market-opportunity-report":
+        from bot.research.market_events.alert_engine.opportunity_score import compute_opportunity_score
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            if args.event_id:
+                import json
+                print(json.dumps(compute_opportunity_score(conn, event_id=args.event_id), indent=2))
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT o.*, e.symbol FROM market_events_opportunity_scores o
+                    JOIN market_events e ON e.id = o.event_id
+                    ORDER BY o.score DESC LIMIT 20
+                    """,
+                ).fetchall()
+                for r in rows:
+                    print(f"  {r['symbol']} event={r['event_id']} score={r['score']}")
+        return 0
+
+    if args.command == "market-ai-comparison-report":
+        from bot.research.market_events.alert_engine.ai_comparison import comparison_report
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(comparison_report(conn, days=args.days))
+        return 0
 
     if args.command == "historical-replay-coverage":
         from bot.research.market_events.historical_replay.coverage import historical_replay_coverage

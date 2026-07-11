@@ -168,10 +168,9 @@ class MarketEventsE33Tests(unittest.TestCase):
             apply_migrations(conn)
             eid = self._seed_event(conn)
             msg = format_shock_alert(conn, eid)
-            self.assertIn("PAPER", msg)
-            self.assertIn("EVENT", msg)
-            self.assertIn("MARKET", msg)
-            self.assertIn("HISTORY", msg)
+            self.assertIn("PAPER ONLY", msg)
+            self.assertIn("Symbol:", msg)
+            self.assertIn("🚨", msg)
 
     @patch("bot.research.market_events.market_event_alerts._send_telegram")
     @patch("bot.research.market_events.market_event_alerts.alerts_enabled", return_value=True)
@@ -189,7 +188,7 @@ class MarketEventsE33Tests(unittest.TestCase):
                 "SELECT message_text FROM market_event_alert_log WHERE event_id=?",
                 (eid,),
             ).fetchone()
-            self.assertIn("PAPER", row["message_text"])
+            self.assertIn("🏁", row["message_text"])
 
     def test_enqueue_analysis_job_on_event(self) -> None:
         with patch("bot.research.market_events.ai_analyst.job_queue.AI_ENABLED", True):
