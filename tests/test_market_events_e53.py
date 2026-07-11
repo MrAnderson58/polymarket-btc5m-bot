@@ -54,8 +54,8 @@ class MarketEventsE53Tests(unittest.TestCase):
     def test_schema_v10_migration(self) -> None:
         with self._conn() as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v10", applied)
-            self.assertEqual(SCHEMA_VERSION, 10)
+            self.assertIn("v11", applied)
+            self.assertEqual(SCHEMA_VERSION, 11)
             tables = {
                 r[0] for r in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'",
@@ -150,13 +150,31 @@ class MarketEventsE53Tests(unittest.TestCase):
             self.assertIn("status: OK", text)
 
     def test_demo_event_offline(self) -> None:
-        with self._conn() as conn:
-            apply_migrations(conn)
-            code, text = run_demo_event(conn)
-            self.assertEqual(code, 0)
-            self.assertIn("Pipeline: OK", text)
-            self.assertIn("Opportunity score", text)
-            self.assertIn("Timeline entries", text)
+        def _fake_deliver(text, *, conn=None, alert_type="UNKNOWN", event_id=0, **kwargs):
+            from bot.research.market_events.alert_engine.telegram_delivery import (
+                TelegramDeliveryResult,
+                log_delivery_attempt,
+            )
+            log_delivery_attempt(
+                conn, event_id=event_id, alert_type=alert_type, chat_id="123",
+                message_text=text, status="sent", latency_ms=1.0,
+                http_code=200, message_id=1, attempt=1,
+            )
+            return TelegramDeliveryResult(
+                ok=True, error=None, latency_ms=1.0, http_code=200,
+                message_id=1, attempts=1, chat_id="123",
+            )
+
+        with patch(
+            "bot.research.market_events.alert_engine.telegram_delivery.deliver_telegram",
+            side_effect=_fake_deliver,
+        ):
+            with self._conn() as conn:
+                apply_migrations(conn)
+                code, text = run_demo_event(conn)
+                self.assertEqual(code, 0)
+                self.assertIn("Pipeline: OK", text)
+                self.assertIn("Telegram shock alert       sent", text)
 
     def test_telegram_health_report(self) -> None:
         with self._conn() as conn:

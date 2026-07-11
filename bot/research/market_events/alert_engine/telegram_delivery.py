@@ -14,7 +14,7 @@ from bot.research.market_events.alert_config import (
     ALERT_RETRY_BACKOFF_MULTIPLIER,
     ALERT_RETRY_DELAY_SEC,
     ALERT_RETRY_MAX_DELAY_SEC,
-    alert_chat_id,
+    resolve_alert_chat_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,18 +73,46 @@ def log_delivery_attempt(
         conn.execute(
             """
             INSERT INTO market_event_telegram_delivery_log (
-              event_id, alert_type, chat_id, message_preview, status,
+              event_id, alert_type, chat_id, message_preview, message_text, status,
               latency_ms, http_code, telegram_message_id, attempt, error, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event_id, alert_type, chat_id, _message_preview(message_text),
-                status, latency_ms, http_code, message_id, attempt, error,
+                message_text, status, latency_ms, http_code, message_id, attempt, error,
                 int(time.time()),
             ),
         )
     except Exception as exc:
         logger.warning("telegram delivery log persist failed: %s", exc)
+
+
+def get_last_delivery(conn: Any, *, event_id: int, alert_type: str) -> Any | None:
+    return conn.execute(
+        """
+        SELECT status, http_code, error, telegram_message_id
+        FROM market_event_telegram_delivery_log
+        WHERE event_id = ? AND alert_type = ?
+        ORDER BY id DESC LIMIT 1
+        """,
+        (event_id, alert_type),
+    ).fetchone()
+
+
+def format_delivery_status(
+    conn: Any,
+    *,
+    event_id: int,
+    alert_type: str,
+    label: str,
+) -> str:
+    row = get_last_delivery(conn, event_id=event_id, alert_type=alert_type)
+    if row and row["status"] == STATUS_SENT and row["http_code"] == 200:
+        return f"{label} sent"
+    if row:
+        reason = row["error"] or f"http_{row['http_code']}"
+        return f"{label} failed ({reason})"
+    return f"{label} skipped (not attempted)"
 
 
 def _post_telegram(token: str, chat_id: str | int, text: str) -> tuple[int | None, dict | None, Exception | None]:
@@ -130,16 +158,18 @@ def deliver_telegram(
         )
         return result
 
-    chat = chat_id or alert_chat_id()
+    chat = chat_id or resolve_alert_chat_id().chat_id
     if not chat:
+        resolution = resolve_alert_chat_id()
+        chat_err = resolution.error or "no_chat_id"
         result = TelegramDeliveryResult(
-            ok=False, error="no_chat_id", latency_ms=0.0,
+            ok=False, error=chat_err, latency_ms=0.0,
             http_code=None, message_id=None, attempts=0, chat_id=None,
         )
         log_delivery_attempt(
             conn, event_id=event_id, alert_type=alert_type, chat_id=None,
             message_text=text, status=STATUS_FAILED, latency_ms=0.0,
-            http_code=None, message_id=None, attempt=0, error="no_chat_id",
+            http_code=None, message_id=None, attempt=0, error=chat_err,
         )
         return result
 

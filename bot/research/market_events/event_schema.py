@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -288,6 +288,23 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v10")
             current = 10
+
+        if current < 11:
+            for stmt in E531_ALTER_STATEMENTS:
+                try:
+                    conn.execute(stmt)
+                except Exception:
+                    pass
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (11, now, "Phase E.5.3.1 delivery log message_text for retries"),
+            )
+            applied.append("v11")
+            current = 11
 
     if not applied:
         conn.commit()
@@ -811,3 +828,7 @@ CREATE INDEX IF NOT EXISTS idx_me_tg_delivery_status
 CREATE INDEX IF NOT EXISTS idx_me_tg_delivery_alert_type
   ON market_event_telegram_delivery_log(alert_type);
 """
+
+E531_ALTER_STATEMENTS = (
+    "ALTER TABLE market_event_telegram_delivery_log ADD COLUMN message_text TEXT",
+)

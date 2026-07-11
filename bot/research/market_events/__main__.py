@@ -75,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
             "ai-test",
             "demo-event",
             "telegram-health",
+            "telegram-config",
+            "telegram-retry-unsent",
         ),
     )
     parser.add_argument(
@@ -114,6 +116,11 @@ def main(argv: list[str] | None = None) -> int:
         "--send-telegram",
         action="store_true",
         help="ai-test: send AI research note to Telegram",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="telegram-retry-unsent: retry all failed deliveries (default: last 100)",
     )
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
@@ -173,6 +180,23 @@ def main(argv: list[str] | None = None) -> int:
             apply_migrations(conn)
             print(run_telegram_health(conn))
         return 0
+
+    if args.command == "telegram-config":
+        from bot.research.market_events.telegram_ops.config_report import format_telegram_config_report
+        print(format_telegram_config_report())
+        return 0
+
+    if args.command == "telegram-retry-unsent":
+        from bot.research.market_events.telegram_ops.retry import retry_failed_deliveries
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            lines = retry_failed_deliveries(conn, retry_all=args.all)
+            conn.commit()
+            for line in lines:
+                print(line)
+            failed = sum(1 for line in lines if line.startswith("✗ id=") and "failed" in line)
+            sent = sum(1 for line in lines if line.startswith("✓ id="))
+            return 1 if failed and not sent else 0
 
     if args.command == "system-validation":
         from bot.research.market_events.system_validation.report import format_health_report, report_to_json

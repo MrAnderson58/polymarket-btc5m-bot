@@ -254,6 +254,14 @@ class ObservationRunner:
 
     def run(self) -> ObserveStats:
         logging.basicConfig(level=logging.INFO, format="[observe] %(message)s", stream=sys.stdout, force=True)
+        try:
+            from bot.research.market_events.telegram_ops.startup_validation import (
+                validate_telegram_config_at_startup,
+            )
+            validate_telegram_config_at_startup()
+        except Exception as exc:
+            logging.getLogger(__name__).debug("telegram startup validation skipped: %s", exc)
+
         signal.signal(signal.SIGINT, lambda *_: self.request_shutdown())
         signal.signal(signal.SIGTERM, lambda *_: self.request_shutdown())
 

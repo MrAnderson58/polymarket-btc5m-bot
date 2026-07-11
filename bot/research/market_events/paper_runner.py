@@ -609,6 +609,14 @@ class ShockPaperRunner:
         logging.basicConfig(level=logging.INFO, format="[shock-paper] %(message)s")
         logger.info("startup paper_only=%s universe=%s", self.paper_only, self.universe_mode)
 
+        try:
+            from bot.research.market_events.telegram_ops.startup_validation import (
+                validate_telegram_config_at_startup,
+            )
+            validate_telegram_config_at_startup()
+        except Exception as exc:
+            logger.debug("telegram startup validation skipped: %s", exc)
+
         def _handle_sig(signum, frame):
             logger.info("shutdown signal %s", signum)
             self.request_shutdown()
