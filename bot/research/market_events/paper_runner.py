@@ -645,8 +645,10 @@ class ShockPaperRunner:
             self._restore_state(conn)
 
             try:
-                from bot.research.market_events.ai_analyst.job_queue import start_background_worker
-                start_background_worker(market_events_connection)
+                from bot.research.market_events.ai_analyst.config import AI_EMBEDDED_IN_PAPER_RUN
+                if AI_EMBEDDED_IN_PAPER_RUN:
+                    from bot.research.market_events.ai_analyst.job_queue import start_background_worker
+                    start_background_worker(market_events_connection)
             except Exception as exc:
                 logger.debug("AI background worker not started: %s", exc)
 

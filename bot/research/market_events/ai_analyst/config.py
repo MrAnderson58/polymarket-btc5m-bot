@@ -19,6 +19,7 @@ AI_TIMEOUT_SEC = float(os.getenv("ME_AI_TIMEOUT_SEC", "30"))
 AI_MAX_RETRIES = int(os.getenv("ME_AI_MAX_RETRIES", "1"))
 AI_MAX_CONTEXT_ITEMS = int(os.getenv("ME_AI_MAX_CONTEXT_ITEMS", "8"))
 AI_JOBS_PER_CYCLE = int(os.getenv("ME_AI_JOBS_PER_CYCLE", "0"))
+AI_EMBEDDED_IN_PAPER_RUN = os.getenv("ME_AI_EMBEDDED_IN_PAPER_RUN", "true").lower() in ("1", "true", "yes")
 
 VALID_INTERPRETATIONS = frozenset({
     "NEWS_DRIVEN", "MARKET_WIDE", "ASSET_SPECIFIC", "LIQUIDITY_SWEEP",

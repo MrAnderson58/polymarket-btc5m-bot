@@ -67,6 +67,10 @@ def main(argv: list[str] | None = None) -> int:
             "market-ai-comparison-report",
             "dashboard-api-serve",
             "system-validation",
+            "start-all",
+            "stop-all",
+            "status",
+            "ai-worker-run",
         ),
     )
     parser.add_argument(
@@ -104,6 +108,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="JSON output for system-validation")
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
+
+    if args.command == "ai-worker-run":
+        from bot.research.market_events.ai_worker_runner import run_ai_worker
+        run_ai_worker()
+        return 0
+
+    if args.command == "start-all":
+        from bot.research.market_events.process_manager import start_all
+        for line in start_all():
+            print(line)
+        return 0
+
+    if args.command == "stop-all":
+        from bot.research.market_events.process_manager import stop_all
+        for line in stop_all():
+            print(line)
+        return 0
+
+    if args.command == "status":
+        from bot.research.market_events.process_manager import status_report
+        print(status_report())
+        return 0
 
     if args.command == "system-validation":
         from bot.research.market_events.system_validation.report import format_health_report, report_to_json

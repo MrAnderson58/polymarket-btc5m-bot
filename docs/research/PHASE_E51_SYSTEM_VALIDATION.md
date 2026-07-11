@@ -32,8 +32,22 @@ python -m bot.research.market_events system-validation --load-events 500 --skip-
 ```bash
 git pull origin cursor/strategy-discovery-v2
 python -m bot.research.market_events market-event-migrate
-python -m bot.research.market_events system-validation
+python -m bot.research.market_events start-all
+python -m bot.research.market_events status
+python -m bot.research.market_events stop-all
 pytest tests/test_market_events_e51.py -q
+python -m bot.research.market_events system-validation
 ```
 
 Production DB: use `--read-only` to skip mutating benchmarks (dedupe audit on live data still runs read-only queries).
+
+## Process supervisor (E.5.2)
+
+```bash
+python -m bot.research.market_events start-all   # core + tradfi + observe + ai + dashboard
+python -m bot.research.market_events stop-all
+python -m bot.research.market_events status
+python -m bot.research.futures_agent telegram-poll   # telegram separately
+```
+
+`start-all` sets `ME_AI_EMBEDDED_IN_PAPER_RUN=false` on shock-paper processes so the standalone `ai-worker-run` handles the queue.

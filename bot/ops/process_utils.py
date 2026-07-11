@@ -29,6 +29,8 @@ EXCLUDE_CMD_SUBSTRINGS = (
     "prod-start",
     "prod-restart",
     "prod-status",
+    "start-all",
+    "stop-all",
 )
 
 
