@@ -1,4 +1,4 @@
-"""Phase E.1 database connection — isolated SQLite with concurrent-write hardening."""
+"""Phase G.0 — market_events database backends (PostgreSQL production, SQLite tests)."""
 
 from __future__ import annotations
 
@@ -7,8 +7,12 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator, TypeVar
+from urllib.parse import urlparse
 
-from bot.research.market_events.config import MARKET_EVENTS_DATABASE_PATH
+from bot.research.market_events.db_config import (
+    MarketEventsDbConfig,
+    resolve_market_events_db_config,
+)
 
 T = TypeVar("T")
 
@@ -17,15 +21,34 @@ _LOCK_RETRY_INITIAL_MS = 50
 _LOCK_RETRY_MAX_TOTAL_MS = 10_000
 
 
+class MarketEventsDbError(RuntimeError):
+    pass
+
+
+def connection_is_postgres(conn: Any) -> bool:
+    return isinstance(conn, PostgresBackend)
+
+
+def _is_postgres_url(url: str) -> bool:
+    return url.startswith(("postgres://", "postgresql://"))
+
+
+def _adapt_sql_placeholders(sql: str, params: tuple | list | None) -> str:
+    if not params:
+        return sql
+    return sql.replace("?", "%s")
+
+
 def is_database_locked(exc: BaseException) -> bool:
-    if not isinstance(exc, sqlite3.OperationalError):
-        return False
     msg = str(exc).lower()
-    return "database is locked" in msg or "database table is locked" in msg
+    if "could not obtain lock" in msg or "deadlock detected" in msg:
+        return True
+    if isinstance(exc, sqlite3.OperationalError):
+        return "database is locked" in msg or "database table is locked" in msg
+    return False
 
 
 def lock_retry_sleep_schedule() -> list[float]:
-    """Exponential backoff: 50, 100, 200, … ms until cumulative ~10s."""
     schedule: list[float] = []
     ms = _LOCK_RETRY_INITIAL_MS
     total_ms = 0
@@ -40,13 +63,12 @@ def lock_retry_sleep_schedule() -> list[float]:
 
 
 def retry_on_db_locked(fn: Callable[[], T]) -> T:
-    """Retry callable on sqlite3 database lock with exponential backoff."""
     schedule = lock_retry_sleep_schedule()
-    last_exc: sqlite3.OperationalError | None = None
+    last_exc: BaseException | None = None
     for attempt in range(len(schedule) + 1):
         try:
             return fn()
-        except sqlite3.OperationalError as exc:
+        except (sqlite3.OperationalError, Exception) as exc:
             if not is_database_locked(exc):
                 raise
             last_exc = exc
@@ -57,8 +79,87 @@ def retry_on_db_locked(fn: Callable[[], T]) -> T:
     raise last_exc
 
 
+class PostgresBackend:
+    """PostgreSQL backend — duck-types sqlite3 connection API."""
+
+    def __init__(self, conn) -> None:
+        import psycopg2.extras
+        self._conn = conn
+        self._extras = psycopg2.extras
+
+    def execute(self, sql: str, params: tuple | list | None = None):
+        cur = self._conn.cursor(cursor_factory=self._extras.RealDictCursor)
+        if params:
+            cur.execute(_adapt_sql_placeholders(sql, params), params)
+        else:
+            cur.execute(sql)
+        return _PgCursor(cur)
+
+    def executescript(self, ddl: str) -> None:
+        for stmt in ddl.split(";"):
+            s = stmt.strip()
+            if s:
+                self.execute(s)
+
+    def insert_returning_id(self, sql: str, params: tuple | list | None = None) -> int:
+        pg_sql = _adapt_sql_placeholders(sql, params or ()).rstrip().rstrip(";")
+        if "RETURNING" not in pg_sql.upper():
+            pg_sql += " RETURNING id"
+        cur = self._conn.cursor(cursor_factory=self._extras.RealDictCursor)
+        cur.execute(pg_sql, params or ())
+        row = cur.fetchone()
+        if not row or row.get("id") is None:
+            raise MarketEventsDbError("INSERT RETURNING id did not return a row")
+        return int(row["id"])
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+
+class _PgCursor:
+    def __init__(self, cur) -> None:
+        self._cur = cur
+        self.lastrowid: int | None = None
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+
+class SQLiteBackend:
+    """Thin wrapper so both backends share executescript()."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def execute(self, sql: str, params: tuple | list | None = None):
+        return self._conn.execute(sql, params or ())
+
+    def executescript(self, ddl: str) -> None:
+        self._conn.executescript(ddl)
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+    @property
+    def row_factory(self):
+        return self._conn.row_factory
+
+    @row_factory.setter
+    def row_factory(self, value) -> None:
+        self._conn.row_factory = value
+
+
 def apply_sqlite_pragmas(conn: sqlite3.Connection) -> None:
-    """Per-connection pragmas — never switches journal_mode (see ensure_wal_enabled)."""
+    """SQLite-only pragmas — never called for PostgreSQL."""
     journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
     if str(journal).lower() == "wal":
         conn.execute("PRAGMA synchronous=NORMAL")
@@ -67,7 +168,7 @@ def apply_sqlite_pragmas(conn: sqlite3.Connection) -> None:
 
 
 def ensure_wal_enabled(db_path: Path | None = None) -> str:
-    """Switch database to WAL once — call from migrate/start-all before workers."""
+    """SQLite-only: switch to WAL once before workers."""
     path = db_path or ensure_db_dir()
 
     def _enable() -> str:
@@ -84,80 +185,107 @@ def ensure_wal_enabled(db_path: Path | None = None) -> str:
     return retry_on_db_locked(_enable)
 
 
-def format_db_info(db_path: Path | None = None) -> str:
-    """Human-readable SQLite configuration and WAL file status."""
-    path = db_path or ensure_db_dir()
-    wal_path = Path(f"{path}-wal")
-    shm_path = Path(f"{path}-shm")
-
-    lines = [
-        "MARKET EVENTS DATABASE INFO",
-        "",
-        f"path: {path}",
-        f"exists: {path.exists()}",
-        f"wal_file: {'present' if wal_path.exists() else 'absent'} ({wal_path})",
-        f"shm_file: {'present' if shm_path.exists() else 'absent'} ({shm_path})",
-        "",
-        f"sqlite_version: {sqlite3.sqlite_version}",
-        "",
-    ]
-
-    if not path.exists():
-        lines.append("(database file does not exist yet)")
-        return "\n".join(lines)
-
-    conn = sqlite3.connect(str(path), timeout=BUSY_TIMEOUT_MS / 1000.0)
-    try:
-        apply_sqlite_pragmas(conn)
-        journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
-        timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
-        fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
-        page_size = conn.execute("PRAGMA page_size").fetchone()[0]
-        cache_size = conn.execute("PRAGMA cache_size").fetchone()[0]
-        db_list = conn.execute("PRAGMA database_list").fetchall()
-    finally:
-        conn.close()
-
-    lines.extend([
-        f"journal_mode: {journal}",
-        f"busy_timeout: {timeout}",
-        f"foreign_keys: {fk}",
-        f"page_size: {page_size}",
-        f"cache_size: {cache_size}",
-        "",
-        "database_list:",
-    ])
-    for row in db_list:
-        lines.append(f"  seq={row[0]} name={row[1]!r} file={row[2]!r}")
-    return "\n".join(lines)
+def ensure_db_initialized(cfg: MarketEventsDbConfig | None = None) -> str:
+    """One-shot init before workers: WAL for SQLite, connect check for PostgreSQL."""
+    cfg = cfg or resolve_market_events_db_config()
+    if cfg.backend == "postgresql":
+        with market_events_connection(url=cfg.url) as conn:
+            row = conn.execute("SELECT 1 AS ok").fetchone()
+            if not row:
+                raise MarketEventsDbError("PostgreSQL connectivity check failed")
+        return "postgresql"
+    return ensure_wal_enabled(cfg.sqlite_path)
 
 
 def ensure_db_dir() -> Path:
-    path = MARKET_EVENTS_DATABASE_PATH
+    cfg = resolve_market_events_db_config()
+    cfg.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+    return cfg.sqlite_path
+
+
+def _connect_postgres(dsn: str) -> PostgresBackend:
+    try:
+        import psycopg2
+    except ImportError as exc:
+        raise MarketEventsDbError("psycopg2 required for PostgreSQL market_events DB") from exc
+    parsed = urlparse(dsn)
+    try:
+        conn = psycopg2.connect(
+            host=parsed.hostname,
+            port=parsed.port or 5432,
+            user=parsed.username,
+            password=parsed.password,
+            dbname=(parsed.path or "/").lstrip("/") or "market_events",
+            connect_timeout=5,
+        )
+    except Exception as exc:
+        raise MarketEventsDbError(f"PostgreSQL connection failed: {exc}") from exc
+    conn.autocommit = False
+    return PostgresBackend(conn)
+
+
+def _connect_sqlite(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-@contextmanager
-def market_events_connection(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
-    path = db_path or ensure_db_dir()
     conn = sqlite3.connect(str(path), timeout=BUSY_TIMEOUT_MS / 1000.0)
     conn.row_factory = sqlite3.Row
     apply_sqlite_pragmas(conn)
-    try:
-        yield conn
-        retry_on_db_locked(conn.commit)
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    return conn
+
+
+@contextmanager
+def market_events_connection(
+    db_path: Path | None = None,
+    *,
+    url: str | None = None,
+) -> Iterator[Any]:
+    """Yield MarketEvents connection (PostgreSQL or SQLite).
+
+    Precedence: explicit url > explicit db_path (sqlite) > env config.
+    """
+    cfg = resolve_market_events_db_config()
+
+    if url is not None:
+        dsn = url
+    elif db_path is not None:
+        dsn = f"sqlite:///{db_path}"
+    else:
+        dsn = cfg.url
+
+    if cfg.postgres_url_configured and url is None and db_path is None:
+        if not _is_postgres_url(dsn):
+            raise MarketEventsDbError(
+                "MARKET_EVENTS_DB_URL is PostgreSQL but resolved to non-PG URL",
+            )
+
+    if _is_postgres_url(dsn):
+        wrapper = _connect_postgres(dsn)
+        try:
+            yield wrapper
+            wrapper.commit()
+        except Exception:
+            wrapper.rollback()
+            raise
+        finally:
+            wrapper._conn.close()
+    else:
+        path = Path(dsn.replace("sqlite:///", ""))
+        conn = _connect_sqlite(path)
+        try:
+            yield conn
+            retry_on_db_locked(conn.commit)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
 
 @contextmanager
 def with_retry_transaction(conn: Any) -> Iterator[Any]:
-    """BEGIN IMMEDIATE transaction with lock retries on commit."""
-    retry_on_db_locked(lambda: conn.execute("BEGIN IMMEDIATE"))
+    if connection_is_postgres(conn):
+        conn.execute("BEGIN")
+    else:
+        retry_on_db_locked(lambda: conn.execute("BEGIN IMMEDIATE"))
     try:
         yield conn
         retry_on_db_locked(conn.commit)
@@ -169,13 +297,13 @@ def with_retry_transaction(conn: Any) -> Iterator[Any]:
         raise
 
 
-def execute_with_retry(conn: Any, sql: str, params: tuple | list = ()) -> sqlite3.Cursor:
-    """INSERT/UPDATE/DELETE with automatic lock retry."""
+def execute_with_retry(conn: Any, sql: str, params: tuple | list = ()) -> Any:
     return retry_on_db_locked(lambda: conn.execute(sql, params))
 
 
-def insert_returning_id(conn: Any, sql: str, params: tuple | list) -> int:
-    """INSERT with lastrowid and automatic lock retry."""
+def insert_returning_id(conn: Any, sql: str, params: tuple | list = ()) -> int:
+    if isinstance(conn, PostgresBackend):
+        return conn.insert_returning_id(sql, params)
 
     def _run() -> int:
         cur = conn.execute(sql, params)
@@ -187,10 +315,18 @@ def insert_returning_id(conn: Any, sql: str, params: tuple | list) -> int:
     return retry_on_db_locked(_run)
 
 
-def connection_is_postgres(conn: Any) -> bool:
-    """market_events DB is SQLite-only; PG wrapper passthrough for shared helpers."""
-    try:
-        from bot.research.futures_agent.db import connection_is_postgres as _fa_pg
-        return _fa_pg(conn)
-    except Exception:
-        return False
+def format_db_info(db_path: Path | None = None) -> str:
+    """Backward-compatible wrapper — delegates to db_tools."""
+    from bot.research.market_events.db_tools import format_db_info as _fmt
+    from bot.research.market_events.db_config import resolve_market_events_db_config
+    cfg = resolve_market_events_db_config()
+    if db_path is not None:
+        from bot.research.market_events.db_config import MarketEventsDbConfig
+        cfg = MarketEventsDbConfig(
+            backend="sqlite",
+            url=f"sqlite:///{db_path}",
+            sqlite_path=db_path,
+            config_source="explicit_path",
+            postgres_url_configured=False,
+        )
+    return _fmt(cfg)

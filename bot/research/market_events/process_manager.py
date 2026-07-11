@@ -186,11 +186,13 @@ def stop_service(svc: ManagedService) -> tuple[bool, str]:
 def start_all() -> list[str]:
     lines: list[str] = ["Starting market events supervisor...", ""]
     try:
-        from bot.research.market_events.db import ensure_wal_enabled, market_events_connection
+        from bot.research.market_events.db import ensure_db_initialized, market_events_connection
+        from bot.research.market_events.db_config import resolve_market_events_db_config
         from bot.research.market_events.event_schema import apply_migrations
 
-        wal = ensure_wal_enabled()
-        lines.append(f"✓ database WAL mode: {wal}")
+        cfg = resolve_market_events_db_config()
+        mode = ensure_db_initialized(cfg)
+        lines.append(f"✓ database {cfg.backend} ready ({mode})")
         with market_events_connection() as conn:
             apply_migrations(conn)
         lines.append("✓ migrations up to date")

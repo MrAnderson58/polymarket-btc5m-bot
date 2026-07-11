@@ -139,6 +139,12 @@ CREATE TABLE IF NOT EXISTS market_events_runner_state (
 
 
 def apply_migrations(conn: Any) -> list[str]:
+    from bot.research.market_events.db import connection_is_postgres
+
+    if connection_is_postgres(conn):
+        from bot.research.market_events.schema_pg import apply_pg_migrations
+        return apply_pg_migrations(conn)
+
     applied: list[str] = []
     conn.executescript(E1_DDL)
     row = conn.execute(

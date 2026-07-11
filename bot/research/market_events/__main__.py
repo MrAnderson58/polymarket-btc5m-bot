@@ -83,6 +83,12 @@ def main(argv: list[str] | None = None) -> int:
             "signal-quality-report",
             "weekly-signal-ranking",
             "db-info",
+            "market-db-info",
+            "market-db-check",
+            "market-db-copy",
+            "migrate-to-postgres",
+            "market-db-benchmark",
+            "market-db-backup",
         ),
     )
     parser.add_argument(
@@ -482,17 +488,40 @@ def main(argv: list[str] | None = None) -> int:
             print(observation_report(conn, days=args.days))
         return 0
 
-    if args.command == "db-info":
-        from bot.research.market_events.db import format_db_info
+    if args.command in ("db-info", "market-db-info"):
+        from bot.research.market_events.db_tools import format_db_info
         print(format_db_info())
         return 0
 
+    if args.command == "market-db-check":
+        from bot.research.market_events.db_tools import db_check
+        print(db_check())
+        return 0
+
+    if args.command in ("market-db-copy", "migrate-to-postgres"):
+        from bot.research.market_events.db_tools import migrate_sqlite_to_postgres
+        print(migrate_sqlite_to_postgres())
+        return 0
+
+    if args.command == "market-db-benchmark":
+        from bot.research.market_events.db_tools import db_benchmark
+        print(db_benchmark(n=args.load_events))
+        return 0
+
+    if args.command == "market-db-backup":
+        from bot.research.market_events.db_tools import db_backup
+        print(db_backup())
+        return 0
+
     if args.command == "market-event-migrate":
-        from bot.research.market_events.db import ensure_wal_enabled
-        wal = ensure_wal_enabled()
+        from bot.research.market_events.db import ensure_db_initialized
+        from bot.research.market_events.db_config import resolve_market_events_db_config
+        mode = ensure_db_initialized()
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
-        print(f"WAL mode: {wal}")
+        cfg = resolve_market_events_db_config()
+        print(f"Backend: {cfg.backend}")
+        print(f"DB mode: {mode}")
         print(f"Migrations applied: {applied or ['already up to date']}")
         return 0
 
