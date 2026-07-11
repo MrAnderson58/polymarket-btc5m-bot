@@ -20,6 +20,7 @@ STAGE3_VERSION = 3
 STAGE4_VERSION = 4
 STAGE5_VERSION = 5
 STAGE6_VERSION = 6
+STAGE7_VERSION = 7
 
 STAGE1_DDL = """
 CREATE TABLE IF NOT EXISTS futures_agent_migrations (
@@ -717,6 +718,40 @@ CREATE TABLE IF NOT EXISTS futures_agent_telegram_research_bridge (
 CREATE INDEX IF NOT EXISTS idx_fa_tg_bridge_post ON futures_agent_telegram_research_bridge(post_id);
 """
 
+STAGE7_DDL = """
+CREATE TABLE IF NOT EXISTS futures_agent_post_multi_intent (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_type TEXT NOT NULL,
+    source_record_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    extractor TEXT NOT NULL,
+    structured_json TEXT NOT NULL,
+    confidence REAL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(source_type, source_record_id, label, extractor)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fa_multi_intent_source
+    ON futures_agent_post_multi_intent(source_type, source_record_id);
+"""
+
+STAGE7_DDL_POSTGRES = """
+CREATE TABLE IF NOT EXISTS futures_agent_post_multi_intent (
+    id BIGSERIAL PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    source_record_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    extractor TEXT NOT NULL,
+    structured_json TEXT NOT NULL,
+    confidence DOUBLE PRECISION,
+    created_at BIGINT NOT NULL,
+    UNIQUE(source_type, source_record_id, label, extractor)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fa_multi_intent_source
+    ON futures_agent_post_multi_intent(source_type, source_record_id);
+"""
+
 
 def apply_migrations(conn: Any) -> list[str]:
     """Apply Stage 1 + Stage 2 + Stage 3 migrations idempotently."""
@@ -819,6 +854,15 @@ def apply_migrations(conn: Any) -> list[str]:
             (STAGE6_VERSION, "stage6_telegram_inbound_research_bridge"),
         )
         applied.append(f"v{STAGE6_VERSION}: telegram_inbound_bridge")
+
+    if not _has_migration(conn, STAGE7_VERSION):
+        for stmt in _split_ddl(STAGE7_DDL_POSTGRES if postgres else STAGE7_DDL):
+            conn.execute(stmt)
+        conn.execute(
+            f"INSERT INTO {MIGRATIONS_TABLE} (version, description) VALUES (?, ?)",
+            (STAGE7_VERSION, "stage7_telegram_multi_intent_extraction"),
+        )
+        applied.append(f"v{STAGE7_VERSION}: multi_intent")
 
     return applied
 

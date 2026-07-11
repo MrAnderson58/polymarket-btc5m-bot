@@ -49,6 +49,15 @@ def main(argv: list[str] | None = None) -> int:
             "instrument-report",
             "e2-audit",
             "index-discovery-audit",
+            "historical-replay-coverage",
+            "historical-candle-backfill",
+            "historical-candle-coverage",
+            "historical-shock-replay",
+            "historical-shock-report",
+            "historical-reversal-report",
+            "historical-strategy-matrix",
+            "historical-context-report",
+            "ai-critic-replay-report",
         ),
     )
     parser.add_argument(
@@ -73,8 +82,93 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--strategy", type=str, default=None, help="Strategy name prefix filter")
     parser.add_argument("--symbol", default=None, help="Single symbol for activation-explain")
+    parser.add_argument("--run-tag", default="e4_default", help="Historical replay run tag")
+    parser.add_argument("--asset-class", default=None, help="Asset class filter (CRYPTO, EQUITY, …)")
+    parser.add_argument("--start", type=int, default=None, help="Backfill start unix ts")
+    parser.add_argument("--end", type=int, default=None, help="Backfill end unix ts")
+    parser.add_argument("--timeframe", default="1m", help="Candle timeframe for backfill")
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
+
+    if args.command == "historical-replay-coverage":
+        from bot.research.market_events.historical_replay.coverage import historical_replay_coverage
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(historical_replay_coverage(conn))
+        return 0
+
+    if args.command == "historical-candle-coverage":
+        from bot.research.market_events.historical_replay.candle_backfill import historical_candle_coverage
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(historical_candle_coverage(conn))
+        return 0
+
+    if args.command == "historical-candle-backfill":
+        import time as _time
+        from bot.research.market_events.historical_replay.candle_backfill import run_candle_backfill
+        end_ts = args.end or int(_time.time())
+        start_ts = args.start or (end_ts - 86400)
+        syms = explicit_symbols or []
+        if not syms:
+            print("historical-candle-backfill requires --symbols (not auto-started)")
+            return 1
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            stats = run_candle_backfill(
+                conn,
+                symbols=syms,
+                asset_class=args.asset_class,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                timeframe=args.timeframe,
+            )
+            print(stats)
+        return 0
+
+    if args.command == "historical-shock-replay":
+        from bot.research.market_events.historical_replay.runner import run_full_replay_pipeline
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            stats = run_full_replay_pipeline(
+                conn, run_tag=args.run_tag, days=args.days, symbols=explicit_symbols,
+            )
+            print(f"HISTORICAL REPLAY complete: {stats}")
+        return 0
+
+    if args.command in (
+        "historical-shock-report",
+        "historical-reversal-report",
+        "historical-context-report",
+        "ai-critic-replay-report",
+    ):
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            if args.command == "historical-shock-report":
+                from bot.research.market_events.historical_replay.reports import historical_shock_report
+                print(historical_shock_report(conn, run_tag=args.run_tag))
+            elif args.command == "historical-reversal-report":
+                from bot.research.market_events.historical_replay.reports import historical_reversal_report
+                print(historical_reversal_report(conn, run_tag=args.run_tag))
+            elif args.command == "historical-context-report":
+                from bot.research.market_events.historical_replay.reports import historical_context_report
+                print(historical_context_report(conn, run_tag=args.run_tag))
+            elif args.command == "ai-critic-replay-report":
+                from bot.research.market_events.historical_replay.ai_critic import ai_critic_replay_report
+                print(ai_critic_replay_report(conn, run_tag=args.run_tag))
+        return 0
+
+    if args.command == "historical-strategy-matrix":
+        from bot.research.market_events.historical_replay.strategy_matrix import (
+            run_strategy_matrix,
+            strategy_matrix_report,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            stats = run_strategy_matrix(conn, run_tag=args.run_tag)
+            print(strategy_matrix_report(conn, run_tag=args.run_tag))
+            print(f"matrix_stats: {stats}")
+        return 0
 
     if args.command == "architecture-audit":
         from pathlib import Path

@@ -53,7 +53,8 @@ def main() -> int:
             "audit", "migrate", "ingest", "process-pending",
             "snapshot", "snapshot-pending", "context-report", "snapshot-audit",
             "telegram-poll", "telegram-diagnose", "telegram-inbound-audit",
-            "telegram-bridge-artifact-audit", "telegram-bridge-sync", "telegram-context-readiness", "stage3-audit",
+            "telegram-bridge-artifact-audit", "telegram-bridge-sync", "telegram-context-readiness",
+            "telegram-multi-intent-audit", "stage3-audit",
             "stage3-migrate", "ingest-research", "research-stats",
             "thesis-extract", "thesis-quality-audit", "pipeline-reconcile",
             "research-rebuild-theses",
@@ -762,6 +763,16 @@ def main() -> int:
             print(telegram_context_readiness_report(
                 conn, symbol=args.symbol, days=days,
             ))
+        return 0
+
+    if args.command == "telegram-multi-intent-audit":
+        from bot.research.futures_agent.db import agent_connection
+        from bot.research.futures_agent.schema import apply_migrations
+        from bot.research.futures_agent.telegram_multi_intent import run_multi_intent_audit
+
+        with agent_connection() as conn:
+            apply_migrations(conn)
+            print(run_multi_intent_audit(conn, limit=args.limit or 50))
         return 0
 
     if args.command == "telegram-poll":

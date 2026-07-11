@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -236,7 +236,7 @@ def apply_migrations(conn: Any) -> list[str]:
         applied.append("v6")
         current = 6
 
-    if current < SCHEMA_VERSION:
+    if current < 7:
         conn.executescript(E33_DDL)
         now = int(time.time())
         conn.execute(
@@ -247,6 +247,19 @@ def apply_migrations(conn: Any) -> list[str]:
             (7, now, "Phase E.3.3 Telegram alerts and AI analyst shadow"),
         )
         applied.append("v7")
+        current = 7
+
+    if current < SCHEMA_VERSION:
+        conn.executescript(E4_DDL)
+        now = int(time.time())
+        conn.execute(
+            f"""
+            INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+            VALUES (?, datetime(?, 'unixepoch'), ?)
+            """,
+            (8, now, "Phase E.4 historical replay and context intelligence"),
+        )
+        applied.append("v8")
         conn.commit()
     elif not applied:
         conn.commit()
@@ -540,4 +553,159 @@ CREATE TABLE IF NOT EXISTS market_event_ai_analyses (
 );
 
 CREATE INDEX IF NOT EXISTS idx_me_ai_analysis_event ON market_event_ai_analyses(event_id);
+"""
+
+E4_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_historical_candles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    venue TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    open_ts INTEGER NOT NULL,
+    open REAL NOT NULL,
+    high REAL NOT NULL,
+    low REAL NOT NULL,
+    close REAL NOT NULL,
+    volume REAL,
+    source TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL,
+    UNIQUE(venue, symbol, timeframe, open_ts)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_hcandle_sym ON market_events_historical_candles(symbol, timeframe, open_ts);
+
+CREATE TABLE IF NOT EXISTS market_events_candle_backfill_checkpoints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    venue TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    source TEXT NOT NULL,
+    start_ts INTEGER NOT NULL,
+    end_ts INTEGER NOT NULL,
+    last_cursor_ts INTEGER,
+    status TEXT NOT NULL DEFAULT 'pending',
+    rows_fetched INTEGER NOT NULL DEFAULT 0,
+    gaps_found INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(venue, symbol, timeframe, start_ts, end_ts, source)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_replay_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_tag TEXT NOT NULL UNIQUE,
+    data_source TEXT NOT NULL,
+    detector_version TEXT NOT NULL,
+    profile_version TEXT NOT NULL,
+    split_config_json TEXT,
+    start_ts INTEGER,
+    end_ts INTEGER,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_replay_splits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_tag TEXT NOT NULL UNIQUE,
+    train_end_ts INTEGER NOT NULL,
+    validation_end_ts INTEGER NOT NULL,
+    holdout_end_ts INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_replay_shocks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    asset_class TEXT,
+    event_ts INTEGER NOT NULL,
+    direction TEXT NOT NULL,
+    detector_id TEXT NOT NULL,
+    impulse_pct REAL NOT NULL,
+    impulse_duration_sec INTEGER,
+    volume_zscore REAL,
+    btc_context_pct REAL,
+    market_context_pct REAL,
+    session_regime TEXT,
+    pre_volatility REAL,
+    source_provenance TEXT NOT NULL,
+    raw_json TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES market_events_replay_runs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_replay_shock_run ON market_events_replay_shocks(run_id);
+CREATE INDEX IF NOT EXISTS idx_me_replay_shock_sym ON market_events_replay_shocks(symbol, event_ts);
+
+CREATE TABLE IF NOT EXISTS market_events_replay_path_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shock_id INTEGER NOT NULL,
+    horizon_sec INTEGER NOT NULL,
+    continuation_pct REAL,
+    reversal_pct REAL,
+    reclaim_10_sec INTEGER,
+    reclaim_25_sec INTEGER,
+    reclaim_50_sec INTEGER,
+    reclaim_75_sec INTEGER,
+    reclaim_100_sec INTEGER,
+    mfe_fade_pct REAL,
+    mae_fade_pct REAL,
+    path_class TEXT,
+    raw_json TEXT,
+    FOREIGN KEY (shock_id) REFERENCES market_events_replay_shocks(id),
+    UNIQUE(shock_id, horizon_sec)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_replay_strategy_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    shock_id INTEGER NOT NULL,
+    strategy_id TEXT NOT NULL,
+    split_bucket TEXT,
+    entered INTEGER NOT NULL DEFAULT 0,
+    entry_ts INTEGER,
+    exit_ts INTEGER,
+    gross_return_pct REAL,
+    net_return_pct REAL,
+    mfe_pct REAL,
+    mae_pct REAL,
+    exit_reason TEXT,
+    fee_bps REAL,
+    slippage_bps REAL,
+    raw_json TEXT,
+    FOREIGN KEY (run_id) REFERENCES market_events_replay_runs(id),
+    FOREIGN KEY (shock_id) REFERENCES market_events_replay_shocks(id),
+    UNIQUE(run_id, shock_id, strategy_id, fee_bps, slippage_bps)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_replay_context_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shock_id INTEGER NOT NULL,
+    context_source TEXT NOT NULL,
+    context_record_id TEXT NOT NULL,
+    context_ts INTEGER NOT NULL,
+    age_at_event_sec INTEGER NOT NULL,
+    window_sec INTEGER NOT NULL,
+    symbol_match INTEGER NOT NULL DEFAULT 0,
+    direction_agreement TEXT,
+    catalyst_category TEXT,
+    raw_json TEXT,
+    FOREIGN KEY (shock_id) REFERENCES market_events_replay_shocks(id),
+    UNIQUE(shock_id, context_source, context_record_id, window_sec)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_replay_ai_critic (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shock_id INTEGER NOT NULL,
+    interpretation TEXT NOT NULL,
+    continuation_prob REAL,
+    reversal_prob REAL,
+    confidence REAL,
+    recommended_action TEXT NOT NULL,
+    structured_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (shock_id) REFERENCES market_events_replay_shocks(id),
+    UNIQUE(shock_id)
+);
 """

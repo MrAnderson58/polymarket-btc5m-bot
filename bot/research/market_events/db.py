@@ -37,3 +37,12 @@ def insert_returning_id(conn: Any, sql: str, params: tuple | list) -> int:
     if lid is None:
         raise RuntimeError("INSERT did not return lastrowid")
     return int(lid)
+
+
+def connection_is_postgres(conn: Any) -> bool:
+    """market_events DB is SQLite-only; PG wrapper passthrough for shared helpers."""
+    try:
+        from bot.research.futures_agent.db import connection_is_postgres as _fa_pg
+        return _fa_pg(conn)
+    except Exception:
+        return False
