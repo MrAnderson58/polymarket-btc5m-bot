@@ -208,8 +208,13 @@ class LiveEntryOrphanTestCase(unittest.TestCase):
             size_usdc=1.0,
         )
 
+    @mock.patch("bot.execution.check_can_open_position")
     @mock.patch("bot.execution._submit_live_buy")
-    def test_insert_trade_failure_creates_orphan_intent(self, mock_buy: mock.MagicMock) -> None:
+    def test_insert_trade_failure_creates_orphan_intent(
+        self, mock_buy: mock.MagicMock, mock_risk: mock.MagicMock,
+    ) -> None:
+        from bot.risk import RiskCheckResult
+        mock_risk.return_value = RiskCheckResult(allowed=True, reason="ok")
         mock_buy.return_value = (True, "clob-order-99", None)
         order = self._entry_order()
         key = build_idempotency_key(order)
@@ -236,8 +241,13 @@ class LiveEntryOrphanTestCase(unittest.TestCase):
         self.assertEqual(trade_count, 0)
         mock_buy.assert_called_once()
 
+    @mock.patch("bot.execution.check_can_open_position")
     @mock.patch("bot.execution._submit_live_buy")
-    def test_reconcile_unrecorded_entry_intent(self, mock_buy: mock.MagicMock) -> None:
+    def test_reconcile_unrecorded_entry_intent(
+        self, mock_buy: mock.MagicMock, mock_risk: mock.MagicMock,
+    ) -> None:
+        from bot.risk import RiskCheckResult
+        mock_risk.return_value = RiskCheckResult(allowed=True, reason="ok")
         mock_buy.return_value = (True, "clob-order-100", None)
         order = self._entry_order()
         key = build_idempotency_key(order)

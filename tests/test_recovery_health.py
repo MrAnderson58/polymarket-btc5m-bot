@@ -150,8 +150,24 @@ class RecoveryHealthTestCase(unittest.TestCase):
 
         self.assertEqual(stats.blocked_max_open_positions_1h, 1)
 
+    @mock.patch("bot.portfolio.approval.evaluate_live_approval")
     @mock.patch("bot.exit_recovery.get_conditional_token_balance_shares", return_value=0.0)
-    def test_recovery_action_counted_and_frees_slot(self, _mock_balance: mock.MagicMock) -> None:
+    def test_recovery_action_counted_and_frees_slot(
+        self, _mock_balance: mock.MagicMock, mock_approval: mock.MagicMock,
+    ) -> None:
+        from bot.portfolio.approval import LiveApprovalResult
+        mock_approval.return_value = LiveApprovalResult(
+            allowed=True,
+            entry_price=0.40,
+            ai_decision="ALLOW",
+            ai_confidence_pct=77.0,
+            brain="ALLOW",
+            scientist="ALLOW",
+            review="ALLOW",
+            risk="LOW",
+            blockers=(),
+            summary="ok",
+        )
         end_ts = int(time.time()) - 60
         now = int(time.time())
         with connect(self.db_path) as conn:

@@ -17,12 +17,13 @@ from bot.research.futures_agent.db import (
     insert_returning_id,
 )
 from bot.research.futures_agent.env_bootstrap import (
+    AgentDbConfigError,
     reset_bootstrap_for_tests,
     resolve_agent_db_config,
 )
 from bot.research.futures_agent.ingestion import ingest_forwarded_signal
 from bot.research.futures_agent.pipeline import process_input, process_pending
-from bot.research.futures_agent.schema import apply_migrations
+from bot.research.futures_agent.schema import STAGE7_VERSION, apply_migrations
 from bot.research.futures_agent.schema_validate import _check_fk_postgres, validate_stage1_schema
 
 EXPLICIT_LONG = (
@@ -99,8 +100,68 @@ class FuturesAgentConfigTestCase(unittest.TestCase):
                 with self.assertRaises(AgentDbError):
                     with agent_connection():
                         pass
+                with self.assertRaises(AgentDbError) as ctx:
+                    with agent_connection():
+                        pass
+            self.assertIn("Cannot connect to PostgreSQL", str(ctx.exception))
             sqlite_path = Path(tmp) / "should_not_exist.db"
             self.assertFalse(sqlite_path.exists())
+
+    def test_dotenv_file_postgres_used_when_load_dotenv_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".env").write_text(
+                "FUTURES_AGENT_DATABASE_URL=postgresql:///trading_ai\n",
+                encoding="utf-8",
+            )
+            with patch(
+                "bot.research.futures_agent.env_bootstrap.project_root",
+                return_value=root,
+            ), patch(
+                "bot.research.futures_agent.env_bootstrap.load_dotenv",
+            ):
+                reset_bootstrap_for_tests()
+                os.environ.pop("FUTURES_AGENT_DATABASE_URL", None)
+                cfg = resolve_agent_db_config()
+        self.assertEqual(cfg.backend, "postgresql")
+        self.assertEqual(cfg.config_source, "project_dotenv")
+
+    def test_postgres_in_dotenv_never_resolves_to_fallback_sqlite(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".env").write_text(
+                "FUTURES_AGENT_DATABASE_URL=postgresql:///trading_ai\n",
+                encoding="utf-8",
+            )
+            with patch(
+                "bot.research.futures_agent.env_bootstrap.project_root",
+                return_value=root,
+            ):
+                reset_bootstrap_for_tests()
+                os.environ.pop("FUTURES_AGENT_DATABASE_URL", None)
+                cfg = resolve_agent_db_config()
+        self.assertNotEqual(cfg.config_source, "fallback_sqlite")
+        self.assertEqual(cfg.backend, "postgresql")
+
+    def test_config_diagnose_reports_fallback_reason(self) -> None:
+        from bot.research.futures_agent.config_diagnose import format_config_diagnose, run_config_diagnose
+
+        with patch(
+            "bot.research.futures_agent.config_diagnose.project_root",
+        ) as mock_root, patch(
+            "bot.research.futures_agent.env_bootstrap.project_root",
+        ) as mock_root2:
+            with tempfile.TemporaryDirectory() as tmp:
+                mock_root.return_value = Path(tmp)
+                mock_root2.return_value = Path(tmp)
+                reset_bootstrap_for_tests()
+                os.environ.pop("FUTURES_AGENT_DATABASE_URL", None)
+                os.environ.pop("FUTURES_AGENT_SQLITE_PATH", None)
+                text = format_config_diagnose(run_config_diagnose(test_connection=False))
+        self.assertIn("Project root:", text)
+        self.assertIn("Database backend:", text)
+        self.assertIn("Reason for fallback:", text)
+        self.assertIn("no project .env", text)
 
     def test_sqlite_fallback_when_no_postgres_url(self) -> None:
         with patch(
@@ -134,7 +195,7 @@ class FuturesAgentConfigTestCase(unittest.TestCase):
                     n = conn.execute(
                         "SELECT COUNT(*) AS n FROM futures_agent_migrations"
                     ).fetchone()["n"]
-            self.assertEqual(n, 2)
+            self.assertEqual(n, STAGE7_VERSION)
             self.assertTrue(db_path.exists())
 
     def test_url_none_uses_configured_postgresql(self) -> None:
@@ -569,7 +630,7 @@ class FuturesAgentPostgresSeedHelperSmokeTest(unittest.TestCase):
     def test_seed_helper_insert_returning_id_on_postgres(self) -> None:
         import json
         from bot.research.futures_agent.db import agent_connection, insert_returning_id
-        from bot.research.futures_agent.schema import apply_migrations
+        from bot.research.futures_agent.schema import STAGE7_VERSION, apply_migrations
 
         reset_bootstrap_for_tests()
         url = os.environ.get("FUTURES_AGENT_DATABASE_URL", "")

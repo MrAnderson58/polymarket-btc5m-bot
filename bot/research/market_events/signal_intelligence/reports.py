@@ -17,13 +17,13 @@ def signal_quality_report(conn: Any, *, days: int = 7) -> str:
     lines = ["SIGNAL QUALITY REPORT (F.0)", ""]
 
     avg_score = conn.execute(
-        "SELECT AVG(score) AS s FROM market_events_opportunity_scores_v2 o JOIN market_events e ON e.id = o.event_id WHERE e.event_ts >= ?",
+        "SELECT AVG(o.score) AS s FROM market_events_opportunity_scores_v2 o JOIN market_events e ON e.id = o.event_id WHERE e.event_ts >= ?",
         (since,),
     ).fetchone()
     lines.append(f"  Avg opportunity v2: {float(avg_score['s'] or 0):.1f}")
 
     ai_conf = conn.execute(
-        "SELECT AVG(confidence) AS c FROM market_event_ai_analyses_f0 a JOIN market_events e ON e.id = a.event_id WHERE e.event_ts >= ?",
+        "SELECT AVG(a.confidence) AS c FROM market_event_ai_analyses_f0 a JOIN market_events e ON e.id = a.event_id WHERE e.event_ts >= ?",
         (since,),
     ).fetchone()
     lines.append(f"  Avg AI confidence: {float(ai_conf['c'] or 0):.2f}")
@@ -84,10 +84,10 @@ def weekly_ranking_report(conn: Any) -> str:
 
     strategies = conn.execute(
         """
-        SELECT strategy, COUNT(*) AS n,
-               AVG(CASE WHEN pnl_pct IS NOT NULL THEN pnl_pct END) AS avg_pnl
+        SELECT strategy_name AS strategy, COUNT(*) AS n,
+               AVG(CASE WHEN net_return IS NOT NULL THEN net_return END) AS avg_pnl
         FROM paper_strategy_runs WHERE created_at >= ?
-        GROUP BY strategy ORDER BY avg_pnl DESC
+        GROUP BY strategy_name ORDER BY avg_pnl DESC
         """,
         (since,),
     ).fetchall()
@@ -103,11 +103,11 @@ def weekly_ranking_report(conn: Any) -> str:
             (since,),
         ).fetchone()[0],
         "avg_score": conn.execute(
-            "SELECT AVG(score) FROM market_events_opportunity_scores_v2 o JOIN market_events e ON e.id=o.event_id WHERE e.event_ts>=?",
+            "SELECT AVG(o.score) FROM market_events_opportunity_scores_v2 o JOIN market_events e ON e.id=o.event_id WHERE e.event_ts>=?",
             (since,),
         ).fetchone()[0],
         "avg_ai_confidence": conn.execute(
-            "SELECT AVG(confidence) FROM market_event_ai_analyses_f0 a JOIN market_events e ON e.id=a.event_id WHERE e.event_ts>=?",
+            "SELECT AVG(a.confidence) AS avg_ai_conf FROM market_event_ai_analyses_f0 a JOIN market_events e ON e.id=a.event_id WHERE e.event_ts>=?",
             (since,),
         ).fetchone()[0],
     }

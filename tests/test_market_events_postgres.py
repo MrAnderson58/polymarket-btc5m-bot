@@ -96,12 +96,12 @@ class MarketEventsPostgresConfigTests(unittest.TestCase):
                 mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             self.assertEqual(str(mode).lower(), "delete")
 
-    def test_sqlite_migrations_reach_v16(self) -> None:
+    def test_sqlite_migrations_reach_v18(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "mig.db"
             with market_events_connection(db_path=db) as conn:
                 applied = apply_migrations(conn)
-            self.assertIn("v16", applied)
+            self.assertIn("v18", applied)
             with market_events_connection(db_path=db) as conn:
                 row = conn.execute(
                     "SELECT MAX(version) AS v FROM market_events_migrations",

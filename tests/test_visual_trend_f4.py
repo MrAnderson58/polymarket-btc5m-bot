@@ -32,11 +32,11 @@ class VisualTrendF4Tests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_schema_v16(self) -> None:
+    def test_schema_v18(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v16", applied)
-            self.assertEqual(SCHEMA_VERSION, 16)
+            self.assertIn("v18", applied)
+            self.assertEqual(SCHEMA_VERSION, 21)
 
     def test_platform_detect_tradingview(self) -> None:
         self.assertEqual(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any
 
@@ -11,6 +12,8 @@ from bot.research.market_events.ai_analyst.context_bundle import build_context_b
 from bot.research.market_events.ai_analyst.job_queue import JOB_COMPLETE, JOB_FAILED, JOB_RUNNING
 from bot.research.market_events.ai_analyst.provider import get_analyst_provider
 from bot.research.market_events.db import insert_returning_id
+
+logger = logging.getLogger(__name__)
 
 
 def run_analysis_job(conn: Any, job_id: int) -> bool:
@@ -84,6 +87,13 @@ def run_analysis_job(conn: Any, job_id: int) -> bool:
 
 
 def _maybe_send_ai_commentary(conn: Any, event_id: int, analysis: Any) -> None:
+    from bot.research.market_events.signal_intelligence.config import F41_TELEGRAM_DEDUPE
+    if F41_TELEGRAM_DEDUPE:
+        logger.debug(
+            "ai commentary ready for merge event=%s status=%s",
+            event_id, analysis.analysis_status,
+        )
+        return
     try:
         from bot.research.market_events.alert_format import (
             build_shock_alert_context,

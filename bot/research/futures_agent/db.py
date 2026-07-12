@@ -8,7 +8,7 @@ from typing import Any, Iterator
 from urllib.parse import urlparse
 
 from bot.research.futures_agent.config import AGENT_TABLE_ALLOWLIST
-from bot.research.futures_agent.env_bootstrap import resolve_agent_db_config
+from bot.research.futures_agent.env_bootstrap import AgentDbConfigError, resolve_agent_db_config
 
 
 class AgentDbError(RuntimeError):
@@ -72,10 +72,8 @@ def agent_connection(url: str | None = None) -> Iterator[Any]:
                 connect_timeout=5,
             )
         except Exception as exc:
-            raise AgentDbError(
-                f"PostgreSQL connection failed for database "
-                f"{(parsed.path or '/').lstrip('/') or 'trading_ai'}: {exc}"
-            ) from exc
+            dbname = (parsed.path or "/").lstrip("/") or "trading_ai"
+            raise AgentDbError(f"Cannot connect to PostgreSQL ({dbname}): {exc}") from exc
         conn.autocommit = False
         wrapper = _PgConnWrapper(conn)
         try:

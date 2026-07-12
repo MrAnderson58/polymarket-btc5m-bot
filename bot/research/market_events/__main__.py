@@ -83,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
             "exchange-context-report",
             "signal-quality-report",
             "weekly-signal-ranking",
+            "trader-performance-report",
+            "trader-ranking-report",
             "db-info",
             "market-db-info",
             "market-db-check",
@@ -140,6 +142,11 @@ def main(argv: list[str] | None = None) -> int:
         "--file",
         default=None,
         help="Backup archive path for market-db-restore",
+    )
+    parser.add_argument(
+        "--channel",
+        default=None,
+        help="trader-performance-report: filter by Telegram channel name",
     )
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
@@ -223,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
         "exchange-context-report",
         "signal-quality-report",
         "weekly-signal-ranking",
+        "trader-performance-report",
+        "trader-ranking-report",
     ):
         from bot.research.market_events.signal_intelligence.reports import (
             exchange_context_report,
@@ -230,6 +239,10 @@ def main(argv: list[str] | None = None) -> int:
             multitimeframe_report,
             signal_quality_report,
             weekly_ranking_report,
+        )
+        from bot.research.market_events.signal_intelligence.trader_performance_f6 import (
+            trader_performance_report,
+            trader_ranking_report,
         )
         with market_events_connection() as conn:
             apply_migrations(conn)
@@ -244,6 +257,10 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "weekly-signal-ranking":
                 print(weekly_ranking_report(conn))
                 conn.commit()
+            elif args.command == "trader-performance-report":
+                print(trader_performance_report(conn, channel=args.channel))
+            elif args.command == "trader-ranking-report":
+                print(trader_ranking_report(conn))
         return 0
 
     if args.command == "system-validation":

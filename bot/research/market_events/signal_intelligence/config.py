@@ -21,13 +21,31 @@ F2_TELEGRAM_FORMAT = os.getenv("ME_F2_TELEGRAM_FORMAT", "true").lower() in ("1",
 F3_TELEGRAM_FORMAT = os.getenv("ME_F3_TELEGRAM_FORMAT", "true").lower() in ("1", "true", "yes")
 
 TREND_SHOCK_ENABLED = os.getenv("ME_TREND_SHOCK_ENABLED", "true").lower() in ("1", "true", "yes")
-TREND_SHOCK_DEFER_ALERT = os.getenv("ME_TREND_SHOCK_DEFER_ALERT", "true").lower() in ("1", "true", "yes")
+TREND_SHOCK_DEFER_ALERT = os.getenv("ME_TREND_SHOCK_DEFER_ALERT", "false").lower() in ("1", "true", "yes")
 TREND_PREMIUM_TELEGRAM = os.getenv("ME_TREND_PREMIUM_TELEGRAM", "true").lower() in ("1", "true", "yes")
 TREND_SIGNAL_RANKING = os.getenv("ME_TREND_SIGNAL_RANKING", "true").lower() in ("1", "true", "yes")
 
 F4_VISUAL_INTEL_ENABLED = os.getenv("ME_F4_VISUAL_INTEL", "true").lower() in ("1", "true", "yes")
 F4_TREND_SHOCK_V2_ENABLED = os.getenv("ME_F4_TREND_SHOCK_V2", "true").lower() in ("1", "true", "yes")
 F4_TELEGRAM_FORMAT = os.getenv("ME_F4_TELEGRAM_FORMAT", "true").lower() in ("1", "true", "yes")
+
+F41_TELEGRAM_DEDUPE = os.getenv("ME_F41_TELEGRAM_DEDUPE", "false").lower() in ("1", "true", "yes")
+
+F5_ENABLED = os.getenv("ME_F5_PROFESSIONAL_SIGNAL", "true").lower() in ("1", "true", "yes")
+F5_TELEGRAM_FORMAT = os.getenv("ME_F5_TELEGRAM_FORMAT", "true").lower() in ("1", "true", "yes")
+F5_PRIORITY_ENGINE = os.getenv("ME_F5_PRIORITY_ENGINE", "true").lower() in ("1", "true", "yes")
+F5_MIN_TELEGRAM_CONFIDENCE = float(os.getenv("ME_F5_MIN_TELEGRAM_CONFIDENCE", "7.0"))
+F5_TOP_N_TELEGRAM = int(os.getenv("ME_F5_TOP_N_TELEGRAM", "3"))
+
+F6_ENABLED = os.getenv("ME_F6_TRADER_PERFORMANCE", "true").lower() in ("1", "true", "yes")
+F6_MIN_SIGNALS = int(os.getenv("ME_F6_MIN_SIGNALS", "10"))
+F6_WR_HIGH = float(os.getenv("ME_F6_WR_HIGH", "0.82"))
+F6_WR_LOW = float(os.getenv("ME_F6_WR_LOW", "0.38"))
+
+F7_ENABLED = os.getenv("ME_F7_MARKET_INTELLIGENCE", "true").lower() in ("1", "true", "yes")
+F7_TELEGRAM_FORMAT = os.getenv("ME_F7_TELEGRAM_FORMAT", "true").lower() in ("1", "true", "yes")
+F7_MIN_MARKET_SCORE = float(os.getenv("ME_F7_MIN_MARKET_SCORE", "55"))
+F7_MIN_FINAL_CONFIDENCE = float(os.getenv("ME_F7_MIN_FINAL_CONFIDENCE", "7.5"))
 
 PROMPT_VERSION_F0 = "f0_signal_v1"
 

@@ -189,9 +189,17 @@ def run_demo_event(conn: Any) -> tuple[int, str]:
     ai_jobs.AI_ENABLED = True
 
     try:
-        with patch.object(alerts_mod, "alerts_enabled", return_value=True):
-            with patch.object(alerts_mod, "alert_shock_enabled", return_value=True):
-                alert_shock_detected(conn, event_id)
+        with patch(
+            "bot.research.market_events.signal_intelligence.config.TREND_SHOCK_DEFER_ALERT",
+            False,
+        ):
+            with patch(
+                "bot.research.market_events.signal_intelligence.config.F5_ENABLED",
+                False,
+            ):
+                with patch.object(alerts_mod, "alerts_enabled", return_value=True):
+                    with patch.object(alerts_mod, "alert_shock_enabled", return_value=True):
+                        alert_shock_detected(conn, event_id)
         lines.append(format_delivery_status(
             conn,
             event_id=event_id,
@@ -208,25 +216,38 @@ def run_demo_event(conn: Any) -> tuple[int, str]:
         job_id = enqueue_analysis_job(conn, event_id=event_id)
         lines.append(f"5. AI job enqueued            job_id={job_id}")
 
-        with patch.object(alerts_mod, "alert_ai_commentary_enabled", return_value=True):
-            with patch.object(alerts_mod, "alerts_enabled", return_value=True):
-                with patch(
+        from bot.research.market_events.signal_intelligence.config import F41_TELEGRAM_DEDUPE
+
+        with patch.object(alerts_mod, "alerts_enabled", return_value=True):
+            if F41_TELEGRAM_DEDUPE:
+                provider_ctx = patch(
                     "bot.research.market_events.ai_analyst.analysis_runner.get_analyst_provider",
                     return_value=DeterministicShadowProvider(),
-                ):
+                )
+                with provider_ctx:
                     processed = process_pending_jobs(conn, max_jobs=1)
+            else:
+                with patch.object(alerts_mod, "alert_ai_commentary_enabled", return_value=True):
+                    with patch(
+                        "bot.research.market_events.ai_analyst.analysis_runner.get_analyst_provider",
+                        return_value=DeterministicShadowProvider(),
+                    ):
+                        processed = process_pending_jobs(conn, max_jobs=1)
 
         ai_row = conn.execute(
             "SELECT id FROM market_event_ai_analyses WHERE event_id = ?",
             (event_id,),
         ).fetchone()
         lines.append(f"6. AI analysis stored         {'yes' if ai_row else 'no'} (processed={processed})")
-        lines.append(format_delivery_status(
-            conn,
-            event_id=event_id,
-            alert_type=ALERT_AI,
-            label="7. Telegram AI note          ",
-        ))
+        if F41_TELEGRAM_DEDUPE:
+            lines.append("7. Telegram AI note          merged into shock (F.4.1)")
+        else:
+            lines.append(format_delivery_status(
+                conn,
+                event_id=event_id,
+                alert_type=ALERT_AI,
+                label="7. Telegram AI note          ",
+            ))
 
         shock_row = conn.execute(
             """

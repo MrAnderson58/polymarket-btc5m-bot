@@ -71,18 +71,22 @@ def _record_alert(
     sent: bool,
     latency_ms: float,
     error: str | None = None,
+    message_type: str | None = None,
+    telegram_message_stage: str = "NONE",
+    duplicate_prevented: int = 0,
 ) -> None:
     execute_with_retry(
         conn,
         """
         INSERT OR IGNORE INTO market_event_alert_log (
           event_id, alert_type, dedupe_key, message_text, sent, latency_ms,
-          error, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          error, created_at, message_type, telegram_message_stage, duplicate_prevented
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             event_id, alert_type, dedupe_key, message_text,
             1 if sent else 0, latency_ms, error, int(time.time()),
+            message_type, telegram_message_stage, duplicate_prevented,
         ),
     )
 
@@ -95,13 +99,57 @@ def _safe_alert(
     detail: str,
     message: str,
     enabled: bool,
+    message_type: str | None = None,
 ) -> bool:
     """Send alert with dedupe; never raises."""
+    from bot.research.market_events.signal_intelligence.config import F41_TELEGRAM_DEDUPE
+
     if not alerts_enabled() or not enabled:
         return False
     key = _dedupe_key(event_id, alert_type, detail)
-    if _already_sent(conn, key):
+    stage = "NONE"
+    resolved_message_type: str | None = None
+
+    if F41_TELEGRAM_DEDUPE and message_type:
+        from bot.research.market_events.signal_intelligence.telegram_dedupe_f41 import (
+            STAGE_FOR_MESSAGE_TYPE,
+            STAGE_NONE,
+            merge_ai_into_shock_message,
+            MSG_SHOCK,
+            record_duplicate_prevented,
+            stage_already_sent,
+        )
+
+        resolved_message_type = message_type
+        if stage_already_sent(conn, event_id, message_type):
+            try:
+                record_duplicate_prevented(
+                    conn,
+                    event_id=event_id,
+                    alert_type=alert_type,
+                    message_type=message_type,
+                    dedupe_key=key,
+                )
+            except Exception as exc:
+                logger.warning("duplicate prevented log failed: %s", exc)
+            return False
+        if _already_sent(conn, key):
+            try:
+                record_duplicate_prevented(
+                    conn,
+                    event_id=event_id,
+                    alert_type=alert_type,
+                    message_type=message_type,
+                    dedupe_key=f"{key}:dedupe",
+                )
+            except Exception as exc:
+                logger.warning("duplicate prevented log failed: %s", exc)
+            return False
+        if message_type == MSG_SHOCK:
+            message = merge_ai_into_shock_message(conn, event_id, message)
+    elif _already_sent(conn, key):
         return False
+
     t0 = time.perf_counter()
     sent, err = False, None
     try:
@@ -112,10 +160,17 @@ def _safe_alert(
         err = str(exc)
         logger.warning("alert %s event=%s failed: %s", alert_type, event_id, exc)
     latency = (time.perf_counter() - t0) * 1000.0
+    if F41_TELEGRAM_DEDUPE and resolved_message_type and sent:
+        from bot.research.market_events.signal_intelligence.telegram_dedupe_f41 import (
+            STAGE_FOR_MESSAGE_TYPE,
+            STAGE_NONE,
+        )
+        stage = STAGE_FOR_MESSAGE_TYPE.get(resolved_message_type, STAGE_NONE)
     try:
         _record_alert(
             conn, event_id=event_id, alert_type=alert_type, dedupe_key=key,
             message_text=message, sent=sent, latency_ms=latency, error=err,
+            message_type=resolved_message_type, telegram_message_stage=stage,
         )
     except Exception as exc:
         logger.warning("alert log persist failed: %s", exc)
@@ -123,6 +178,15 @@ def _safe_alert(
 
 
 def format_shock_alert(conn: Any, event_id: int) -> str:
+    from bot.research.market_events.signal_intelligence.config import F5_TELEGRAM_FORMAT
+    if F5_TELEGRAM_FORMAT:
+        row = conn.execute(
+            "SELECT 1 FROM market_events_signal_reports_f2 WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        if row:
+            from bot.research.market_events.signal_intelligence.telegram_f5 import format_shock_f5
+            return format_shock_f5(conn, event_id)
     from bot.research.market_events.signal_intelligence.config import F4_TELEGRAM_FORMAT
     if F4_TELEGRAM_FORMAT:
         row = conn.execute(
@@ -184,13 +248,19 @@ def format_shock_alert(conn: Any, event_id: int) -> str:
 
 
 def alert_shock_detected(conn: Any, event_id: int) -> bool:
-    from bot.research.market_events.signal_intelligence.config import TREND_SHOCK_DEFER_ALERT
-    if TREND_SHOCK_DEFER_ALERT:
+    from bot.research.market_events.signal_intelligence.config import (
+        F41_TELEGRAM_DEDUPE,
+        F5_ENABLED,
+        TREND_SHOCK_DEFER_ALERT,
+    )
+    from bot.research.market_events.signal_intelligence.telegram_dedupe_f41 import MSG_SHOCK
+    if TREND_SHOCK_DEFER_ALERT or F5_ENABLED:
         return False
     msg = format_shock_alert(conn, event_id)
     return _safe_alert(
         conn, event_id=event_id, alert_type=ALERT_SHOCK, detail="",
         message=msg, enabled=alert_shock_enabled(),
+        message_type=MSG_SHOCK if F41_TELEGRAM_DEDUPE else None,
     )
 
 
@@ -250,6 +320,13 @@ def alert_paper_position_update(
     if not alert_paper_updates_enabled():
         return False
 
+    from bot.research.market_events.signal_intelligence.config import F41_TELEGRAM_DEDUPE
+    from bot.research.market_events.signal_intelligence.telegram_dedupe_f41 import (
+        message_type_for_paper_update,
+    )
+
+    paper_message_type = message_type_for_paper_update(update_type) if F41_TELEGRAM_DEDUPE else None
+
     from bot.research.market_events.signal_intelligence.config import F3_TELEGRAM_FORMAT, F2_TELEGRAM_FORMAT, F1_TELEGRAM_FORMAT
 
     if update_type == "PAPER_ENTRY" and F3_TELEGRAM_FORMAT:
@@ -288,6 +365,7 @@ def alert_paper_position_update(
             return _safe_alert(
                 conn, event_id=event_id, alert_type=ALERT_PAPER,
                 detail=dedupe_detail, message=msg, enabled=True,
+                message_type=paper_message_type,
             )
 
     if update_type == "PAPER_ENTRY" and F2_TELEGRAM_FORMAT:
@@ -326,6 +404,7 @@ def alert_paper_position_update(
             return _safe_alert(
                 conn, event_id=event_id, alert_type=ALERT_PAPER,
                 detail=dedupe_detail, message=msg, enabled=True,
+                message_type=paper_message_type,
             )
 
     if update_type == "PAPER_ENTRY" and F1_TELEGRAM_FORMAT:
@@ -364,6 +443,7 @@ def alert_paper_position_update(
             return _safe_alert(
                 conn, event_id=event_id, alert_type=ALERT_PAPER,
                 detail=dedupe_detail, message=msg, enabled=True,
+                message_type=paper_message_type,
             )
 
     if update_type in ("TP", "STOP", "BE_STOP", "CLOSED"):
@@ -523,14 +603,21 @@ def alert_paper_position_update(
     return _safe_alert(
         conn, event_id=event_id, alert_type=ALERT_PAPER,
         detail=dedupe_detail, message=msg, enabled=True,
+        message_type=paper_message_type,
     )
 
 
 def alert_ai_research_note(conn: Any, event_id: int, commentary: str) -> bool:
+    from bot.research.market_events.signal_intelligence.config import F41_TELEGRAM_DEDUPE
+    if F41_TELEGRAM_DEDUPE:
+        logger.debug(
+            "ai research note suppressed (merged into shock alert) event=%s len=%s",
+            event_id, len(commentary or ""),
+        )
+        return False
     if not alert_ai_commentary_enabled():
         return False
-    msg = commentary
     return _safe_alert(
         conn, event_id=event_id, alert_type=ALERT_AI, detail="shadow",
-        message=msg, enabled=True,
+        message=commentary, enabled=True,
     )

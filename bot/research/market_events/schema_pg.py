@@ -25,6 +25,10 @@ from bot.research.market_events.event_schema import (
     F2_DDL,
     F3_TREND_DDL,
     F4_DDL,
+    F5_DDL,
+    F51_DDL,
+    F6_DDL,
+    F41_ALTER_STATEMENTS,
     MIGRATIONS_TABLE,
     SCHEMA_VERSION,
 )
@@ -46,6 +50,10 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     14: "Phase F.2 professional trading intelligence",
     15: "Phase F.3 trend shock intelligence",
     16: "Phase F.4 visual intelligence and trend shock v2",
+    17: "Phase F.4.1 Telegram dedupe and final alert stages",
+    18: "Phase F.5 professional signal engine",
+    19: "Phase F.5.1 signal pipeline trace",
+    20: "Phase F.6 trader performance learning",
 }
 
 
@@ -101,6 +109,9 @@ def full_pg_ddl() -> str:
         F2_DDL,
         F3_TREND_DDL,
         F4_DDL,
+        F5_DDL,
+        F51_DDL,
+        F6_DDL,
     ]
     ddl = sqlite_ddl_to_pg("\n".join(blocks))
     alters = [pg_alter_add_column(s) for s in (
@@ -108,6 +119,7 @@ def full_pg_ddl() -> str:
         + E21_ALTER_STATEMENTS
         + E31_ALTER_STATEMENTS
         + list(E531_ALTER_STATEMENTS)
+        + list(F41_ALTER_STATEMENTS)
     )]
     return ddl + "\n" + ";\n".join(alters) + ";"
 
@@ -204,4 +216,9 @@ ALL_TABLES: tuple[str, ...] = (
     "market_events_alert_rankings_f3",
     "market_events_visual_intel_f4",
     "market_events_trend_shock_v2",
+    "market_events_signal_reports_f5",
+    "market_events_signal_priority_f5",
+    "market_events_signal_trace_f51",
+    "market_events_trader_performance_f6",
+    "market_events_market_intelligence_f7",
 )

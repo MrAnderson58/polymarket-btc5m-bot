@@ -15,7 +15,7 @@ import requests
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import ReadTimeout
 
-from bot.research.futures_agent.db import agent_connection
+from bot.research.futures_agent.db import AgentDbError, agent_connection
 from bot.research.futures_agent.env_bootstrap import project_root, resolve_agent_db_config
 from bot.research.futures_agent.ingestion import ingest_from_telegram
 from bot.research.futures_agent.pipeline import ProcessResult, process_input
@@ -28,11 +28,25 @@ from bot.research.futures_agent.telegram_config import (
     is_chat_allowed,
     require_telegram_inbound_config,
 )
+from bot.research.futures_agent.telegram_intake_f52 import (
+    IGNORE_CHAT_NOT_ALLOWED,
+    IGNORE_DATABASE_ERROR,
+    IGNORE_DUPLICATE,
+    IGNORE_EMPTY_MESSAGE,
+    IGNORE_PARSER_REJECTED,
+    IGNORE_SNAPSHOT_UNAVAILABLE,
+    STATS_INTERVAL_SEC,
+    PollSessionStats,
+    check_telegram_connected,
+    format_periodic_stats,
+    format_poll_startup,
+    log_ignored,
+    save_poll_stats,
+)
 from bot.research.futures_agent.telegram_replies import (
     format_telegram_accepted,
     format_telegram_duplicate,
     format_telegram_rejected,
-    format_telegram_unauthorized,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,6 +66,13 @@ class InboundResult:
     reply_text: str | None
     skipped: bool = False
     unauthorized: bool = False
+    processed: bool = False
+    ignore_reason: str | None = None
+    parser_failed: bool = False
+    snapshot_failed: bool = False
+    reply_sent: bool = False
+    reply_failed: bool = False
+    processing_ms: int | None = None
 
 
 def extract_message_text(message: dict[str, Any]) -> str | None:
@@ -88,70 +109,173 @@ def process_telegram_message(
     db_url: str | None = None,
 ) -> InboundResult:
     """Full pipeline: ingest → parse → snapshot (if gated) → reply text."""
+    t0 = time.perf_counter()
     chat = message.get("chat") or {}
     chat_id = int(chat.get("id", 0))
     message_id = int(message.get("message_id", 0))
 
+    def _elapsed() -> int:
+        return int((time.perf_counter() - t0) * 1000)
+
     if not is_chat_allowed(chat_id):
         logger.info("Rejected unauthorized chat_id=%s", chat_id)
-        return InboundResult(chat_id, message_id, None, unauthorized=True)
+        return InboundResult(
+            chat_id, message_id, None,
+            unauthorized=True, skipped=True,
+            ignore_reason=IGNORE_CHAT_NOT_ALLOWED,
+            processing_ms=_elapsed(),
+        )
 
     text = extract_message_text(message)
     if not text or not text.strip():
-        return InboundResult(chat_id, message_id, "Empty message ignored.", skipped=True)
+        return InboundResult(
+            chat_id, message_id, "Empty message ignored.",
+            skipped=True, ignore_reason=IGNORE_EMPTY_MESSAGE,
+            processing_ms=_elapsed(),
+        )
 
     received_at = int(message.get("date", time.time()))
     forward_origin = extract_forward_origin(message)
 
-    with agent_connection(db_url) as conn:
-        apply_migrations(conn)
-        ing = ingest_from_telegram(
-            conn,
-            raw_text=text,
-            chat_id=chat_id,
-            message_id=message_id,
-            forward_origin=forward_origin,
-            received_at=received_at,
+    try:
+        with agent_connection(db_url) as conn:
+            apply_migrations(conn)
+            ing = ingest_from_telegram(
+                conn,
+                raw_text=text,
+                chat_id=chat_id,
+                message_id=message_id,
+                forward_origin=forward_origin,
+                received_at=received_at,
+            )
+            from bot.research.futures_agent.telegram_inbound_bridge import bridge_input_to_research
+            bridge_input_to_research(conn, ing.input_id)
+            if ing.duplicate:
+                return InboundResult(
+                    chat_id, message_id, format_telegram_duplicate(),
+                    skipped=True, ignore_reason=IGNORE_DUPLICATE,
+                    processing_ms=_elapsed(),
+                )
+            proc = process_input(conn, ing.input_id)
+            input_id = ing.input_id
+            signal_id = proc.signal_id
+            passes_gate = proc.passes_gate
+            parser_failed = proc.parse_status == "FAILED"
+    except AgentDbError as exc:
+        logger.error("database error processing message_id=%s: %s", message_id, exc)
+        return InboundResult(
+            chat_id, message_id, None,
+            skipped=True, ignore_reason=IGNORE_DATABASE_ERROR,
+            processing_ms=_elapsed(),
         )
-        from bot.research.futures_agent.telegram_inbound_bridge import bridge_input_to_research
-        bridge_input_to_research(conn, ing.input_id)
-        if ing.duplicate:
-            return InboundResult(chat_id, message_id, format_telegram_duplicate(), skipped=True)
-        proc = process_input(conn, ing.input_id)
-        input_id = ing.input_id
-        signal_id = proc.signal_id
-        passes_gate = proc.passes_gate
+    except Exception as exc:
+        logger.error("unexpected error processing message_id=%s: %s", message_id, exc)
+        return InboundResult(
+            chat_id, message_id, None,
+            skipped=True, ignore_reason=IGNORE_DATABASE_ERROR,
+            processing_ms=_elapsed(),
+        )
 
     if not passes_gate:
-        return InboundResult(chat_id, message_id, format_telegram_rejected(proc))
+        return InboundResult(
+            chat_id, message_id, format_telegram_rejected(proc),
+            skipped=True, ignore_reason=IGNORE_PARSER_REJECTED,
+            parser_failed=parser_failed or True,
+            processing_ms=_elapsed(),
+        )
 
     snap: SnapshotResult | None = None
     if signal_id:
-        with agent_connection(db_url) as conn:
-            apply_migrations(conn)
-            snap = snapshot_signal(conn, signal_id)
+        try:
+            with agent_connection(db_url) as conn:
+                apply_migrations(conn)
+                snap = snapshot_signal(conn, signal_id)
+        except Exception as exc:
+            logger.error("snapshot error signal_id=%s: %s", signal_id, exc)
+            return InboundResult(
+                chat_id, message_id, None,
+                skipped=True, ignore_reason=IGNORE_SNAPSHOT_UNAVAILABLE,
+                snapshot_failed=True, processing_ms=_elapsed(),
+            )
+        if snap and not snap.success and not snap.skipped:
+            return InboundResult(
+                chat_id, message_id, None,
+                skipped=True, ignore_reason=IGNORE_SNAPSHOT_UNAVAILABLE,
+                snapshot_failed=True, processing_ms=_elapsed(),
+            )
 
-    with agent_connection(db_url) as conn:
-        reply = format_telegram_accepted(
-            conn, input_id=input_id, signal_id=signal_id or 0, snap=snap,
+    try:
+        with agent_connection(db_url) as conn:
+            reply = format_telegram_accepted(
+                conn, input_id=input_id, signal_id=signal_id or 0, snap=snap,
+            )
+    except Exception as exc:
+        logger.error("reply format error input_id=%s: %s", input_id, exc)
+        return InboundResult(
+            chat_id, message_id, None,
+            skipped=True, ignore_reason=IGNORE_DATABASE_ERROR,
+            processing_ms=_elapsed(),
         )
-    return InboundResult(chat_id, message_id, reply)
+
+    return InboundResult(
+        chat_id, message_id, reply,
+        processed=True, processing_ms=_elapsed(),
+    )
+
+
+def _apply_inbound_stats(result: InboundResult, stats: PollSessionStats | None) -> None:
+    if stats is None:
+        return
+    stats.record_received()
+    stats.touch_message()
+    if result.processed:
+        stats.record_processed(processing_ms=result.processing_ms)
+    elif result.skipped or result.unauthorized:
+        stats.record_ignored(
+            parser_error=result.parser_failed,
+            snapshot_failure=result.snapshot_failed,
+        )
+    if result.reply_sent:
+        stats.record_reply(sent=True)
+    elif result.reply_failed:
+        stats.record_reply(sent=False)
 
 
 def handle_update(
     update: dict[str, Any],
     *,
     db_url: str | None = None,
+    stats: PollSessionStats | None = None,
 ) -> InboundResult | None:
     message = update.get("message") or update.get("edited_message")
     if not message:
+        if stats is not None:
+            stats.record_received()
+            stats.record_ignored()
+        log_ignored("non-message update", logger=logger)
         return None
+
     result = process_telegram_message(message, db_url=db_url)
-    if result.unauthorized:
-        return result
-    if result.reply_text:
-        send_telegram_reply(result.chat_id, result.reply_text)
-    _record_last_message(result.chat_id, result.message_id)
+    _apply_inbound_stats(result, stats)
+
+    if result.ignore_reason:
+        log_ignored(result.ignore_reason, logger=logger)
+
+    if not result.unauthorized and result.reply_text:
+        sent = send_telegram_reply(result.chat_id, result.reply_text)
+        result.reply_sent = sent
+        result.reply_failed = not sent
+        if stats is not None:
+            stats.record_reply(sent=sent)
+        if not sent:
+            logger.warning("reply failed chat_id=%s message_id=%s", result.chat_id, result.message_id)
+
+    if result.processed or result.reply_text:
+        _record_last_message(result.chat_id, result.message_id)
+
+    if stats is not None:
+        save_poll_stats(stats)
+
     return result
 
 
@@ -175,11 +299,12 @@ def _commit_update_batch(
     *,
     start_offset: int,
     db_url: str | None = None,
+    stats: PollSessionStats | None = None,
 ) -> int:
     """Process updates; persist offset only after each update succeeds."""
     committed_offset = start_offset
     for upd in updates:
-        handle_update(upd, db_url=db_url)
+        handle_update(upd, db_url=db_url, stats=stats)
         next_offset = int(upd["update_id"]) + 1
         if next_offset > committed_offset:
             committed_offset = next_offset
@@ -191,8 +316,23 @@ def run_poll_loop() -> None:
     """Long-polling loop with file lock (single local consumer)."""
     require_telegram_inbound_config()
     cfg = resolve_agent_db_config()
+    token = get_telegram_bot_token()
+
+    if cfg.is_postgres:
+        try:
+            with agent_connection():
+                pass
+        except AgentDbError as exc:
+            raise SystemExit(str(exc)) from exc
+
+    telegram_ok = check_telegram_connected(token)
+    print(format_poll_startup(cfg, telegram_connected=telegram_ok))
+
     db_url = cfg.url
-    _check_polling_conflicts(get_telegram_bot_token())
+    _check_polling_conflicts(token)
+
+    stats = PollSessionStats()
+    save_poll_stats(stats)
 
     lock_path = project_root() / LOCK_FILE
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -212,6 +352,7 @@ def run_poll_loop() -> None:
         offset = _load_offset()
         backoff = CONN_BACKOFF_INITIAL_SEC
         connection_degraded = False
+        last_stats_log = time.time()
         logger.info("Telegram poll started backend=%s offset=%s", cfg.backend, offset)
         try:
             while True:
@@ -219,7 +360,7 @@ def run_poll_loop() -> None:
                     token, _ = require_telegram_inbound_config()
                     updates = _fetch_updates(token, offset=offset or None)
                     offset = _commit_update_batch(
-                        updates, start_offset=offset or 0, db_url=db_url,
+                        updates, start_offset=offset or 0, db_url=db_url, stats=stats,
                     )
                     if connection_degraded:
                         logger.info("polling recovered")
@@ -232,8 +373,14 @@ def run_poll_loop() -> None:
                     connection_degraded = True
                     time.sleep(backoff)
                     backoff = min(backoff * 2, CONN_BACKOFF_MAX_SEC)
+
+                if time.time() - last_stats_log >= STATS_INTERVAL_SEC:
+                    logger.info("\n%s", format_periodic_stats(stats))
+                    save_poll_stats(stats)
+                    last_stats_log = time.time()
         except KeyboardInterrupt:
             logger.info("Telegram poll stopped")
+            save_poll_stats(stats)
     finally:
         os.close(lock_fd)
 
@@ -253,6 +400,7 @@ def run_diagnose() -> dict[str, Any]:
         "polling_conflict_risk": "unknown",
         "last_offset": _load_offset(),
         "last_processed": _load_last_message(),
+        "telegram_connected": check_telegram_connected(token),
     }
 
     if token:
@@ -296,6 +444,7 @@ def render_diagnose(report: dict[str, Any]) -> str:
     lines = [
         "TELEGRAM INBOUND DIAGNOSE",
         f"  token configured: {'yes' if report['token_configured'] else 'no'}",
+        f"  telegram connected: {'yes' if report.get('telegram_connected') else 'no'}",
         f"  allowed chats configured: {report['allowed_chats_count']}",
         f"  polling conflict risk: {report['polling_conflict_risk']}",
         f"  webhook active: {report['webhook_active']}",

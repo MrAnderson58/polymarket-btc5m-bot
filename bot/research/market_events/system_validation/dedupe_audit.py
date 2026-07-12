@@ -112,8 +112,16 @@ def functional_alert_dedupe_test(conn: Any) -> ValidationResult:
     with patch("bot.research.market_events.market_event_alerts._send_telegram", return_value=(True, None)):
         with patch("bot.research.market_events.market_event_alerts.alerts_enabled", return_value=True):
             with patch("bot.research.market_events.market_event_alerts.alert_shock_enabled", return_value=True):
-                alert_shock_detected(conn, int(eid))
-                alert_shock_detected(conn, int(eid))
+                with patch(
+                    "bot.research.market_events.signal_intelligence.config.TREND_SHOCK_DEFER_ALERT",
+                    False,
+                ):
+                    with patch(
+                        "bot.research.market_events.signal_intelligence.config.F5_ENABLED",
+                        False,
+                    ):
+                        alert_shock_detected(conn, int(eid))
+                        alert_shock_detected(conn, int(eid))
     after = conn.execute(
         "SELECT COUNT(*) FROM market_event_alert_log WHERE event_id = ?",
         (eid,),

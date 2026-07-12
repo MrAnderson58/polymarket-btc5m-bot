@@ -39,8 +39,8 @@ class SignalIntelligenceF1Tests(unittest.TestCase):
     def test_schema_v13(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v16", applied)
-            self.assertEqual(SCHEMA_VERSION, 16)
+            self.assertIn("v18", applied)
+            self.assertEqual(SCHEMA_VERSION, 21)
 
     def test_confidence_weights_sum_to_ten(self) -> None:
         self.assertAlmostEqual(sum(CONFIDENCE_WEIGHTS.values()), 10.0)

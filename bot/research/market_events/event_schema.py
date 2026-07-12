@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 21
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -376,6 +376,75 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v16")
             current = 16
+
+        if current < 17:
+            for stmt in F41_ALTER_STATEMENTS:
+                try:
+                    conn.execute(stmt)
+                except Exception:
+                    pass
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (17, now, "Phase F.4.1 Telegram dedupe and final alert stages"),
+            )
+            applied.append("v17")
+            current = 17
+
+        if current < 18:
+            conn.executescript(F5_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (18, now, "Phase F.5 professional signal engine"),
+            )
+            applied.append("v18")
+            current = 18
+
+        if current < 19:
+            conn.executescript(F51_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (19, now, "Phase F.5.1 signal pipeline trace"),
+            )
+            applied.append("v19")
+            current = 19
+
+        if current < 20:
+            conn.executescript(F6_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (20, now, "Phase F.6 trader performance learning"),
+            )
+            applied.append("v20")
+            current = 20
+
+        if current < 21:
+            conn.executescript(F7_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (21, now, "Phase F.7 market intelligence engine"),
+            )
+            applied.append("v21")
+            current = 21
 
     if not applied:
         conn.commit()
@@ -1226,4 +1295,125 @@ CREATE TABLE IF NOT EXISTS market_events_trend_shock_v2 (
 
 CREATE INDEX IF NOT EXISTS idx_me_trend_v2_event ON market_events_trend_shock_v2(event_id);
 CREATE INDEX IF NOT EXISTS idx_me_trend_v2_symbol ON market_events_trend_shock_v2(symbol, event_ts);
+"""
+
+F41_ALTER_STATEMENTS = (
+    "ALTER TABLE market_event_alert_log ADD COLUMN message_type TEXT",
+    "ALTER TABLE market_event_alert_log ADD COLUMN telegram_message_stage TEXT DEFAULT 'NONE'",
+    "ALTER TABLE market_event_alert_log ADD COLUMN duplicate_prevented INTEGER NOT NULL DEFAULT 0",
+    "CREATE INDEX IF NOT EXISTS idx_me_alert_event_msgtype ON market_event_alert_log(event_id, message_type)",
+)
+
+F5_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_signal_reports_f5 (
+    event_id INTEGER PRIMARY KEY,
+    dynamic_confidence REAL NOT NULL,
+    reversal_probability REAL NOT NULL,
+    continuation_probability REAL NOT NULL,
+    entry_quality TEXT NOT NULL,
+    signal_cause TEXT NOT NULL,
+    interest_factors_json TEXT NOT NULL,
+    historical_examples_json TEXT NOT NULL,
+    risk_reward REAL NOT NULL,
+    tp_probabilities_json TEXT NOT NULL,
+    tp1_pct REAL NOT NULL,
+    tp2_pct REAL NOT NULL,
+    tp3_pct REAL NOT NULL,
+    stop_pct REAL NOT NULL,
+    priority_score REAL NOT NULL,
+    telegram_eligible INTEGER NOT NULL DEFAULT 0,
+    telegram_skip_reason TEXT,
+    ai_summary_ru TEXT NOT NULL,
+    telegram_rendered TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_signal_f5_conf ON market_events_signal_reports_f5(dynamic_confidence DESC);
+CREATE INDEX IF NOT EXISTS idx_me_signal_f5_quality ON market_events_signal_reports_f5(entry_quality);
+
+CREATE TABLE IF NOT EXISTS market_events_signal_priority_f5 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    dynamic_confidence REAL NOT NULL,
+    priority_score REAL NOT NULL,
+    rank_position INTEGER NOT NULL DEFAULT 0,
+    window_bucket INTEGER NOT NULL,
+    telegram_sent INTEGER NOT NULL DEFAULT 0,
+    telegram_skipped_reason TEXT,
+    created_at INTEGER NOT NULL,
+    UNIQUE(event_id, window_bucket),
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_priority_f5_window ON market_events_signal_priority_f5(window_bucket, priority_score DESC);
+"""
+
+F51_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_signal_trace_f51 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    message_id INTEGER,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL,
+    reason TEXT,
+    latency_ms INTEGER,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_trace_f51_event ON market_events_signal_trace_f51(event_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_me_trace_f51_stage ON market_events_signal_trace_f51(stage);
+"""
+
+F6_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_trader_performance_f6 (
+    channel_name TEXT PRIMARY KEY,
+    signals_count INTEGER NOT NULL DEFAULT 0,
+    wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    win_rate REAL NOT NULL DEFAULT 0,
+    avg_rr REAL NOT NULL DEFAULT 0,
+    avg_pnl REAL NOT NULL DEFAULT 0,
+    max_drawdown REAL NOT NULL DEFAULT 0,
+    avg_tp_time_sec REAL NOT NULL DEFAULT 0,
+    author_score REAL NOT NULL DEFAULT 0,
+    last_30_wins INTEGER NOT NULL DEFAULT 0,
+    last_30_losses INTEGER NOT NULL DEFAULT 0,
+    recent_outcomes_json TEXT NOT NULL DEFAULT '[]',
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_trader_f6_wr ON market_events_trader_performance_f6(win_rate DESC);
+CREATE INDEX IF NOT EXISTS idx_me_trader_f6_score ON market_events_trader_performance_f6(author_score DESC);
+"""
+
+F7_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_market_intelligence_f7 (
+    event_id INTEGER PRIMARY KEY,
+    market_score REAL NOT NULL DEFAULT 0,
+    component_scores_json TEXT NOT NULL DEFAULT '{}',
+    final_confidence REAL NOT NULL DEFAULT 0,
+    success_probability REAL NOT NULL DEFAULT 0,
+    liquidation_regime TEXT,
+    liquidation_continuation_prob REAL,
+    liquidation_reversal_prob REAL,
+    liquidation_intel_json TEXT NOT NULL DEFAULT '{}',
+    dominance_regime TEXT,
+    dominance_json TEXT NOT NULL DEFAULT '{}',
+    whale_score REAL NOT NULL DEFAULT 0,
+    whale_intel_json TEXT NOT NULL DEFAULT '{}',
+    news_impact TEXT NOT NULL DEFAULT 'LOW',
+    news_keywords_json TEXT NOT NULL DEFAULT '[]',
+    long_trend_stage TEXT,
+    long_trend_json TEXT NOT NULL DEFAULT '{}',
+    image_intel_json TEXT NOT NULL DEFAULT '{}',
+    interest_factors_json TEXT NOT NULL DEFAULT '[]',
+    telegram_rendered TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_intel_f7_score ON market_events_market_intelligence_f7(market_score DESC);
+CREATE INDEX IF NOT EXISTS idx_me_intel_f7_conf ON market_events_market_intelligence_f7(final_confidence DESC);
 """

@@ -30,6 +30,10 @@ Usage:
   python -m bot.research.futures_agent process-pending
   python -m bot.research.futures_agent snapshot --signal-id ID
   python -m bot.research.futures_agent snapshot-pending --limit 50
+  python -m bot.research.futures_agent signal-trace --last 20
+  python -m bot.research.futures_agent config-diagnose
+  python -m bot.research.futures_agent telegram-status
+  python -m bot.research.futures_agent telegram-selftest
   python -m bot.research.futures_agent context-report --signal-id ID
 
 Does NOT modify Polymarket execution, bidirectional, ER, or MTF collectors.
@@ -52,7 +56,8 @@ def main() -> int:
         choices=(
             "audit", "migrate", "ingest", "process-pending",
             "snapshot", "snapshot-pending", "context-report", "snapshot-audit",
-            "telegram-poll", "telegram-diagnose", "telegram-inbound-audit",
+            "telegram-poll", "telegram-diagnose", "telegram-status", "telegram-selftest",
+            "telegram-inbound-audit",
             "telegram-bridge-artifact-audit", "telegram-bridge-sync", "telegram-context-readiness",
             "telegram-multi-intent-audit", "stage3-audit",
             "stage3-migrate", "ingest-research", "research-stats",
@@ -66,9 +71,11 @@ def main() -> int:
             "research-classify-audit", "research-explicit-audit",
             "research-signal-format-audit",
             "evaluate-theses", "evaluate-sources", "source-report", "symbol-report",
+            "signal-trace",
+            "config-diagnose",
         ),
     )
-    parser.add_argument("--text", default=None, help="Signal text for ingest")
+    parser.add_argument("--last", type=int, default=20, help="Last N traced events for signal-trace")
     parser.add_argument("--signal-id", type=int, default=None, help="Signal id for snapshot/report")
     parser.add_argument("--limit", type=int, default=None, help="Max rows to process")
     parser.add_argument("--dry-run", action="store_true", help="Ingest without DB write")
@@ -704,6 +711,37 @@ def main() -> int:
             apply_migrations(conn)
             print(format_snapshot_audit(conn, args.signal_id))
         return 0
+
+    if args.command == "config-diagnose":
+        from bot.research.futures_agent.config_diagnose import format_config_diagnose, run_config_diagnose
+
+        print(format_config_diagnose(run_config_diagnose()))
+        return 0
+
+    if args.command == "signal-trace":
+        from bot.research.futures_agent.signal_trace_cli import run_signal_trace
+
+        print(run_signal_trace(last=args.last))
+        return 0
+
+    if args.command == "telegram-status":
+        from bot.research.futures_agent.telegram_intake_f52 import (
+            build_telegram_status,
+            format_telegram_status,
+        )
+
+        print(format_telegram_status(build_telegram_status()))
+        return 0
+
+    if args.command == "telegram-selftest":
+        from bot.research.futures_agent.telegram_intake_f52 import (
+            format_telegram_selftest,
+            run_telegram_selftest,
+        )
+
+        steps, ok = run_telegram_selftest()
+        print(format_telegram_selftest(steps, all_ok=ok))
+        return 0 if ok else 1
 
     if args.command == "telegram-diagnose":
         from bot.research.futures_agent.telegram_inbound import render_diagnose, run_diagnose

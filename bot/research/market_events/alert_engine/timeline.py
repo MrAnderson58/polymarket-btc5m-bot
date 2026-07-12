@@ -8,7 +8,7 @@ from typing import Any
 
 
 def build_event_timeline(conn: Any, *, event_id: int) -> list[dict[str, Any]]:
-    """Shock → Telegram → News → AI → Reversal → Paper → Exit."""
+    """Shock → trace stages → Telegram → News → AI → Reversal → Paper → Exit."""
     steps: list[dict[str, Any]] = []
     ev = conn.execute("SELECT * FROM market_events WHERE id = ?", (event_id,)).fetchone()
     if not ev:
@@ -19,6 +19,20 @@ def build_event_timeline(conn: Any, *, event_id: int) -> list[dict[str, Any]]:
         "ts": int(ev["event_ts"]),
         "detail": f"{ev['symbol']} {ev['return_pct']:+.2f}% {ev['direction']}",
     })
+
+    try:
+        from bot.research.market_events.signal_intelligence.signal_trace_f51 import trace_for_timeline
+        for trace_step in trace_for_timeline(conn, event_id=event_id):
+            steps.append({
+                "stage": trace_step["stage"],
+                "ts": trace_step["ts"],
+                "detail": trace_step["detail"],
+                "status": trace_step.get("status"),
+                "latency_ms": trace_step.get("latency_ms"),
+                "source": "signal_trace_f51",
+            })
+    except Exception:
+        pass
 
     for ctx in conn.execute(
         """

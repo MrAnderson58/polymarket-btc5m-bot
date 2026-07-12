@@ -12,10 +12,12 @@ def send_deferred_trend_alert(conn: Any, event_id: int) -> bool:
     from bot.research.market_events.alert_config import alert_shock_enabled
     from bot.research.market_events.market_event_alerts import ALERT_SHOCK, _safe_alert
     from bot.research.market_events.signal_intelligence.config import (
+        F41_TELEGRAM_DEDUPE,
         TREND_PREMIUM_TELEGRAM,
         TREND_SIGNAL_RANKING,
         TREND_SHOCK_ENABLED,
     )
+    from bot.research.market_events.signal_intelligence.telegram_dedupe_f41 import MSG_SHOCK
 
     if not TREND_SHOCK_ENABLED or not alert_shock_enabled():
         return False
@@ -50,6 +52,7 @@ def send_deferred_trend_alert(conn: Any, event_id: int) -> bool:
         detail="trend_premium_v2",
         message=msg,
         enabled=True,
+        message_type=MSG_SHOCK if F41_TELEGRAM_DEDUPE else None,
     )
     if sent and TREND_SIGNAL_RANKING:
         from bot.research.market_events.signal_intelligence.signal_ranking_f3 import mark_alert_sent

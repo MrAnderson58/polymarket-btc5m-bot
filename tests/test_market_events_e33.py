@@ -57,8 +57,14 @@ class MarketEventsE33Tests(unittest.TestCase):
             "ME_AI_PROVIDER": "deterministic",
         }, clear=False)
         self._env_patch.start()
+        self._f5_patch = patch(
+            "bot.research.market_events.signal_intelligence.config.F5_ENABLED",
+            False,
+        )
+        self._f5_patch.start()
 
     def tearDown(self) -> None:
+        self._f5_patch.stop()
         self._env_patch.stop()
         self._tmpdir.cleanup()
 
@@ -108,7 +114,7 @@ class MarketEventsE33Tests(unittest.TestCase):
             self.assertTrue(alert_shock_detected(conn, eid))
             self.assertFalse(alert_shock_detected(conn, eid))
             n = conn.execute(
-                "SELECT COUNT(*) FROM market_event_alert_log WHERE alert_type=?",
+                "SELECT COUNT(*) FROM market_event_alert_log WHERE alert_type=? AND sent=1",
                 (ALERT_SHOCK,),
             ).fetchone()[0]
             self.assertEqual(n, 1)

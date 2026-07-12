@@ -8,7 +8,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, ANY
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import ReadTimeout
@@ -173,8 +173,9 @@ class TelegramInboundTestCase(unittest.TestCase):
         with agent_connection(self.db_url) as conn:
             n = conn.execute("SELECT COUNT(*) AS n FROM futures_agent_signals").fetchone()["n"]
         self.assertEqual(n, 1)
-        self.assertIn("SIGNAL ACCEPTED", result.reply_text or "")
-        self.assertIn("failed", (result.reply_text or "").lower())
+        self.assertTrue(result.skipped)
+        self.assertEqual(result.ignore_reason, "snapshot unavailable")
+        self.assertFalse(result.reply_text)
 
     def test_reply_no_trading_recommendation(self) -> None:
         with patch("bot.research.futures_agent.telegram_inbound.snapshot_signal") as mock_snap:
@@ -322,15 +323,22 @@ class TelegramBackendIsolationTestCase(unittest.TestCase):
         ), patch(
             "bot.research.futures_agent.telegram_inbound.resolve_agent_db_config",
             return_value=cfg,
-        ), patch("fcntl.flock"), patch(
+        ), patch(
+            "bot.research.futures_agent.telegram_inbound.check_telegram_connected",
+            return_value=True,
+        ), patch(
+            "bot.research.futures_agent.telegram_inbound.agent_connection",
+        ) as mock_pg, patch("fcntl.flock"), patch(
             "bot.research.futures_agent.telegram_inbound._fetch_updates",
             side_effect=fetch_side_effect,
         ), patch(
             "bot.research.futures_agent.telegram_inbound._commit_update_batch",
         ) as mock_commit:
+            mock_pg.return_value.__enter__ = MagicMock(return_value=MagicMock())
+            mock_pg.return_value.__exit__ = MagicMock(return_value=False)
             run_poll_loop()
 
-        mock_commit.assert_called_with([], start_offset=0, db_url="postgresql:///trading_ai")
+        mock_commit.assert_called_with([], start_offset=0, db_url="postgresql:///trading_ai", stats=ANY)
 
 
 class TelegramPollResilienceTestCase(unittest.TestCase):
@@ -492,6 +500,78 @@ class TelegramPollResilienceTestCase(unittest.TestCase):
             run_poll_loop()
 
         self.assertIn("Telegram poll stopped", " ".join(cm.output))
+
+    def test_poll_startup_prints_backend_and_env(self) -> None:
+        patches = self._poll_patches()
+        with patches[0], patches[1], patches[2], patches[3], patch(
+            "bot.research.futures_agent.telegram_inbound._fetch_updates",
+            side_effect=KeyboardInterrupt,
+        ), patch("builtins.print") as mock_print:
+            run_poll_loop()
+        banner = "\n".join(str(c.args[0]) for c in mock_print.call_args_list if c.args)
+        self.assertIn("Backend: Sqlite", banner)
+        self.assertIn("Telegram:", banner)
+        self.assertIn("Listening...", banner)
+
+    def test_poll_postgres_startup_connects_before_loop(self) -> None:
+        from bot.research.futures_agent.env_bootstrap import AgentDbConfig
+
+        cfg = AgentDbConfig(
+            backend="postgresql",
+            url="postgresql:///trading_ai",
+            database_name="trading_ai",
+            sqlite_path=None,
+            config_source="project_dotenv",
+            postgres_url_configured=True,
+        )
+        with patch("bot.research.futures_agent.telegram_inbound.project_root", return_value=self.root), patch(
+            "bot.research.futures_agent.telegram_inbound._check_polling_conflicts",
+        ), patch(
+            "bot.research.futures_agent.telegram_inbound.resolve_agent_db_config",
+            return_value=cfg,
+        ), patch("fcntl.flock"), patch(
+            "bot.research.futures_agent.telegram_inbound.agent_connection",
+        ) as mock_conn, patch(
+            "bot.research.futures_agent.telegram_inbound._fetch_updates",
+            side_effect=KeyboardInterrupt,
+        ), patch(
+            "bot.research.futures_agent.telegram_inbound.check_telegram_connected",
+            return_value=True,
+        ), patch("builtins.print"):
+            mock_ctx = MagicMock()
+            mock_ctx.__enter__ = MagicMock(return_value=MagicMock())
+            mock_ctx.__exit__ = MagicMock(return_value=False)
+            mock_conn.return_value = mock_ctx
+            run_poll_loop()
+        mock_conn.assert_called()
+
+    def test_poll_postgres_connect_failure_exits(self) -> None:
+        from bot.research.futures_agent.db import AgentDbError
+        from bot.research.futures_agent.env_bootstrap import AgentDbConfig
+
+        cfg = AgentDbConfig(
+            backend="postgresql",
+            url="postgresql:///trading_ai",
+            database_name="trading_ai",
+            sqlite_path=None,
+            config_source="project_dotenv",
+            postgres_url_configured=True,
+        )
+        with patch("bot.research.futures_agent.telegram_inbound.project_root", return_value=self.root), patch(
+            "bot.research.futures_agent.telegram_inbound._check_polling_conflicts",
+        ), patch(
+            "bot.research.futures_agent.telegram_inbound.resolve_agent_db_config",
+            return_value=cfg,
+        ), patch("fcntl.flock"), patch(
+            "bot.research.futures_agent.telegram_inbound.agent_connection",
+            side_effect=AgentDbError("Cannot connect to PostgreSQL (trading_ai): connection refused"),
+        ), patch(
+            "bot.research.futures_agent.telegram_inbound.check_telegram_connected",
+            return_value=True,
+        ), patch("builtins.print"):
+            with self.assertRaises(SystemExit) as ctx:
+                run_poll_loop()
+        self.assertIn("Cannot connect to PostgreSQL", str(ctx.exception))
 
 
 if __name__ == "__main__":

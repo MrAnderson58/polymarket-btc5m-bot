@@ -126,8 +126,9 @@ class LiveExitTestCase(unittest.TestCase):
         self.assertTrue(closed["done"] or not result)
         return result
 
+    @mock.patch("bot.market_scanner.is_exit_token_tradable", return_value=True)
     @mock.patch("bot.execution._submit_live_sell")
-    def test_live_exit_stop_loss(self, mock_sell: mock.MagicMock) -> None:
+    def test_live_exit_stop_loss(self, mock_sell: mock.MagicMock, _tradable: mock.MagicMock) -> None:
         mock_sell.return_value = (True, "sell-order-1", None)
         with connect(self.db_path) as conn:
             trade = self._seed_open_trade(conn)
@@ -151,8 +152,9 @@ class LiveExitTestCase(unittest.TestCase):
         self.assertEqual(row["exit_reason"], "STOP_LOSS")
         self.assertEqual(intent["status"], "submitted")
 
+    @mock.patch("bot.market_scanner.is_exit_token_tradable", return_value=True)
     @mock.patch("bot.execution._submit_live_sell")
-    def test_live_exit_trailing_stop(self, mock_sell: mock.MagicMock) -> None:
+    def test_live_exit_trailing_stop(self, mock_sell: mock.MagicMock, _tradable: mock.MagicMock) -> None:
         mock_sell.return_value = (True, "sell-order-2", None)
         with connect(self.db_path) as conn:
             trade = self._seed_open_trade(conn)
@@ -163,8 +165,9 @@ class LiveExitTestCase(unittest.TestCase):
         mock_sell.assert_called_once()
         self.assertEqual(mock_sell.call_args.args[0].exit_reason, "TRAILING_STOP")
 
+    @mock.patch("bot.market_scanner.is_exit_token_tradable", return_value=True)
     @mock.patch("bot.execution._submit_live_sell")
-    def test_live_exit_time_stop(self, mock_sell: mock.MagicMock) -> None:
+    def test_live_exit_time_stop(self, mock_sell: mock.MagicMock, _tradable: mock.MagicMock) -> None:
         mock_sell.return_value = (True, "sell-order-3", None)
         with connect(self.db_path) as conn:
             trade = self._seed_open_trade(conn)

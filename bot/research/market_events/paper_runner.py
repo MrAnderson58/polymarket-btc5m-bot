@@ -460,6 +460,11 @@ class ShockPaperRunner:
             if event_id is None:
                 continue
             self.stats.shocks_detected += 1
+            try:
+                from bot.research.market_events.signal_intelligence.signal_trace_f51 import record_shock_received
+                record_shock_received(conn, event_id=event_id)
+            except Exception as exc:
+                logger.debug("f51 raw trace skipped: %s", exc)
             state = self.feed.get_state(shock.symbol)
             if state:
                 ref_price = getattr(self.feed, "get_reference_price", lambda _s: None)(shock.symbol)
@@ -602,6 +607,24 @@ class ShockPaperRunner:
                         )
                     except Exception:
                         pass
+                    try:
+                        from bot.research.market_events.signal_intelligence.trader_performance_f6 import (
+                            record_paper_close_f6,
+                        )
+                        record_paper_close_f6(
+                            conn,
+                            event_id=eid,
+                            net_return=net_return(pos.gross_return or 0.0),
+                            exit_reason=pos.exit_reason,
+                            duration_seconds=pos.exit_ts - pos.entry_ts if pos.exit_ts else None,
+                            mfe=pos.mfe,
+                            mae=pos.mae,
+                            gross_return=pos.gross_return,
+                            reversal_variant=pos.reversal_variant,
+                            exit_variant=pos.exit_variant,
+                        )
+                    except Exception as exc:
+                        logger.debug("f6 trader performance skipped: %s", exc)
                     try:
                         from bot.research.market_events.alert_engine.scheduler import on_event_resolved
                         on_event_resolved(conn, event_id=eid)

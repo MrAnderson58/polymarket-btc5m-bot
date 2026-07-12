@@ -31,7 +31,7 @@ from bot.research.mtf.labels import alignment_label, htf_label_from_btc
 from bot.research.mtf.models import BtcSpotContext, PolymarketTfContext
 from bot.research.mtf.analysis import (
     context_performance_matrix,
-    test_hypotheses,
+    test_hypotheses as evaluate_hypothesis_tests,
     walk_forward_abc,
 )
 from bot.research.mtf.context_builder import build_trade_context
@@ -378,7 +378,7 @@ class MtfAnalysisTestCase(unittest.TestCase):
                          pm_15m=PolymarketTfContext("15m", available=True, prob_direction="DOWN"),
                          pm_1h=PolymarketTfContext("1h", available=True, prob_direction="DOWN")),
         ]
-        h = test_hypotheses(contexts)
+        h = evaluate_hypothesis_tests(contexts)
         self.assertIn("A_no_triple_align", h)
 
 

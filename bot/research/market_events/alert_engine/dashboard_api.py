@@ -89,6 +89,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     msg, week_key = build_weekly_report(conn)
                     _json_response(self, {"period": week_key, "report": msg})
                 elif path == "/stats":
+                    from bot.research.market_events.signal_intelligence.priority_engine_f5 import (
+                        dashboard_skipped_count,
+                    )
+                    from bot.research.market_events.signal_intelligence.telegram_dedupe_f41 import (
+                        duplicate_prevented_count,
+                    )
                     day_start = int(datetime.now(timezone.utc).replace(
                         hour=0, minute=0, second=0, microsecond=0,
                     ).timestamp())
@@ -110,12 +116,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "ai_comparisons": conn.execute(
                             "SELECT COUNT(*) FROM market_events_ai_comparisons",
                         ).fetchone()[0],
+                        "duplicate_telegram_prevented": duplicate_prevented_count(conn),
+                        "duplicate_telegram_prevented_today": duplicate_prevented_count(
+                            conn, since_ts=day_start,
+                        ),
+                        "f5_signals_total": conn.execute(
+                            "SELECT COUNT(*) FROM market_events_signal_reports_f5",
+                        ).fetchone()[0],
+                        "f5_telegram_eligible": conn.execute(
+                            "SELECT COUNT(*) FROM market_events_signal_reports_f5 WHERE telegram_eligible = 1",
+                        ).fetchone()[0],
+                        "f5_dashboard_only": dashboard_skipped_count(conn),
+                        "f5_dashboard_only_today": dashboard_skipped_count(conn, since_ts=day_start),
                     }
                     _json_response(self, stats)
                 elif path.startswith("/timeline/"):
                     eid = int(path.split("/")[-1])
                     timeline = build_event_timeline(conn, event_id=eid)
-                    _json_response(self, {"event_id": eid, "timeline": timeline})
+                    trace: list[dict] = []
+                    try:
+                        from bot.research.market_events.signal_intelligence.signal_trace_f51 import (
+                            fetch_trace_rows,
+                        )
+                        trace = fetch_trace_rows(conn, event_id=eid)
+                    except Exception:
+                        pass
+                    _json_response(self, {"event_id": eid, "timeline": timeline, "signal_trace": trace})
                 elif path == "/exhaustion":
                     limit = _query_int(qs, "limit", 50)
                     rows = conn.execute(
@@ -167,12 +193,84 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         (limit,),
                     ).fetchall()
                     _json_response(self, {"signals": [dict(r) for r in events]})
+                elif path == "/signals-f5":
+                    limit = _query_int(qs, "limit", 50)
+                    rows = conn.execute(
+                        """
+                        SELECT f.*, e.symbol, e.return_pct, e.event_ts
+                        FROM market_events_signal_reports_f5 f
+                        JOIN market_events e ON e.id = f.event_id
+                        ORDER BY f.dynamic_confidence DESC, f.created_at DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                    _json_response(self, {"signals_f5": [dict(r) for r in rows]})
+                elif path == "/market-score":
+                    limit = _query_int(qs, "limit", 50)
+                    rows = conn.execute(
+                        """
+                        SELECT i.event_id, i.market_score, i.final_confidence,
+                               i.success_probability, i.component_scores_json,
+                               i.created_at, e.symbol
+                        FROM market_events_market_intelligence_f7 i
+                        JOIN market_events e ON e.id = i.event_id
+                        ORDER BY i.market_score DESC, i.created_at DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                    _json_response(self, {"market_score": [dict(r) for r in rows]})
+                elif path == "/liquidations":
+                    limit = _query_int(qs, "limit", 50)
+                    rows = conn.execute(
+                        """
+                        SELECT i.event_id, i.liquidation_regime,
+                               i.liquidation_continuation_prob, i.liquidation_reversal_prob,
+                               i.liquidation_intel_json, i.created_at, e.symbol
+                        FROM market_events_market_intelligence_f7 i
+                        JOIN market_events e ON e.id = i.event_id
+                        ORDER BY i.created_at DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                    _json_response(self, {"liquidations": [dict(r) for r in rows]})
+                elif path == "/dominance":
+                    limit = _query_int(qs, "limit", 50)
+                    rows = conn.execute(
+                        """
+                        SELECT i.event_id, i.dominance_regime, i.dominance_json,
+                               i.created_at, e.symbol
+                        FROM market_events_market_intelligence_f7 i
+                        JOIN market_events e ON e.id = i.event_id
+                        ORDER BY i.created_at DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                    _json_response(self, {"dominance": [dict(r) for r in rows]})
+                elif path == "/whales":
+                    limit = _query_int(qs, "limit", 50)
+                    rows = conn.execute(
+                        """
+                        SELECT i.event_id, i.whale_score, i.whale_intel_json,
+                               i.created_at, e.symbol
+                        FROM market_events_market_intelligence_f7 i
+                        JOIN market_events e ON e.id = i.event_id
+                        ORDER BY i.whale_score DESC, i.created_at DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                    _json_response(self, {"whales": [dict(r) for r in rows]})
                 else:
                     _json_response(self, {
                         "endpoints": [
                             "/events", "/paper", "/alerts", "/daily", "/weekly", "/stats",
                             "/timeline/{id}", "/exhaustion", "/opportunity", "/multitimeframe",
-                            "/exchanges", "/signals",
+                            "/exchanges", "/signals", "/signals-f5",
+                            "/market-score", "/liquidations", "/dominance", "/whales",
                         ],
                     })
         except Exception as exc:

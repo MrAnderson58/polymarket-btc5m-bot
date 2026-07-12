@@ -257,11 +257,26 @@ class ExitRecoveryExpiredUntradableTestCase(unittest.TestCase):
         self.assertEqual(trade["status"], "open")
         self.assertEqual(exit_intent["status"], "failed")
 
+    @mock.patch("bot.portfolio.approval.evaluate_live_approval")
     @mock.patch("bot.exit_recovery.get_conditional_token_balance_shares", return_value=2.5)
     def test_recovery_no_position_frees_max_open_positions_slot(
         self,
         _mock_balance: mock.MagicMock,
+        mock_approval: mock.MagicMock,
     ) -> None:
+        from bot.portfolio.approval import LiveApprovalResult
+        mock_approval.return_value = LiveApprovalResult(
+            allowed=True,
+            entry_price=0.40,
+            ai_decision="ALLOW",
+            ai_confidence_pct=77.0,
+            brain="ALLOW",
+            scientist="ALLOW",
+            review="ALLOW",
+            risk="LOW",
+            blockers=(),
+            summary="ok",
+        )
         with connect(self.db_path) as conn:
             self._seed_failed_exit(
                 conn,
