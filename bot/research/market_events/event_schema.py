@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 16
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -350,6 +350,32 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v14")
             current = 14
+
+        if current < 15:
+            conn.executescript(F3_TREND_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (15, now, "Phase F.3 trend shock intelligence"),
+            )
+            applied.append("v15")
+            current = 15
+
+        if current < 16:
+            conn.executescript(F4_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (16, now, "Phase F.4 visual intelligence and trend shock v2"),
+            )
+            applied.append("v16")
+            current = 16
 
     if not applied:
         conn.commit()
@@ -1100,4 +1126,104 @@ CREATE TABLE IF NOT EXISTS market_events_signal_reports_f2 (
 );
 
 CREATE INDEX IF NOT EXISTS idx_me_sig_f2_event ON market_events_signal_reports_f2(event_id);
+"""
+
+F3_TREND_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_trend_shock (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER,
+    symbol TEXT NOT NULL,
+    event_ts INTEGER NOT NULL,
+    trend_class TEXT NOT NULL,
+    window_minutes INTEGER NOT NULL,
+    cumulative_return_pct REAL NOT NULL,
+    accumulated_move_pct REAL NOT NULL,
+    consecutive_bars INTEGER NOT NULL,
+    atr_multiple REAL NOT NULL,
+    volume_multiple REAL NOT NULL,
+    trend_score REAL NOT NULL,
+    detectors_json TEXT NOT NULL,
+    source_event_id INTEGER,
+    dedup_key TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_trend_shock_event ON market_events_trend_shock(event_id);
+CREATE INDEX IF NOT EXISTS idx_me_trend_shock_symbol ON market_events_trend_shock(symbol, event_ts);
+
+CREATE TABLE IF NOT EXISTS market_events_entry_stages_f3 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL UNIQUE,
+    stage TEXT NOT NULL,
+    stage_reason TEXT NOT NULL,
+    wait_r2 INTEGER NOT NULL,
+    wait_r3 INTEGER NOT NULL,
+    scale_after_r2_pct INTEGER,
+    scale_after_r3_pct INTEGER,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_entry_stages_f3_event ON market_events_entry_stages_f3(event_id);
+
+CREATE TABLE IF NOT EXISTS market_events_alert_rankings_f3 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    rank_score REAL NOT NULL,
+    rank_position INTEGER NOT NULL,
+    window_bucket INTEGER NOT NULL,
+    alerted INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    UNIQUE(event_id, window_bucket)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_alert_rank_f3_bucket ON market_events_alert_rankings_f3(window_bucket, rank_score DESC);
+"""
+
+F4_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_visual_intel_f4 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL UNIQUE,
+    platform TEXT NOT NULL,
+    has_image INTEGER NOT NULL DEFAULT 0,
+    extracted_json TEXT NOT NULL,
+    chart_analysis_json TEXT NOT NULL,
+    crosscheck_json TEXT NOT NULL,
+    structured_json TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_visual_f4_event ON market_events_visual_intel_f4(event_id);
+
+CREATE TABLE IF NOT EXISTS market_events_trend_shock_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER,
+    symbol TEXT NOT NULL,
+    event_ts INTEGER NOT NULL,
+    stage TEXT NOT NULL,
+    window_minutes INTEGER NOT NULL,
+    direction TEXT NOT NULL,
+    cumulative_return_pct REAL NOT NULL,
+    accumulated_move_pct REAL NOT NULL,
+    consecutive_bars INTEGER NOT NULL,
+    acceleration_ratio REAL NOT NULL,
+    atr_multiple REAL NOT NULL,
+    volume_multiple REAL NOT NULL,
+    funding REAL,
+    open_interest_delta REAL,
+    liquidations_score REAL,
+    trend_score REAL NOT NULL,
+    continuation_probability REAL NOT NULL,
+    detectors_json TEXT NOT NULL,
+    source_event_id INTEGER,
+    dedup_key TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_trend_v2_event ON market_events_trend_shock_v2(event_id);
+CREATE INDEX IF NOT EXISTS idx_me_trend_v2_symbol ON market_events_trend_shock_v2(symbol, event_ts);
 """

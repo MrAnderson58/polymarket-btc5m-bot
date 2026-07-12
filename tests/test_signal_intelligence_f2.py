@@ -36,11 +36,11 @@ class SignalIntelligenceF2Tests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_schema_v14(self) -> None:
+    def test_schema_v16(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v14", applied)
-            self.assertEqual(SCHEMA_VERSION, 14)
+            self.assertIn("v16", applied)
+            self.assertEqual(SCHEMA_VERSION, 16)
 
     def test_exchange_consensus_from_candles(self) -> None:
         with conn_ctx(self.db) as conn:
@@ -145,14 +145,15 @@ class SignalIntelligenceF2Tests(unittest.TestCase):
             self.assertIn("━━━━━━━━━━━━", text)
             self.assertIn("PAPER ONLY", text)
 
-    def test_format_shock_alert_uses_f2(self) -> None:
+    def test_format_shock_alert_uses_f3(self) -> None:
         with conn_ctx(self.db) as conn:
             apply_migrations(conn)
             seed_candles(conn, symbol="SUI")
             eid = seed_event(conn, ret=-7.0)
             run_signal_report_f2(conn, eid)
             text = format_shock_alert(conn, eid)
-            self.assertIn("Consensus", text)
+            self.assertIn("SUIUSDT", text)
+            self.assertIn("PAPER ONLY", text)
 
     def test_historical_similarity_v2_seeded(self) -> None:
         with conn_ctx(self.db) as conn:

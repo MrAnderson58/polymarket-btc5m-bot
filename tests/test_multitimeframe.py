@@ -51,8 +51,8 @@ class MultitimeframeTests(unittest.TestCase):
     def test_schema_v12(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v14", applied)
-            self.assertEqual(SCHEMA_VERSION, 14)
+            self.assertIn("v16", applied)
+            self.assertEqual(SCHEMA_VERSION, 16)
 
     def test_mtf_detectors_defined(self) -> None:
         self.assertEqual(set(MTF_DETECTORS), {"SHOCK_M5", "SHOCK_M10", "SHOCK_M15", "SHOCK_M30"})

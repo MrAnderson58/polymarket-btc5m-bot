@@ -164,6 +164,8 @@ def _link_bridged_inbound_posts(conn: Any, event_id: int, event_ts: int, symbol:
                         "post_id": row["post_id"],
                         "content_type": row["content_type"],
                         "bridge": "telegram_inbound",
+                        "raw_text": (raw[:2000] if raw else None),
+                        "has_photo": row["content_type"] == "TECHNICAL_LEVELS",
                     },
                 ):
                     n += 1

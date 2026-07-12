@@ -123,6 +123,35 @@ def _safe_alert(
 
 
 def format_shock_alert(conn: Any, event_id: int) -> str:
+    from bot.research.market_events.signal_intelligence.config import F4_TELEGRAM_FORMAT
+    if F4_TELEGRAM_FORMAT:
+        row = conn.execute(
+            "SELECT 1 FROM market_events_signal_reports_f2 WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        if row:
+            from bot.research.market_events.signal_intelligence.telegram_f4 import render_final_telegram_f4
+            return render_final_telegram_f4(conn, event_id)
+    from bot.research.market_events.signal_intelligence.config import TREND_PREMIUM_TELEGRAM
+    if TREND_PREMIUM_TELEGRAM:
+        row = conn.execute(
+            "SELECT 1 FROM market_events_signal_reports_f2 WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        if row:
+            from bot.research.market_events.signal_intelligence.telegram_trend_premium import (
+                render_trend_premium_v2,
+            )
+            return render_trend_premium_v2(conn, event_id)
+    from bot.research.market_events.signal_intelligence.config import F3_TELEGRAM_FORMAT
+    if F3_TELEGRAM_FORMAT:
+        row = conn.execute(
+            "SELECT 1 FROM market_events_signal_reports_f2 WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        if row:
+            from bot.research.market_events.signal_intelligence.telegram_f3 import format_shock_f3
+            return format_shock_f3(conn, event_id)
     from bot.research.market_events.signal_intelligence.config import F2_TELEGRAM_FORMAT
     if F2_TELEGRAM_FORMAT:
         row = conn.execute(
@@ -155,6 +184,9 @@ def format_shock_alert(conn: Any, event_id: int) -> str:
 
 
 def alert_shock_detected(conn: Any, event_id: int) -> bool:
+    from bot.research.market_events.signal_intelligence.config import TREND_SHOCK_DEFER_ALERT
+    if TREND_SHOCK_DEFER_ALERT:
+        return False
     msg = format_shock_alert(conn, event_id)
     return _safe_alert(
         conn, event_id=event_id, alert_type=ALERT_SHOCK, detail="",
@@ -218,7 +250,45 @@ def alert_paper_position_update(
     if not alert_paper_updates_enabled():
         return False
 
-    from bot.research.market_events.signal_intelligence.config import F2_TELEGRAM_FORMAT, F1_TELEGRAM_FORMAT
+    from bot.research.market_events.signal_intelligence.config import F3_TELEGRAM_FORMAT, F2_TELEGRAM_FORMAT, F1_TELEGRAM_FORMAT
+
+    if update_type == "PAPER_ENTRY" and F3_TELEGRAM_FORMAT:
+        row = conn.execute(
+            "SELECT 1 FROM market_events_signal_reports_f2 WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        if row:
+            run = conn.execute(
+                """
+                SELECT entry_price, initial_stop FROM paper_strategy_runs
+                WHERE event_id = ? AND reversal_variant = ? LIMIT 1
+                """,
+                (event_id, reversal_variant),
+            ).fetchone()
+            entry = float(run["entry_price"]) if run and run["entry_price"] else 0.0
+            stop = float(run["initial_stop"]) if run and run["initial_stop"] else 0.0
+            report = conn.execute(
+                "SELECT expected_target_pct FROM market_events_signal_reports_f2 WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+            target = entry
+            if report and entry:
+                me = conn.execute("SELECT direction FROM market_events WHERE id = ?", (event_id,)).fetchone()
+                tp = float(report["expected_target_pct"]) / 100.0
+                if me and me["direction"] == "UP":
+                    target = entry * (1 - tp)
+                else:
+                    target = entry * (1 + tp)
+            from bot.research.market_events.signal_intelligence.telegram_f3 import format_entry_f3
+            msg = format_entry_f3(
+                conn, event_id=event_id, symbol=symbol,
+                reversal_variant=reversal_variant, entry=entry, stop=stop, target=target,
+            )
+            dedupe_detail = f"{update_type}:{reversal_variant}:{exit_variant}"
+            return _safe_alert(
+                conn, event_id=event_id, alert_type=ALERT_PAPER,
+                detail=dedupe_detail, message=msg, enabled=True,
+            )
 
     if update_type == "PAPER_ENTRY" and F2_TELEGRAM_FORMAT:
         row = conn.execute(
@@ -297,7 +367,51 @@ def alert_paper_position_update(
             )
 
     if update_type in ("TP", "STOP", "BE_STOP", "CLOSED"):
-        if F2_TELEGRAM_FORMAT and conn.execute(
+        if F3_TELEGRAM_FORMAT and conn.execute(
+            "SELECT 1 FROM market_events_signal_reports_f2 WHERE event_id = ?",
+            (event_id,),
+        ).fetchone():
+            run = conn.execute(
+                """
+                SELECT id, net_return, gross_return, duration_seconds
+                FROM paper_strategy_runs
+                WHERE event_id = ? AND reversal_variant = ? AND exit_variant = ?
+                """,
+                (event_id, reversal_variant, exit_variant),
+            ).fetchone()
+            pnl = float(run["net_return"] or run["gross_return"] or 0) if run else 0.0
+            dur = int(run["duration_seconds"] or 0) if run else 0
+            holding_min = max(1, dur // 60)
+            try:
+                from bot.research.market_events.signal_intelligence.outcome_f1 import record_outcome_f1
+                record_outcome_f1(
+                    conn,
+                    event_id=event_id,
+                    paper_run_id=int(run["id"]) if run else None,
+                    pnl_pct=pnl,
+                    holding_seconds=dur,
+                )
+            except Exception:
+                pass
+            from bot.research.market_events.signal_intelligence.outcome_f1 import _ai_agreed
+            from bot.research.market_events.signal_intelligence.signal_report_f2 import load_signal_report_f2
+            report = load_signal_report_f2(conn, event_id)
+            hist_matched = None
+            if report:
+                hist_matched = pnl >= report.expected_target_pct * 0.5
+            from bot.research.market_events.signal_intelligence.telegram_f3 import format_result_f3
+            reason = update_type if update_type != "BE_STOP" else "STOP"
+            msg = format_result_f3(
+                conn,
+                event_id=event_id,
+                symbol=symbol,
+                pnl_pct=pnl,
+                holding_min=holding_min,
+                exit_variant=reason if reason in ("TP", "STOP") else exit_variant,
+                ai_agreed=_ai_agreed(conn, event_id, pnl),
+                hist_matched=hist_matched,
+            )
+        elif F2_TELEGRAM_FORMAT and conn.execute(
             "SELECT 1 FROM market_events_signal_reports_f2 WHERE event_id = ?",
             (event_id,),
         ).fetchone():

@@ -23,6 +23,8 @@ from bot.research.market_events.event_schema import (
     F0_DDL,
     F1_DDL,
     F2_DDL,
+    F3_TREND_DDL,
+    F4_DDL,
     MIGRATIONS_TABLE,
     SCHEMA_VERSION,
 )
@@ -42,6 +44,8 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     12: "Phase F.0 signal intelligence research",
     13: "Phase F.1 Telegram signal intelligence reports",
     14: "Phase F.2 professional trading intelligence",
+    15: "Phase F.3 trend shock intelligence",
+    16: "Phase F.4 visual intelligence and trend shock v2",
 }
 
 
@@ -95,6 +99,8 @@ def full_pg_ddl() -> str:
         F0_DDL,
         F1_DDL,
         F2_DDL,
+        F3_TREND_DDL,
+        F4_DDL,
     ]
     ddl = sqlite_ddl_to_pg("\n".join(blocks))
     alters = [pg_alter_add_column(s) for s in (
@@ -193,4 +199,9 @@ ALL_TABLES: tuple[str, ...] = (
     "market_events_signal_outcomes_f1",
     "market_events_funding_oi_history_f2",
     "market_events_signal_reports_f2",
+    "market_events_trend_shock",
+    "market_events_entry_stages_f3",
+    "market_events_alert_rankings_f3",
+    "market_events_visual_intel_f4",
+    "market_events_trend_shock_v2",
 )

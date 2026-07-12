@@ -18,6 +18,17 @@ F1_TELEGRAM_FORMAT = os.getenv("ME_F1_TELEGRAM_FORMAT", "true").lower() in ("1",
 F2_ENABLED = os.getenv("ME_F2_PROFESSIONAL_INTEL", "true").lower() in ("1", "true", "yes")
 F2_TELEGRAM_FORMAT = os.getenv("ME_F2_TELEGRAM_FORMAT", "true").lower() in ("1", "true", "yes")
 
+F3_TELEGRAM_FORMAT = os.getenv("ME_F3_TELEGRAM_FORMAT", "true").lower() in ("1", "true", "yes")
+
+TREND_SHOCK_ENABLED = os.getenv("ME_TREND_SHOCK_ENABLED", "true").lower() in ("1", "true", "yes")
+TREND_SHOCK_DEFER_ALERT = os.getenv("ME_TREND_SHOCK_DEFER_ALERT", "true").lower() in ("1", "true", "yes")
+TREND_PREMIUM_TELEGRAM = os.getenv("ME_TREND_PREMIUM_TELEGRAM", "true").lower() in ("1", "true", "yes")
+TREND_SIGNAL_RANKING = os.getenv("ME_TREND_SIGNAL_RANKING", "true").lower() in ("1", "true", "yes")
+
+F4_VISUAL_INTEL_ENABLED = os.getenv("ME_F4_VISUAL_INTEL", "true").lower() in ("1", "true", "yes")
+F4_TREND_SHOCK_V2_ENABLED = os.getenv("ME_F4_TREND_SHOCK_V2", "true").lower() in ("1", "true", "yes")
+F4_TELEGRAM_FORMAT = os.getenv("ME_F4_TELEGRAM_FORMAT", "true").lower() in ("1", "true", "yes")
+
 PROMPT_VERSION_F0 = "f0_signal_v1"
 
 MTF_DETECTORS = {
