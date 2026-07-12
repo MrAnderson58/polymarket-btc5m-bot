@@ -264,6 +264,41 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         (limit,),
                     ).fetchall()
                     _json_response(self, {"whales": [dict(r) for r in rows]})
+                elif path == "/signal-outcomes":
+                    from bot.research.market_events.signal_intelligence.yesterday_report_f72 import (
+                        outcome_dashboard_stats,
+                    )
+                    stats = outcome_dashboard_stats(conn)
+                    active = conn.execute(
+                        """
+                        SELECT o.*, e.return_pct FROM market_events_signal_outcomes_f72 o
+                        JOIN market_events e ON e.id = o.event_id
+                        WHERE o.status != 'CLOSED'
+                        ORDER BY o.entry_time DESC LIMIT 50
+                        """,
+                    ).fetchall()
+                    start = int(__import__("datetime").datetime.now(
+                        __import__("datetime").timezone.utc,
+                    ).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+                    closed = conn.execute(
+                        """
+                        SELECT o.*, e.return_pct FROM market_events_signal_outcomes_f72 o
+                        JOIN market_events e ON e.id = o.event_id
+                        WHERE o.status = 'CLOSED' AND o.exit_time >= ?
+                        ORDER BY o.exit_time DESC LIMIT 50
+                        """,
+                        (start,),
+                    ).fetchall()
+                    _json_response(self, {
+                        "active_signals": stats["active_signals"],
+                        "closed_today": stats["closed_today"],
+                        "win_rate": stats["win_rate"],
+                        "avg_rr": stats["avg_rr"],
+                        "avg_hold_time_sec": stats["avg_hold_seconds"],
+                        "total_paper_pnl_today": stats["total_paper_pnl_today"],
+                        "active": [dict(r) for r in active],
+                        "closed_today_list": [dict(r) for r in closed],
+                    })
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -271,6 +306,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/timeline/{id}", "/exhaustion", "/opportunity", "/multitimeframe",
                             "/exchanges", "/signals", "/signals-f5",
                             "/market-score", "/liquidations", "/dominance", "/whales",
+                            "/signal-outcomes",
                         ],
                     })
         except Exception as exc:

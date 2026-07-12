@@ -1,11 +1,12 @@
-"""Phase F.7 Task F — Professional Telegram Card v3."""
+"""Phase F.7 Task F — Professional Telegram Card v3 + F.7.1 trade plan."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from bot.research.market_events.signal_intelligence.risk_reward_f5 import RiskRewardF5
-from bot.research.market_events.signal_intelligence.telegram_f3 import confidence_emoji, format_symbol_usdt
+from bot.research.market_events.signal_intelligence.telegram_f3 import format_symbol_usdt
+from bot.research.market_events.signal_intelligence.trade_plan_f71 import TradePlanF71
 
 SEP = "──────────────"
 
@@ -13,6 +14,37 @@ SEP = "──────────────"
 def _stars(confidence: float) -> str:
     n = max(1, min(5, int(round(confidence / 2))))
     return "★" * n + "☆" * (5 - n)
+
+
+def _short_factors(
+    *,
+    report: Any | None,
+    trend: dict[str, Any] | None,
+    liq_intel: dict[str, Any] | None,
+    dominance: dict[str, Any] | None,
+    historical_rate: float,
+) -> list[str]:
+    factors: list[str] = []
+    if liq_intel and liq_intel.get("regime") not in (None, "neutral"):
+        factors.append("✔ ликвидации")
+    fund = trend.get("funding") if trend else None
+    if (fund is not None and float(fund) < 0) or (report and report.funding_regime in ("flattening", "accelerating")):
+        factors.append("✔ Funding")
+    oi_delta = trend.get("open_interest_delta") if trend else None
+    if (oi_delta is not None and float(oi_delta) > 0) or (report and report.oi_regime == "rising"):
+        factors.append("✔ OI")
+    if report and getattr(report, "market_structure_labels", None):
+        if any("demand" in s.lower() or "HL" in s for s in report.market_structure_labels):
+            factors.append("✔ Demand")
+    if dominance:
+        btc_ret = abs(float(dominance.get("btc_return") or 0))
+        if btc_ret < 1.5:
+            factors.append("✔ BTC neutral")
+    if historical_rate >= 0.5:
+        factors.append(f"✔ Исторически {int(historical_rate * 100)}%")
+    if not factors:
+        factors.append("✔ setup подтверждён")
+    return factors[:8]
 
 
 def _human_factors(
@@ -25,43 +57,18 @@ def _human_factors(
     image_intel: dict[str, Any] | None,
     historical_rate: float,
 ) -> list[str]:
-    factors: list[str] = []
+    return _short_factors(
+        report=report, trend=trend, liq_intel=liq_intel,
+        dominance=dominance, historical_rate=historical_rate,
+    )
 
-    factors.append("✔ Цена у входа")
 
-    if dominance:
-        regime = dominance.get("regime", "")
-        btc_ret = float(dominance.get("btc_return") or 0)
-        if regime in ("RISK ON", "ALT SEASON") or abs(btc_ret) < 1.5:
-            factors.append("✔ BTC не мешает")
-        elif regime == "CAPITAL INTO BTC":
-            factors.append("⚠ BTC забирает капитал")
-
-    fund = trend.get("funding") if trend else None
-    if fund is not None and float(fund) < 0:
-        factors.append("✔ Funding помогает")
-    elif report and report.funding_regime == "flattening":
-        factors.append("✔ Funding снижается")
-
-    oi_delta = trend.get("open_interest_delta") if trend else None
-    if oi_delta is not None and float(oi_delta) > 0:
-        factors.append("✔ OI растёт")
-    elif report and report.oi_regime == "rising":
-        factors.append("✔ OI растёт")
-
-    if liq_intel and (liq_intel.get("exhaustion") or liq_intel.get("regime") != "neutral"):
-        factors.append("✔ Ликвидации заканчиваются")
-
-    if historical_rate >= 0.5:
-        factors.append(f"✔ Исторически похожие сделки дали откат в {int(historical_rate * 100)}%")
-
-    if long_trend and long_trend.get("primary_stage") in ("Capitulation", "Panic", "Recovery"):
-        factors.append(f"✔ {long_trend['primary_stage']} ({long_trend.get('primary_window')}m)")
-
-    if image_intel and image_intel.get("agreement_pct", 0) >= 70:
-        factors.append(f"✔ Согласие с автором: {int(image_intel['agreement_pct'])}%")
-
-    return factors[:8]
+def _fmt_price(v: float) -> str:
+    if v >= 1000:
+        return f"{v:,.2f}"
+    if v >= 1:
+        return f"{v:.2f}"
+    return f"{v:.4f}"
 
 
 def render_professional_telegram_f7(
@@ -82,96 +89,97 @@ def render_professional_telegram_f7(
     long_trend: dict[str, Any] | None,
     image_intel: dict[str, Any] | None,
     historical_rate: float,
+    trade_plan: TradePlanF71 | None = None,
 ) -> str:
-    sym = format_symbol_usdt(symbol)
-    side = "LONG" if direction == "UP" else "SHORT"
-    emoji = confidence_emoji(final_confidence)
-    stars = _stars(final_confidence)
-    success_pct = int(round(success_probability * 100))
+    from bot.research.market_events.signal_intelligence.trade_plan_f71 import build_trade_plan_for_event
 
-    factors = _human_factors(
-        report=report,
-        trend=trend,
-        liq_intel=liq_intel,
-        dominance=dominance,
-        long_trend=long_trend,
-        image_intel=image_intel,
-        historical_rate=historical_rate,
+    sym = format_symbol_usdt(symbol)
+    stars = _stars(final_confidence)
+
+    if trade_plan is None:
+        trade_plan = build_trade_plan_for_event(
+            conn,
+            event_id=event_id,
+            symbol=symbol,
+            shock_direction=direction,
+            risk_reward=risk_reward,
+            final_confidence=final_confidence,
+        )
+
+    factors = _short_factors(
+        report=report, trend=trend, liq_intel=liq_intel,
+        dominance=dominance, historical_rate=historical_rate,
     )
 
     lines = [
-        f"🚨 {sym} {side}",
+        f"🚨 {sym}",
         "",
-        f"{stars} {final_confidence:.1f} / 10",
+        f"{stars} {final_confidence:.1f}",
         "",
-        "Вероятность успеха",
-        "",
-        f"{success_pct}%",
-        "",
-        "Market Score",
-        "",
-        f"{int(round(market_score))} / 100",
-        "",
-        SEP,
-        "",
-        "Почему сейчас интересно",
+        "Цена рядом со входом",
         "",
     ]
-    lines.extend(factors)
+
+    if trade_plan:
+        lines.extend([
+            "Вход",
+            _fmt_price(trade_plan.entry),
+            "",
+            "SL",
+            _fmt_price(trade_plan.sl),
+            "",
+            "TP1",
+            _fmt_price(trade_plan.tp1),
+            "",
+            "TP2",
+            _fmt_price(trade_plan.tp2),
+            "",
+            "TP3",
+            _fmt_price(trade_plan.tp3),
+            "",
+            "RR",
+            f"{trade_plan.risk_reward:.1f}",
+            "",
+            "Размер позиции",
+            f"{trade_plan.position_size_pct:.0f}%",
+            "",
+        ])
+    else:
+        lines.extend([
+            f"TP1 +{risk_reward.tp1_pct:.1f}%",
+            f"TP2 +{risk_reward.tp2_pct:.1f}%",
+            f"TP3 +{risk_reward.tp3_pct:.1f}%",
+            "",
+            f"SL −{risk_reward.stop_pct:.1f}%",
+            "",
+            f"RR {risk_reward.risk_reward:.1f}",
+            "",
+        ])
 
     lines.extend([
-        "",
-        SEP,
-        "",
-        "План",
-        "",
-        "Ждать R2",
-        "",
-        f"TP1 +{risk_reward.tp1_pct:.1f}%",
-        f"TP2 +{risk_reward.tp2_pct:.1f}%",
-        f"TP3 +{risk_reward.tp3_pct:.1f}%",
-        "",
-        f"SL −{risk_reward.stop_pct:.1f}%",
-        "",
-        SEP,
-        "",
-        "Автор",
+        "Причина",
         "",
     ])
+    lines.extend(factors)
 
     from bot.research.market_events.signal_intelligence.trader_performance_f6 import (
-        format_author_telegram_block,
         load_trader_performance_for_event,
-        resolve_channel_for_event,
     )
-    channel = resolve_channel_for_event(conn, event_id)
     trader_perf = load_trader_performance_for_event(conn, event_id)
     if trader_perf and trader_perf.sufficient:
         lines.extend([
-            f"Win Rate {trader_perf.win_rate * 100:.0f}%",
             "",
-            f"RR {trader_perf.avg_rr:.1f}",
+            "Автор",
+            f"Win Rate {trader_perf.win_rate * 100:.0f}%  RR {trader_perf.avg_rr:.1f}",
         ])
-    else:
-        lines.extend(format_author_telegram_block(trader_perf, channel=channel)[4:7])
 
     if image_intel and image_intel.get("has_image"):
         lines.extend([
             "",
-            SEP,
-            "",
-            "График автора",
-            "",
-            image_intel.get("author_view", ""),
-            "",
             image_intel.get("agreement_text", ""),
         ])
-        for div in image_intel.get("divergence") or []:
-            lines.append(f"⚠ {div}")
 
     lines.extend([
-        "",
-        SEP,
         "",
         "ИИ",
         "",

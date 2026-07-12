@@ -101,6 +101,13 @@ def send_professional_alert_f5(conn: Any, event_id: int) -> bool:
     if sent:
         mark_f5_telegram_sent(conn, event_id)
         telegram_sent = True
+        try:
+            from bot.research.market_events.signal_intelligence.signal_outcome_f72 import (
+                create_active_signal_f72,
+            )
+            create_active_signal_f72(conn, event_id=event_id)
+        except Exception as exc:
+            logger.debug("f72 active signal skipped: %s", exc)
     elif F5_PRIORITY_ENGINE:
         mark_f5_telegram_sent(conn, event_id, skipped_reason="send_failed")
 

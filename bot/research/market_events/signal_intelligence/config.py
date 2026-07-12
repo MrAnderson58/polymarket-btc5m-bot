@@ -47,6 +47,10 @@ F7_TELEGRAM_FORMAT = os.getenv("ME_F7_TELEGRAM_FORMAT", "true").lower() in ("1",
 F7_MIN_MARKET_SCORE = float(os.getenv("ME_F7_MIN_MARKET_SCORE", "55"))
 F7_MIN_FINAL_CONFIDENCE = float(os.getenv("ME_F7_MIN_FINAL_CONFIDENCE", "7.5"))
 
+F72_ENABLED = os.getenv("ME_F72_SIGNAL_OUTCOME", "true").lower() in ("1", "true", "yes")
+F72_CHECK_INTERVAL_SEC = int(os.getenv("ME_F72_CHECK_INTERVAL_SEC", "30"))
+F72_MORNING_HOUR_UTC = int(os.getenv("ME_F72_MORNING_HOUR_UTC", "6"))
+
 PROMPT_VERSION_F0 = "f0_signal_v1"
 
 MTF_DETECTORS = {

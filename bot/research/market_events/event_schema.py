@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -445,6 +445,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v21")
             current = 21
+
+        if current < 22:
+            conn.executescript(F72_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (22, now, "Phase F.7.2 signal outcome engine"),
+            )
+            applied.append("v22")
+            current = 22
 
     if not applied:
         conn.commit()
@@ -1416,4 +1429,60 @@ CREATE TABLE IF NOT EXISTS market_events_market_intelligence_f7 (
 
 CREATE INDEX IF NOT EXISTS idx_me_intel_f7_score ON market_events_market_intelligence_f7(market_score DESC);
 CREATE INDEX IF NOT EXISTS idx_me_intel_f7_conf ON market_events_market_intelligence_f7(final_confidence DESC);
+"""
+
+F72_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_signal_outcomes_f72 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    trade_side TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    entry REAL NOT NULL,
+    tp1 REAL NOT NULL,
+    tp2 REAL NOT NULL,
+    tp3 REAL NOT NULL,
+    sl REAL NOT NULL,
+    entry_time INTEGER NOT NULL,
+    exit_price REAL,
+    exit_time INTEGER,
+    exit_reason TEXT,
+    pnl_pct REAL,
+    holding_seconds INTEGER,
+    max_drawdown_pct REAL NOT NULL DEFAULT 0,
+    max_profit_pct REAL NOT NULL DEFAULT 0,
+    risk_reward REAL NOT NULL DEFAULT 0,
+    position_remaining_pct REAL NOT NULL DEFAULT 100,
+    signal_score REAL NOT NULL DEFAULT 0,
+    market_score REAL NOT NULL DEFAULT 0,
+    author_channel TEXT,
+    pattern_json TEXT NOT NULL DEFAULT '{}',
+    tp1_hit_time INTEGER,
+    tp2_hit_time INTEGER,
+    tp3_hit_time INTEGER,
+    sl_hit_time INTEGER,
+    last_price REAL,
+    last_check_time INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_outcome_f72_status ON market_events_signal_outcomes_f72(status);
+CREATE INDEX IF NOT EXISTS idx_me_outcome_f72_symbol ON market_events_signal_outcomes_f72(symbol, entry_time DESC);
+
+CREATE TABLE IF NOT EXISTS market_events_pattern_stats_f72 (
+    pattern_key TEXT PRIMARY KEY,
+    signals_count INTEGER NOT NULL DEFAULT 0,
+    wins INTEGER NOT NULL DEFAULT 0,
+    avg_pnl REAL NOT NULL DEFAULT 0,
+    avg_rr REAL NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_f72_ops_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
 """

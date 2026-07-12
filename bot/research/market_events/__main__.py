@@ -85,6 +85,14 @@ def main(argv: list[str] | None = None) -> int:
             "weekly-signal-ranking",
             "trader-performance-report",
             "trader-ranking-report",
+            "market-score-report",
+            "liquidation-report",
+            "whale-report",
+            "dominance-report",
+            "signal-trace-report",
+            "today-summary",
+            "live-dashboard",
+            "yesterday-report",
             "db-info",
             "market-db-info",
             "market-db-check",
@@ -261,6 +269,51 @@ def main(argv: list[str] | None = None) -> int:
                 print(trader_performance_report(conn, channel=args.channel))
             elif args.command == "trader-ranking-report":
                 print(trader_ranking_report(conn))
+        return 0
+
+    if args.command in (
+        "market-score-report",
+        "liquidation-report",
+        "whale-report",
+        "dominance-report",
+        "signal-trace-report",
+        "today-summary",
+    ):
+        from bot.research.market_events.signal_intelligence.ops_reports_f71 import (
+            dominance_report,
+            liquidation_report,
+            market_score_report,
+            signal_trace_report,
+            today_summary_report,
+            whale_report,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            if args.command == "market-score-report":
+                print(market_score_report(conn, days=args.days))
+            elif args.command == "liquidation-report":
+                print(liquidation_report(conn, days=args.days))
+            elif args.command == "whale-report":
+                print(whale_report(conn, days=args.days))
+            elif args.command == "dominance-report":
+                print(dominance_report(conn, days=args.days))
+            elif args.command == "signal-trace-report":
+                print(signal_trace_report(conn, days=max(1, args.days)))
+            elif args.command == "today-summary":
+                print(today_summary_report(conn))
+        return 0
+
+    if args.command == "live-dashboard":
+        from bot.research.market_events.signal_intelligence.live_dashboard_f71 import run_live_dashboard
+        interval = float(args.seconds) if args.seconds else 5.0
+        run_live_dashboard(interval_sec=interval)
+        return 0
+
+    if args.command == "yesterday-report":
+        from bot.research.market_events.signal_intelligence.yesterday_report_f72 import yesterday_report
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(yesterday_report(conn))
         return 0
 
     if args.command == "system-validation":

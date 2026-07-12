@@ -221,4 +221,7 @@ ALL_TABLES: tuple[str, ...] = (
     "market_events_signal_trace_f51",
     "market_events_trader_performance_f6",
     "market_events_market_intelligence_f7",
+    "market_events_signal_outcomes_f72",
+    "market_events_pattern_stats_f72",
+    "market_events_f72_ops_state",
 )

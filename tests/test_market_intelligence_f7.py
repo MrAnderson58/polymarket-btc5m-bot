@@ -40,8 +40,8 @@ class MarketIntelligenceF7Tests(unittest.TestCase):
     def test_schema_v21(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v21", applied)
-            self.assertEqual(SCHEMA_VERSION, 21)
+            self.assertIn("v22", applied)
+            self.assertEqual(SCHEMA_VERSION, 22)
             tables = {
                 r[0] for r in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'",
@@ -105,6 +105,7 @@ class MarketIntelligenceF7Tests(unittest.TestCase):
         with conn_ctx(self.db) as conn:
             apply_migrations(conn)
             eid = seed_event(conn, symbol="MANTA", ret=-5.2)
+            seed_candles(conn, symbol="MANTA", n=10, shock=False)
             rr = RiskRewardF5(
                 risk_reward=2.8, tp1_prob=70, tp2_prob=45, tp3_prob=25,
                 tp1_pct=2.0, tp2_pct=4.0, tp3_pct=6.0, stop_pct=2.5,
@@ -113,7 +114,7 @@ class MarketIntelligenceF7Tests(unittest.TestCase):
                 conn,
                 event_id=eid,
                 symbol="MANTA",
-                direction="UP",
+                direction="DOWN",
                 final_confidence=9.2,
                 success_probability=0.82,
                 market_score=79,
@@ -127,9 +128,8 @@ class MarketIntelligenceF7Tests(unittest.TestCase):
                 image_intel=None,
                 historical_rate=0.76,
             )
-            self.assertIn("MANTAUSDT LONG", text)
-            self.assertIn("Market Score", text)
-            self.assertIn("79 / 100", text)
-            self.assertIn("82%", text)
+            self.assertIn("MANTAUSDT", text)
+            self.assertIn("9.2", text)
+            self.assertIn("Размер позиции", text)
             self.assertNotIn("ENTRY_NEAR_MARKET", text)
             self.assertIn("PAPER ONLY", text)

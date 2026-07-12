@@ -38,8 +38,8 @@ class TraderPerformanceF6Tests(unittest.TestCase):
     def test_schema_v20(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v21", applied)
-            self.assertEqual(SCHEMA_VERSION, 21)
+            self.assertIn("v22", applied)
+            self.assertEqual(SCHEMA_VERSION, 22)
             tables = {
                 r[0] for r in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'",

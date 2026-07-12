@@ -99,6 +99,7 @@ class ShockPaperRunner:
         self._pending: dict[int, Any] = {}
         self._shutdown = False
         self._instrument_map: dict[str, dict[str, Any]] = {}
+        self._last_f72_tick = 0
 
     def request_shutdown(self) -> None:
         self._shutdown = True
@@ -535,6 +536,24 @@ class ShockPaperRunner:
                 persist_reversal_decisions(conn, event_id=event_id, decision_ts=now, results=revs)
 
         self._process_open_positions(conn, now)
+
+        try:
+            from bot.research.market_events.signal_intelligence.config import (
+                F72_CHECK_INTERVAL_SEC,
+                F72_ENABLED,
+            )
+            if F72_ENABLED and now - self._last_f72_tick >= F72_CHECK_INTERVAL_SEC:
+                from bot.research.market_events.signal_intelligence.signal_outcome_f72 import (
+                    tick_active_signals_f72,
+                )
+                from bot.research.market_events.signal_intelligence.yesterday_report_f72 import (
+                    maybe_send_morning_digest_f72,
+                )
+                tick_active_signals_f72(conn, feed=self.feed, now=now)
+                maybe_send_morning_digest_f72(conn, now=now)
+                self._last_f72_tick = now
+        except Exception as exc:
+            logger.debug("f72 signal outcome tick skipped: %s", exc)
 
         latency_ms = (time.perf_counter() - cycle_start) * 1000.0
         self.metrics.record_cycle(latency_ms, fetch_ok=fetch_ok, fetch_failed=fetch_failed)
