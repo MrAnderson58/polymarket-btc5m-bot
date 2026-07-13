@@ -299,6 +299,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "active": [dict(r) for r in active],
                         "closed_today_list": [dict(r) for r in closed],
                     })
+                elif path == "/near-miss":
+                    from bot.research.market_events.signal_intelligence.reports_f73 import (
+                        diagnostics_dashboard_stats,
+                    )
+                    stats = diagnostics_dashboard_stats(conn)
+                    _json_response(self, stats)
+                elif path == "/liquidity-trend":
+                    limit = _query_int(qs, "limit", 50)
+                    rows = conn.execute(
+                        """
+                        SELECT g.*, e.return_pct FROM market_events_liquidity_trend_g1 g
+                        JOIN market_events e ON e.id = g.event_id
+                        ORDER BY g.event_ts DESC LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                    stats_row = conn.execute(
+                        "SELECT COUNT(*) AS n FROM market_events_liquidity_trend_g1",
+                    ).fetchone()
+                    _json_response(self, {
+                        "total": int(stats_row["n"] if stats_row else 0),
+                        "signals": [dict(r) for r in rows],
+                    })
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -306,7 +329,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/timeline/{id}", "/exhaustion", "/opportunity", "/multitimeframe",
                             "/exchanges", "/signals", "/signals-f5",
                             "/market-score", "/liquidations", "/dominance", "/whales",
-                            "/signal-outcomes",
+                            "/signal-outcomes", "/near-miss", "/liquidity-trend",
                         ],
                     })
         except Exception as exc:

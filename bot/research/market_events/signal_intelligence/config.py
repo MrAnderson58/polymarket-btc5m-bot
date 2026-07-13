@@ -51,6 +51,12 @@ F72_ENABLED = os.getenv("ME_F72_SIGNAL_OUTCOME", "true").lower() in ("1", "true"
 F72_CHECK_INTERVAL_SEC = int(os.getenv("ME_F72_CHECK_INTERVAL_SEC", "30"))
 F72_MORNING_HOUR_UTC = int(os.getenv("ME_F72_MORNING_HOUR_UTC", "6"))
 
+F73_ENABLED = os.getenv("ME_F73_NEAR_MISS", "true").lower() in ("1", "true", "yes")
+F73_QUIET_MARKET_HOURS = int(os.getenv("ME_F73_QUIET_MARKET_HOURS", "12"))
+
+G1_ENABLED = os.getenv("ME_G1_LIQUIDITY_TREND", "true").lower() in ("1", "true", "yes")
+G1_MIN_REVERSAL_PROB = float(os.getenv("ME_G1_MIN_REVERSAL_PROB", "0.65"))
+
 PROMPT_VERSION_F0 = "f0_signal_v1"
 
 MTF_DETECTORS = {

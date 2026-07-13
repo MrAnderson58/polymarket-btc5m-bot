@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 24
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -458,6 +458,32 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v22")
             current = 22
+
+        if current < 23:
+            conn.executescript(F73_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (23, now, "Phase F.7.3 near miss diagnostics"),
+            )
+            applied.append("v23")
+            current = 23
+
+        if current < 24:
+            conn.executescript(G1_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (24, now, "Phase G.1 liquidity and trend engine"),
+            )
+            applied.append("v24")
+            current = 24
 
     if not applied:
         conn.commit()
@@ -1483,6 +1509,100 @@ CREATE TABLE IF NOT EXISTS market_events_pattern_stats_f72 (
 CREATE TABLE IF NOT EXISTS market_events_f72_ops_state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+"""
+
+F73_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_near_miss_f73 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    event_ts INTEGER NOT NULL,
+    detector TEXT NOT NULL,
+    return_pct REAL NOT NULL DEFAULT 0,
+    trend_score REAL,
+    market_score REAL,
+    confidence REAL NOT NULL DEFAULT 0,
+    rejection_reason TEXT NOT NULL,
+    rejection_category TEXT NOT NULL,
+    missing_conditions_json TEXT NOT NULL DEFAULT '{}',
+    skip_code TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_near_miss_f73_ts ON market_events_near_miss_f73(event_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_near_miss_f73_cat ON market_events_near_miss_f73(rejection_category);
+
+CREATE TABLE IF NOT EXISTS market_events_f73_ops_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+"""
+
+G1_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_liquidity_trend_g1 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    event_ts INTEGER NOT NULL,
+    signal_type TEXT NOT NULL,
+    mtf_windows_json TEXT NOT NULL DEFAULT '{}',
+    consecutive_pattern_json TEXT NOT NULL DEFAULT '{}',
+    slow_trend_json TEXT,
+    liquidity_accum_json TEXT,
+    capitulation_json TEXT,
+    continuation_probability REAL NOT NULL DEFAULT 0.5,
+    reversal_probability REAL NOT NULL DEFAULT 0.5,
+    adaptive_threshold_pct REAL,
+    historical_reversal_rate REAL,
+    plan_action TEXT NOT NULL DEFAULT 'Ждать R2',
+    telegram_rendered TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g1_symbol_ts ON market_events_liquidity_trend_g1(symbol, event_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_g1_signal_type ON market_events_liquidity_trend_g1(signal_type);
+
+CREATE TABLE IF NOT EXISTS market_events_mtf_trend_g1 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    window_minutes INTEGER NOT NULL,
+    cumulative_return_pct REAL NOT NULL,
+    candle_count INTEGER NOT NULL,
+    green_pct REAL NOT NULL,
+    red_pct REAL NOT NULL,
+    max_streak INTEGER NOT NULL,
+    streak_direction TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mtf_g1_event ON market_events_mtf_trend_g1(event_id);
+
+CREATE TABLE IF NOT EXISTS market_events_reversal_learning_g1 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER,
+    symbol TEXT NOT NULL,
+    pattern_key TEXT NOT NULL,
+    consecutive_red INTEGER,
+    consecutive_green INTEGER,
+    window_minutes INTEGER,
+    candles_to_reversal INTEGER,
+    reversal_pct REAL,
+    signal_type TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_g1_pattern_stats (
+    pattern_key TEXT PRIMARY KEY,
+    samples INTEGER NOT NULL DEFAULT 0,
+    avg_candles_to_reversal REAL NOT NULL DEFAULT 0,
+    reversal_rate REAL NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL
 );
 """

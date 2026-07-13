@@ -110,6 +110,15 @@ def render_professional_telegram_f7(
         report=report, trend=trend, liq_intel=liq_intel,
         dominance=dominance, historical_rate=historical_rate,
     )
+    try:
+        from bot.research.market_events.signal_intelligence.liquidity_trend_g1 import (
+            load_liquidity_trend_g1,
+        )
+        g1 = load_liquidity_trend_g1(conn, event_id)
+        if g1 and g1.reversal_probability >= 0.6:
+            factors.append(f"✔ G1 откат {g1.reversal_probability * 100:.0f}%")
+    except Exception:
+        pass
 
     lines = [
         f"🚨 {sym}",

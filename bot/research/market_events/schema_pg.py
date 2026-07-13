@@ -224,4 +224,10 @@ ALL_TABLES: tuple[str, ...] = (
     "market_events_signal_outcomes_f72",
     "market_events_pattern_stats_f72",
     "market_events_f72_ops_state",
+    "market_events_near_miss_f73",
+    "market_events_f73_ops_state",
+    "market_events_liquidity_trend_g1",
+    "market_events_mtf_trend_g1",
+    "market_events_reversal_learning_g1",
+    "market_events_g1_pattern_stats",
 )

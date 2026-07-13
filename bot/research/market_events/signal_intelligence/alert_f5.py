@@ -50,6 +50,17 @@ def send_professional_alert_f5(conn: Any, event_id: int) -> bool:
             "f5 alert dashboard-only event=%s reason=%s conf=%.1f",
             event_id, signal.telegram_skip_reason, signal.dynamic_confidence,
         )
+        try:
+            from bot.research.market_events.signal_intelligence.near_miss_f73 import (
+                record_near_miss_f73,
+            )
+            record_near_miss_f73(
+                conn, event_id=event_id,
+                skip_code=signal.telegram_skip_reason or "low_confidence",
+                signal=signal,
+            )
+        except Exception as exc:
+            logger.debug("f73 near miss skipped: %s", exc)
         record_f5_delivery_trace(
             conn,
             event_id=event_id,
@@ -72,6 +83,17 @@ def send_professional_alert_f5(conn: Any, event_id: int) -> bool:
             f7_intel = run_market_intel_f7(conn, event_id)
         if f7_intel and not f7_intel.telegram_eligible:
             mark_f5_telegram_sent(conn, event_id, skipped_reason=f7_intel.telegram_skip_reason)
+            try:
+                from bot.research.market_events.signal_intelligence.near_miss_f73 import (
+                    record_near_miss_f73,
+                )
+                record_near_miss_f73(
+                    conn, event_id=event_id,
+                    skip_code=f7_intel.telegram_skip_reason or "f5_filtered",
+                    signal=signal, f7_intel=f7_intel,
+                )
+            except Exception as exc:
+                logger.debug("f73 near miss skipped: %s", exc)
             record_f5_delivery_trace(
                 conn,
                 event_id=event_id,
@@ -110,6 +132,13 @@ def send_professional_alert_f5(conn: Any, event_id: int) -> bool:
             logger.debug("f72 active signal skipped: %s", exc)
     elif F5_PRIORITY_ENGINE:
         mark_f5_telegram_sent(conn, event_id, skipped_reason="send_failed")
+        try:
+            from bot.research.market_events.signal_intelligence.near_miss_f73 import (
+                record_near_miss_f73,
+            )
+            record_near_miss_f73(conn, event_id=event_id, skip_code="send_failed", signal=signal)
+        except Exception as exc:
+            logger.debug("f73 near miss skipped: %s", exc)
 
     record_f5_delivery_trace(
         conn,

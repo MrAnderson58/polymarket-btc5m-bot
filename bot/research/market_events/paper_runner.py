@@ -551,6 +551,15 @@ class ShockPaperRunner:
                 )
                 tick_active_signals_f72(conn, feed=self.feed, now=now)
                 maybe_send_morning_digest_f72(conn, now=now)
+                try:
+                    from bot.research.market_events.signal_intelligence.config import F73_ENABLED
+                    if F73_ENABLED:
+                        from bot.research.market_events.signal_intelligence.reports_f73 import (
+                            maybe_send_quiet_market_f73,
+                        )
+                        maybe_send_quiet_market_f73(conn, now=now)
+                except Exception as exc:
+                    logger.debug("f73 quiet market skipped: %s", exc)
                 self._last_f72_tick = now
         except Exception as exc:
             logger.debug("f72 signal outcome tick skipped: %s", exc)
@@ -644,6 +653,24 @@ class ShockPaperRunner:
                         )
                     except Exception as exc:
                         logger.debug("f6 trader performance skipped: %s", exc)
+                    try:
+                        from bot.research.market_events.signal_intelligence.reversal_learning_g1 import (
+                            record_reversal_learning_g1,
+                        )
+                        evt = conn.execute(
+                            "SELECT direction FROM market_events WHERE id = ?",
+                            (eid,),
+                        ).fetchone()
+                        record_reversal_learning_g1(
+                            conn,
+                            event_id=eid,
+                            symbol=active.shock.symbol,
+                            entry_ts=pos.entry_ts,
+                            shock_direction=str(evt["direction"] if evt else "DOWN"),
+                            net_return=net_return(pos.gross_return or 0.0),
+                        )
+                    except Exception as exc:
+                        logger.debug("g1 reversal learning skipped: %s", exc)
                     try:
                         from bot.research.market_events.alert_engine.scheduler import on_event_resolved
                         on_event_resolved(conn, event_id=eid)

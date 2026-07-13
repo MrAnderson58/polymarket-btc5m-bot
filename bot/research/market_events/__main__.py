@@ -93,6 +93,10 @@ def main(argv: list[str] | None = None) -> int:
             "today-summary",
             "live-dashboard",
             "yesterday-report",
+            "near-miss-report",
+            "detector-stats",
+            "threshold-report",
+            "liquidity-trend-report",
             "db-info",
             "market-db-info",
             "market-db-check",
@@ -314,6 +318,31 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(yesterday_report(conn))
+        return 0
+
+    if args.command in ("near-miss-report", "detector-stats", "threshold-report"):
+        from bot.research.market_events.signal_intelligence.reports_f73 import (
+            detector_stats_report,
+            near_miss_report,
+            threshold_report,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            if args.command == "near-miss-report":
+                print(near_miss_report(conn, days=max(1, args.days)))
+            elif args.command == "detector-stats":
+                print(detector_stats_report(conn, days=args.days if args.days else None))
+            else:
+                print(threshold_report(conn, days=max(1, args.days)))
+        return 0
+
+    if args.command == "liquidity-trend-report":
+        from bot.research.market_events.signal_intelligence.liquidity_trend_g1 import (
+            liquidity_trend_report,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(liquidity_trend_report(conn, days=max(1, args.days)))
         return 0
 
     if args.command == "system-validation":

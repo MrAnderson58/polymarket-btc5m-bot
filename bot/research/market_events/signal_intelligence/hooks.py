@@ -27,6 +27,7 @@ def on_shock_f0(conn: Any, *, event_id: int) -> None:
         STAGE_F3,
         STAGE_F4,
         STAGE_F5,
+        STAGE_G1,
         STAGE_F7,
         record_parser_validation_snapshot,
         run_traced,
@@ -152,6 +153,21 @@ def on_shock_f0(conn: Any, *, event_id: int) -> None:
             run_traced(conn, event_id=event_id, stage=STAGE_F4, enabled=False)
     except Exception as exc:
         logger.debug("f4 visual intel skipped: %s", exc)
+
+    try:
+        from bot.research.market_events.signal_intelligence.config import G1_ENABLED
+        run_traced(
+            conn,
+            event_id=event_id,
+            stage=STAGE_G1,
+            enabled=G1_ENABLED,
+            fn=lambda: __import__(
+                "bot.research.market_events.signal_intelligence.liquidity_trend_g1",
+                fromlist=["run_liquidity_trend_g1"],
+            ).run_liquidity_trend_g1(conn, event_id),
+        )
+    except Exception as exc:
+        logger.debug("g1 liquidity trend skipped: %s", exc)
 
     try:
         from bot.research.market_events.signal_intelligence.config import F5_ENABLED
