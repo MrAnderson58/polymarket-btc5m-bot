@@ -22,6 +22,9 @@ STAGE_F5 = "F5"
 STAGE_F7 = "F7"
 STAGE_G1 = "G1"
 STAGE_G2 = "G2"
+STAGE_G2_STARTED = "G2 STARTED"
+STAGE_G2_COMPLETED = "G2 COMPLETED"
+STAGE_G2_SKIPPED = "G2 SKIPPED"
 STAGE_CONFIDENCE = "Confidence"
 STAGE_TELEGRAM_FILTER = "Telegram filter"
 STAGE_TELEGRAM = "Telegram"
@@ -33,7 +36,7 @@ STATUS_SKIP = "SKIPPED"
 STATUS_NOT_SENT = "not sent"
 STATUS_STORED = "stored"
 
-INTELLIGENCE_STAGES = (STAGE_F1, STAGE_F2, STAGE_F3, STAGE_F4, STAGE_F5, STAGE_G1, STAGE_G2, STAGE_F7)
+INTELLIGENCE_STAGES = (STAGE_F1, STAGE_F2, STAGE_F3, STAGE_F4, STAGE_F5, STAGE_G1, STAGE_F7, STAGE_G2)
 
 _TRACE_TABLE = "market_events_signal_trace_f51"
 
@@ -323,6 +326,55 @@ def record_parser_validation_snapshot(
             status=STATUS_PASS if ok else STATUS_FAIL,
             reason=label,
         )
+
+
+def record_g2_started(conn: Any, *, event_id: int) -> None:
+    record_trace(conn, event_id=event_id, stage=STAGE_G2_STARTED, status=STATUS_PASS)
+
+
+def record_g2_completed(
+    conn: Any,
+    *,
+    event_id: int,
+    provider: str,
+    latency_ms: float,
+    input_tokens: int,
+    output_tokens: int,
+    cost_usd: float,
+    ai_status: str,
+) -> None:
+    total_tokens = int(input_tokens) + int(output_tokens)
+    if provider == "anthropic" and ai_status == "OK":
+        headline = "called Claude"
+        status_label = "SUCCESS"
+    else:
+        headline = f"provider {provider}"
+        status_label = ai_status or "DETERMINISTIC"
+    reason = "\n".join([
+        headline,
+        f"latency {latency_ms:.0f} ms",
+        f"tokens {total_tokens}",
+        f"cost ${cost_usd:.4f}",
+        f"status {status_label}",
+    ])
+    record_trace(
+        conn,
+        event_id=event_id,
+        stage=STAGE_G2_COMPLETED,
+        status=STATUS_PASS,
+        reason=reason,
+        latency_ms=int(latency_ms),
+    )
+
+
+def record_g2_skipped(conn: Any, *, event_id: int, reason: str) -> None:
+    record_trace(
+        conn,
+        event_id=event_id,
+        stage=STAGE_G2_SKIPPED,
+        status=STATUS_SKIP,
+        reason=reason,
+    )
 
 
 def record_f5_delivery_trace(

@@ -8,7 +8,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def on_shock_f0(conn: Any, *, event_id: int) -> None:
+def on_shock_f0(conn: Any, *, event_id: int, force_g2: bool = False) -> None:
     """Research-only F.0 pipeline; never affects paper eligibility."""
     from bot.research.market_events.signal_intelligence.config import F0_ENABLED, F0_AI_ENABLED
 
@@ -28,7 +28,6 @@ def on_shock_f0(conn: Any, *, event_id: int) -> None:
         STAGE_F4,
         STAGE_F5,
         STAGE_G1,
-        STAGE_G2,
         STAGE_F7,
         record_parser_validation_snapshot,
         run_traced,
@@ -171,21 +170,6 @@ def on_shock_f0(conn: Any, *, event_id: int) -> None:
         logger.debug("g1 liquidity trend skipped: %s", exc)
 
     try:
-        from bot.research.market_events.signal_intelligence.config import G2_ENABLED
-        run_traced(
-            conn,
-            event_id=event_id,
-            stage=STAGE_G2,
-            enabled=G2_ENABLED,
-            fn=lambda: __import__(
-                "bot.research.market_events.signal_intelligence.research_g2",
-                fromlist=["run_claude_research_g2"],
-            ).run_claude_research_g2(conn, event_id),
-        )
-    except Exception as exc:
-        logger.debug("g2 research agent skipped: %s", exc)
-
-    try:
         from bot.research.market_events.signal_intelligence.config import F5_ENABLED
         run_traced(
             conn,
@@ -214,6 +198,17 @@ def on_shock_f0(conn: Any, *, event_id: int) -> None:
         )
     except Exception as exc:
         logger.debug("f7 market intel skipped: %s", exc)
+
+    try:
+        from bot.research.market_events.signal_intelligence.config import G2_ENABLED
+        if G2_ENABLED or force_g2:
+            from bot.research.market_events.signal_intelligence.research_g2 import run_research_g2
+            run_research_g2(conn, event_id, force=force_g2)
+        else:
+            from bot.research.market_events.signal_intelligence.signal_trace_f51 import record_g2_skipped
+            record_g2_skipped(conn, event_id=event_id, reason="disabled")
+    except Exception as exc:
+        logger.debug("g2 research agent skipped: %s", exc)
 
     try:
         from bot.research.market_events.signal_intelligence.config import F5_ENABLED, TREND_SHOCK_DEFER_ALERT

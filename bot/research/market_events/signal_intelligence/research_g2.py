@@ -13,6 +13,7 @@ from bot.research.market_events.signal_intelligence.ai_context_f0 import build_f
 from bot.research.market_events.signal_intelligence.config import (
     G2_ENABLED,
     G2_MIN_CONFIDENCE,
+    G2_MIN_G1_REVERSAL_PROB,
     G2_MIN_MARKET_SCORE,
     PROMPT_VERSION_G2,
 )
@@ -77,10 +78,16 @@ def check_g2_eligibility(conn: Any, event_id: int) -> tuple[bool, str]:
     if not g1:
         return False, "no_g1"
 
-    if float(f7.final_confidence) < G2_MIN_CONFIDENCE:
-        return False, "low_confidence"
-    if float(f7.market_score) < G2_MIN_MARKET_SCORE:
-        return False, "low_market_score"
+    conf = float(f7.final_confidence)
+    mscore = float(f7.market_score)
+    rev = float(g1.reversal_probability)
+
+    if conf < G2_MIN_CONFIDENCE:
+        return False, f"confidence {conf:.1f}"
+    if mscore < G2_MIN_MARKET_SCORE:
+        return False, f"market score {mscore:.0f}"
+    if rev < G2_MIN_G1_REVERSAL_PROB:
+        return False, f"reversal {rev:.2f}"
     return True, "ok"
 
 
@@ -307,12 +314,13 @@ def _call_claude_research(
         )
 
 
-def run_claude_research_g2(conn: Any, event_id: int) -> ResearchG2 | None:
+def run_claude_research_g2(conn: Any, event_id: int, *, force: bool = False) -> ResearchG2 | None:
     """Research-only second opinion. Never changes confidence or opens trades."""
-    ok, reason = check_g2_eligibility(conn, event_id)
-    if not ok:
-        logger.debug("g2 skipped event=%s reason=%s", event_id, reason)
-        return None
+    if not force:
+        ok, reason = check_g2_eligibility(conn, event_id)
+        if not ok:
+            logger.debug("g2 skipped event=%s reason=%s", event_id, reason)
+            return None
 
     existing = conn.execute(f"SELECT 1 FROM {_TABLE} WHERE event_id = ?", (event_id,)).fetchone()
     if existing:
@@ -440,3 +448,136 @@ def load_research_g2(conn: Any, event_id: int) -> ResearchG2 | None:
         confidence=float(row["confidence"] or 0) if "confidence" in cols else 0.0,
         market_score=float(row["market_score"] or 0) if "market_score" in cols else 0.0,
     )
+
+
+def _g2_skip_display(reason: str) -> str:
+    if reason.startswith("market score"):
+        return f"Market Score below threshold ({reason.split()[-1]})"
+    if reason.startswith("confidence"):
+        return f"Confidence below threshold ({reason.split()[-1]})"
+    if reason.startswith("reversal"):
+        return f"Reversal probability below threshold ({reason.split()[-1]})"
+    return reason
+
+
+def run_research_g2(conn: Any, event_id: int, *, force: bool = False) -> ResearchG2 | None:
+    """Production pipeline entry — trace + eligibility + Claude research."""
+    from bot.research.market_events.signal_intelligence.signal_trace_f51 import (
+        record_g2_completed,
+        record_g2_skipped,
+        record_g2_started,
+    )
+
+    if not G2_ENABLED and not force:
+        record_g2_skipped(conn, event_id=event_id, reason="disabled")
+        return None
+
+    record_g2_started(conn, event_id=event_id)
+
+    if not force:
+        ok, reason = check_g2_eligibility(conn, event_id)
+        if not ok:
+            record_g2_skipped(conn, event_id=event_id, reason=_g2_skip_display(reason))
+            return None
+
+    existing = conn.execute(
+        f"SELECT provider, latency_ms, input_tokens, output_tokens, cost_usd, ai_status "
+        f"FROM {_TABLE} WHERE event_id = ?",
+        (event_id,),
+    ).fetchone()
+    if existing:
+        record_g2_completed(
+            conn,
+            event_id=event_id,
+            provider=str(existing["provider"]),
+            latency_ms=float(existing["latency_ms"] or 0),
+            input_tokens=int(existing["input_tokens"] or 0),
+            output_tokens=int(existing["output_tokens"] or 0),
+            cost_usd=float(existing["cost_usd"] or 0),
+            ai_status=str(existing["ai_status"] or "CACHED"),
+        )
+        return load_research_g2(conn, event_id)
+
+    result = run_claude_research_g2(conn, event_id, force=force)
+    if not result:
+        record_g2_skipped(conn, event_id=event_id, reason="no G1 context")
+        return None
+
+    row = conn.execute(
+        f"SELECT provider, latency_ms, input_tokens, output_tokens, cost_usd, ai_status "
+        f"FROM {_TABLE} WHERE event_id = ?",
+        (event_id,),
+    ).fetchone()
+    if row:
+        record_g2_completed(
+            conn,
+            event_id=event_id,
+            provider=str(row["provider"]),
+            latency_ms=float(row["latency_ms"] or 0),
+            input_tokens=int(row["input_tokens"] or 0),
+            output_tokens=int(row["output_tokens"] or 0),
+            cost_usd=float(row["cost_usd"] or 0),
+            ai_status=str(row["ai_status"] or "OK"),
+        )
+    return result
+
+
+def format_g2_trace(conn: Any, event_id: int) -> str:
+    """Compact G2 pipeline trace for CLI."""
+    from bot.research.market_events.signal_intelligence.market_intel_f7 import load_market_intelligence_f7
+    from bot.research.market_events.signal_intelligence.professional_signal_f5 import load_professional_signal_f5
+    from bot.research.market_events.signal_intelligence.signal_trace_f51 import (
+        STAGE_G2_COMPLETED,
+        STAGE_G2_SKIPPED,
+        fetch_trace_rows,
+    )
+
+    lines = [f"Event {event_id}", ""]
+
+    f5 = load_professional_signal_f5(conn, event_id)
+    lines.append("F5")
+    if f5:
+        lines.extend(["passed", f"{float(f5.dynamic_confidence):.1f}"])
+    else:
+        lines.append("missing")
+    lines.append("")
+
+    f7 = load_market_intelligence_f7(conn, event_id)
+    lines.append("F7")
+    if f7:
+        lines.extend(["passed", f"{float(f7.market_score):.0f}"])
+    else:
+        lines.append("missing")
+    lines.append("")
+
+    trace_rows = fetch_trace_rows(conn, event_id=event_id)
+    g2_completed = next((r for r in trace_rows if r["stage"] == STAGE_G2_COMPLETED), None)
+    g2_skipped = next((r for r in trace_rows if r["stage"] == STAGE_G2_SKIPPED), None)
+    g2_row = conn.execute(
+        f"SELECT provider, latency_ms, input_tokens, output_tokens, cost_usd, ai_status "
+        f"FROM {_TABLE} WHERE event_id = ?",
+        (event_id,),
+    ).fetchone()
+
+    if g2_completed or (g2_row and g2_row["provider"]):
+        lines.append("G2")
+        if g2_completed and g2_completed.get("reason"):
+            for part in str(g2_completed["reason"]).split("\n"):
+                lines.append(part)
+        elif g2_row:
+            total = int(g2_row["input_tokens"] or 0) + int(g2_row["output_tokens"] or 0)
+            lines.extend([
+                "called Claude" if g2_row["provider"] == "anthropic" else f"provider {g2_row['provider']}",
+                f"latency {float(g2_row['latency_ms'] or 0):.0f} ms",
+                f"tokens {total}",
+                f"cost ${float(g2_row['cost_usd'] or 0):.4f}",
+                f"status {'SUCCESS' if g2_row['ai_status'] == 'OK' else g2_row['ai_status']}",
+            ])
+    elif g2_skipped:
+        lines.append("G2 skipped")
+        lines.append(g2_skipped.get("reason") or "unknown")
+    else:
+        lines.append("G2")
+        lines.append("not run")
+
+    return "\n".join(lines)

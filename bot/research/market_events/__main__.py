@@ -99,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
             "liquidity-trend-report",
             "claude-test",
             "claude-health",
+            "g2-trace",
             "db-info",
             "market-db-info",
             "market-db-check",
@@ -151,6 +152,11 @@ def main(argv: list[str] | None = None) -> int:
         "--all",
         action="store_true",
         help="telegram-retry-unsent: retry all failed deliveries (default: last 100)",
+    )
+    parser.add_argument(
+        "--force-g2",
+        action="store_true",
+        help="demo-event: run G2 Claude research pipeline ignoring filters",
     )
     parser.add_argument(
         "--file",
@@ -209,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.telegram_ops.cli import run_demo_event
         with market_events_connection() as conn:
             apply_migrations(conn)
-            code, text = run_demo_event(conn)
+            code, text = run_demo_event(conn, force_g2=args.force_g2)
             conn.commit()
             print(text)
         return code
@@ -358,6 +364,16 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_claude_health_report(conn))
+        return 0
+
+    if args.command == "g2-trace":
+        from bot.research.market_events.signal_intelligence.research_g2 import format_g2_trace
+        if not args.event_id:
+            print("g2-trace requires --event-id")
+            return 1
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_g2_trace(conn, args.event_id))
         return 0
 
     if args.command == "system-validation":

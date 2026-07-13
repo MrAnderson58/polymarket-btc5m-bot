@@ -6,6 +6,34 @@ import time
 from typing import Any
 
 
+def seed_demo_candles(conn: Any, *, symbol: str = "SOL", n: int = 60) -> None:
+    """Seed deterministic candles so G1/F2 pipeline can run offline."""
+    now = int(time.time())
+    price = 100.0
+    for i in range(n):
+        ts = now - (n - i) * 300
+        if i >= n - 8:
+            o = price
+            price *= 0.985
+            c = price
+            vol = 5000.0 + i * 100
+        else:
+            o = price
+            price *= 0.999
+            c = price
+            vol = 1200.0
+        h = max(o, c) * 1.002
+        l = min(o, c) * 0.998
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO market_events_historical_candles (
+              venue, symbol, timeframe, open_ts, open, high, low, close, volume, source, fetched_at
+            ) VALUES ('binance_futures', ?, '5m', ?, ?, ?, ?, ?, ?, 'demo', ?)
+            """,
+            (symbol, ts, o, h, l, c, vol, now),
+        )
+
+
 def create_synthetic_shock_event(
     conn: Any,
     *,

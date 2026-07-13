@@ -166,23 +166,95 @@ def run_ai_test(
         ai_jobs.AI_ENABLED = orig_jobs
 
 
-def run_demo_event(conn: Any) -> tuple[int, str]:
+def run_demo_event(conn: Any, *, force_g2: bool = False) -> tuple[int, str]:
     """Full deterministic pipeline without exchange or paper orders."""
-    from bot.research.market_events.ai_analyst import config as ai_cfg
-    from bot.research.market_events.ai_analyst import job_queue as ai_jobs
-    from bot.research.market_events.ai_analyst.job_queue import enqueue_analysis_job, process_pending_jobs
-    from bot.research.market_events.ai_analyst.provider import DeterministicShadowProvider
     from bot.research.market_events.alert_engine.opportunity_score import compute_opportunity_score
     from bot.research.market_events.alert_engine.scheduler import on_shock_detected
     from bot.research.market_events.alert_engine.telegram_delivery import format_delivery_status
     from bot.research.market_events.alert_engine.timeline import build_event_timeline
-    from bot.research.market_events.market_event_alerts import alert_shock_detected
-    from bot.research.market_events.telegram_ops.synthetic_event import create_synthetic_shock_event
+    from bot.research.market_events.market_event_alerts import ALERT_SHOCK, alert_shock_detected
+    from bot.research.market_events.signal_intelligence.hooks import on_shock_f0
+    from bot.research.market_events.telegram_ops.synthetic_event import (
+        create_synthetic_shock_event,
+        seed_demo_candles,
+    )
     import bot.research.market_events.market_event_alerts as alerts_mod
 
+    symbol = "SOL"
     lines = ["DEMO EVENT — deterministic pipeline", ""]
-    event_id = create_synthetic_shock_event(conn, run_tag="demo-event")
+    if force_g2:
+        lines.append("Mode: force-g2 (Claude research pipeline)")
+        lines.append("")
+    event_id = create_synthetic_shock_event(conn, symbol=symbol, run_tag="demo-event")
+    seed_demo_candles(conn, symbol=symbol)
     lines.append(f"1. Synthetic shock persisted  event_id={event_id}")
+
+    if force_g2:
+        with patch.object(alerts_mod, "alerts_enabled", return_value=True):
+            with patch.object(alerts_mod, "alert_shock_enabled", return_value=True):
+                with patch(
+                    "bot.research.market_events.signal_intelligence.config.TREND_SHOCK_DEFER_ALERT",
+                    False,
+                ):
+                    with patch(
+                        "bot.research.market_events.signal_intelligence.config.F5_MIN_TELEGRAM_CONFIDENCE",
+                        0.0,
+                    ):
+                        with patch(
+                            "bot.research.market_events.signal_intelligence.config.F7_MIN_FINAL_CONFIDENCE",
+                            0.0,
+                        ):
+                            with patch(
+                                "bot.research.market_events.signal_intelligence.config.F7_MIN_MARKET_SCORE",
+                                0,
+                            ):
+                                on_shock_f0(conn, event_id=event_id, force_g2=True)
+
+        g2 = conn.execute(
+            """
+            SELECT provider, input_tokens, output_tokens, cost_usd, ai_status, telegram_block
+            FROM market_events_ai_research_g2 WHERE event_id = ?
+            """,
+            (event_id,),
+        ).fetchone()
+        usage = conn.execute(
+            "SELECT value FROM market_events_g2_ops_state WHERE key = 'requests_today'",
+        ).fetchone()
+        lines.append("2. F0→G1→F5→F7→G2 pipeline     OK")
+        if g2:
+            called = g2["provider"] == "anthropic"
+            total_tok = int(g2["input_tokens"] or 0) + int(g2["output_tokens"] or 0)
+            lines.extend([
+                f"3. Claude called              {'yes' if called else 'no (deterministic fallback)'}",
+                f"4. Tokens                     {total_tok}",
+                f"5. Cost                       ${float(g2['cost_usd'] or 0):.4f}",
+                f"6. Saved to g2 table          yes (status={g2['ai_status']})",
+                f"7. Requests today             {usage['value'] if usage else '0'}",
+            ])
+            tg = conn.execute(
+                """
+                SELECT message FROM market_event_alert_log
+                WHERE event_id = ? ORDER BY id DESC LIMIT 1
+                """,
+                (event_id,),
+            ).fetchone()
+            has_research = "🧠 Research Agent" in (g2["telegram_block"] or "")
+            if tg and "🧠 Research Agent" in (tg["message"] or ""):
+                has_research = True
+            lines.append(f"8. Telegram Research Agent    {'yes' if has_research else 'no'}")
+        else:
+            lines.append("3. G2 research                NOT SAVED")
+
+        from bot.research.market_events.signal_intelligence.research_g2 import format_g2_trace
+        lines.extend(["", format_g2_trace(conn, event_id), PAPER_LABEL])
+        ok = bool(g2)
+        return (0 if ok else 1), "\n".join(lines)
+
+    from bot.research.market_events.ai_analyst import config as ai_cfg
+    from bot.research.market_events.ai_analyst import job_queue as ai_jobs
+    from bot.research.market_events.ai_analyst.job_queue import enqueue_analysis_job, process_pending_jobs
+    from bot.research.market_events.ai_analyst.provider import DeterministicShadowProvider
+    from bot.research.market_events.market_event_alerts import alert_shock_detected
 
     orig_ai, orig_jobs = ai_cfg.AI_ENABLED, ai_jobs.AI_ENABLED
     ai_cfg.AI_ENABLED = True

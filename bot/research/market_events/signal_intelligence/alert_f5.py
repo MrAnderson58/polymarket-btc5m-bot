@@ -107,6 +107,15 @@ def send_professional_alert_f5(conn: Any, event_id: int) -> bool:
 
     if F7_ENABLED and F7_TELEGRAM_FORMAT and f7_intel:
         msg = f7_intel.telegram_rendered
+        try:
+            from bot.research.market_events.signal_intelligence.config import G2_TELEGRAM_FORMAT
+            if G2_TELEGRAM_FORMAT:
+                from bot.research.market_events.signal_intelligence.research_g2 import load_research_g2
+                g2 = load_research_g2(conn, event_id)
+                if g2 and g2.telegram_block and g2.telegram_block not in msg:
+                    msg = msg.rstrip() + "\n\n" + g2.telegram_block
+        except Exception:
+            pass
     elif F5_TELEGRAM_FORMAT:
         msg = format_shock_f5(conn, event_id)
     else:

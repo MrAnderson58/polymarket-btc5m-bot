@@ -25,7 +25,9 @@ from bot.research.market_events.signal_intelligence.learning_g2 import record_pa
 from bot.research.market_events.signal_intelligence.research_g2 import (
     analyze_research_g2_deterministic,
     check_g2_eligibility,
+    format_g2_trace,
     run_claude_research_g2,
+    run_research_g2,
 )
 from bot.research.market_events.signal_intelligence.telegram_g2 import format_research_telegram_g2
 from tests.f0_test_utils import conn_ctx, make_db, seed_candles, seed_event
@@ -114,7 +116,7 @@ class ResearchG2Tests(unittest.TestCase):
             _seed_f5_f7(conn, eid, conf=6.5, mscore=70)
             ok, reason = check_g2_eligibility(conn, eid)
             self.assertFalse(ok)
-            self.assertEqual(reason, "low_confidence")
+            self.assertEqual(reason, "confidence 6.5")
 
     def test_eligibility_passes(self) -> None:
         with conn_ctx(self.db) as conn:
@@ -288,6 +290,38 @@ class ResearchG2Tests(unittest.TestCase):
             text = format_claude_health_report(conn)
             self.assertIn("CLAUDE HEALTH", text)
             self.assertIn("Requests:", text)
+
+    def test_run_research_g2_records_trace(self) -> None:
+        from bot.research.market_events.signal_intelligence.signal_trace_f51 import (
+            STAGE_G2_COMPLETED,
+            STAGE_G2_STARTED,
+        )
+
+        with conn_ctx(self.db) as conn:
+            apply_migrations(conn)
+            eid = seed_event(conn, symbol="BTC", ret=-3.0)
+            self._seed_full_event(conn, eid)
+            result = run_research_g2(conn, eid)
+            self.assertIsNotNone(result)
+            rows = conn.execute(
+                "SELECT stage FROM market_events_signal_trace_f51 WHERE event_id = ?",
+                (eid,),
+            ).fetchall()
+            stages = {r["stage"] for r in rows}
+            self.assertIn(STAGE_G2_STARTED, stages)
+            self.assertIn(STAGE_G2_COMPLETED, stages)
+
+    def test_g2_trace_format(self) -> None:
+        with conn_ctx(self.db) as conn:
+            apply_migrations(conn)
+            eid = seed_event(conn, symbol="BTC", ret=-3.0)
+            self._seed_full_event(conn, eid)
+            run_research_g2(conn, eid)
+            text = format_g2_trace(conn, eid)
+            self.assertIn(f"Event {eid}", text)
+            self.assertIn("F5", text)
+            self.assertIn("F7", text)
+            self.assertIn("G2", text)
 
 
 class ClaudeClientG2Tests(unittest.TestCase):
