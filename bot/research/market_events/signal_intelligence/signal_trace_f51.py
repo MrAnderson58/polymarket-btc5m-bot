@@ -20,6 +20,8 @@ STAGE_F3 = "F3"
 STAGE_F4 = "F4"
 STAGE_F5 = "F5"
 STAGE_F7 = "F7"
+STAGE_F7_COMPLETED = "F7 COMPLETED"
+STAGE_F7_SKIPPED = "F7 SKIPPED"
 STAGE_G1 = "G1"
 STAGE_G2 = "G2"
 STAGE_G2_STARTED = "G2 STARTED"
@@ -326,6 +328,32 @@ def record_parser_validation_snapshot(
             status=STATUS_PASS if ok else STATUS_FAIL,
             reason=label,
         )
+
+
+def record_f7_completed(
+    conn: Any,
+    *,
+    event_id: int,
+    market_score: float,
+    final_confidence: float,
+) -> None:
+    record_trace(
+        conn,
+        event_id=event_id,
+        stage=STAGE_F7_COMPLETED,
+        status=STATUS_PASS,
+        reason=f"score {market_score:.0f}\nconfidence {final_confidence:.1f}",
+    )
+
+
+def record_f7_skipped(conn: Any, *, event_id: int, reason: str) -> None:
+    record_trace(
+        conn,
+        event_id=event_id,
+        stage=STAGE_F7_SKIPPED,
+        status=STATUS_SKIP,
+        reason=reason,
+    )
 
 
 def record_g2_started(conn: Any, *, event_id: int) -> None:

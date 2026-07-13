@@ -253,6 +253,15 @@ def run_demo_event(conn: Any, *, force_g2: bool = False) -> tuple[int, str]:
             "SELECT value FROM market_events_g2_ops_state WHERE key = 'requests_today'",
         ).fetchone()
         lines.append("2. F0→G1→F5→F7→G2 pipeline     OK")
+        from bot.research.market_events.signal_intelligence.research_g2 import _f7_trace_status
+        f7_label, f7_parts = _f7_trace_status(conn, event_id)
+        if f7_label.startswith("F7 skipped"):
+            lines.append(f"   F7 skipped — {f7_parts[0] if f7_parts else 'unknown'}")
+        else:
+            score_line = next((p for p in f7_parts if p.startswith("score")), None)
+            lines.append(f"   F7 completed — {score_line or 'score available'}")
+        if force_g2:
+            lines.append("   force-g2: bypasses G2 eligibility filters (F5/F7/G1 thresholds)")
         if g2:
             called = g2["provider"] == "anthropic"
             total_tok = int(g2["input_tokens"] or 0) + int(g2["output_tokens"] or 0)

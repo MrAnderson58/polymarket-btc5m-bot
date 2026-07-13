@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 28
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -523,6 +523,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v27")
             current = 27
+
+        if current < 28:
+            conn.executescript(G2_V28_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (28, now, "Phase G.2 prompt cache and context hash"),
+            )
+            applied.append("v28")
+            current = 28
 
     if not applied:
         conn.commit()
@@ -1736,4 +1749,23 @@ CREATE TABLE IF NOT EXISTS market_events_g2_ops_state (
 
 ALTER TABLE market_events_ai_research_g2 ADD COLUMN ai_status TEXT;
 ALTER TABLE market_events_ai_research_g2 ADD COLUMN skip_error TEXT;
+"""
+
+G2_V28_DDL = """
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN context_hash TEXT;
+
+CREATE TABLE IF NOT EXISTS market_events_g2_prompt_cache (
+    context_hash TEXT PRIMARY KEY,
+    response_json TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'anthropic',
+    model TEXT NOT NULL DEFAULT '',
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    cost_usd REAL DEFAULT 0,
+    hit_count INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_g2_research_hash ON market_events_ai_research_g2(context_hash);
 """

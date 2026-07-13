@@ -234,4 +234,5 @@ ALL_TABLES: tuple[str, ...] = (
     "market_events_g2_visual_analysis",
     "market_events_g2_learning_notes",
     "market_events_g2_ops_state",
+    "market_events_g2_prompt_cache",
 )

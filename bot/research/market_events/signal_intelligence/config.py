@@ -63,7 +63,8 @@ G2_MIN_MARKET_SCORE = float(os.getenv("ME_G2_MIN_MARKET_SCORE", "60"))
 G2_MIN_G1_REVERSAL_PROB = float(os.getenv("ME_G2_MIN_G1_REVERSAL_PROB", "0.65"))
 G2_TELEGRAM_FORMAT = os.getenv("ME_G2_TELEGRAM_FORMAT", "true").lower() in ("1", "true", "yes")
 G2_DAILY_REQUEST_LIMIT = int(os.getenv("ME_G2_DAILY_REQUEST_LIMIT", "30"))
-PROMPT_VERSION_G2 = "g2_research_v2"
+PROMPT_VERSION_G2 = "g2_research_v3"
+G2_PROMPT_MAX_INPUT_TOKENS = int(os.getenv("ME_G2_PROMPT_MAX_INPUT_TOKENS", "1500"))
 
 PROMPT_VERSION_F0 = "f0_signal_v1"
 

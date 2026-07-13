@@ -186,16 +186,12 @@ def on_shock_f0(conn: Any, *, event_id: int, force_g2: bool = False) -> None:
 
     try:
         from bot.research.market_events.signal_intelligence.config import F7_ENABLED
-        run_traced(
-            conn,
-            event_id=event_id,
-            stage=STAGE_F7,
-            enabled=F7_ENABLED,
-            fn=lambda: __import__(
-                "bot.research.market_events.signal_intelligence.market_intel_f7",
-                fromlist=["run_market_intel_f7"],
-            ).run_market_intel_f7(conn, event_id),
-        )
+        if F7_ENABLED:
+            from bot.research.market_events.signal_intelligence.market_intel_f7 import run_f7_pipeline
+            run_f7_pipeline(conn, event_id)
+        else:
+            from bot.research.market_events.signal_intelligence.signal_trace_f51 import record_f7_skipped
+            record_f7_skipped(conn, event_id=event_id, reason="disabled")
     except Exception as exc:
         logger.debug("f7 market intel skipped: %s", exc)
 

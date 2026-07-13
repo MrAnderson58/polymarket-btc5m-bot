@@ -24,8 +24,12 @@ from bot.research.market_events.signal_intelligence.claude_ops_g2 import (
 from bot.research.market_events.signal_intelligence.learning_g2 import record_paper_learning_g2
 from bot.research.market_events.signal_intelligence.research_g2 import (
     analyze_research_g2_deterministic,
+    build_g2_compact_summary,
+    build_g2_context,
     check_g2_eligibility,
+    estimate_g2_prompt_tokens,
     format_g2_trace,
+    resolve_latest_g2_event_id,
     run_claude_research_g2,
     run_research_g2,
 )
@@ -96,17 +100,23 @@ class ResearchG2Tests(unittest.TestCase):
         self._patch.stop()
         self._tmp.cleanup()
 
+    def test_schema_v28(self) -> None:
+        with conn_ctx(self.db) as conn:
+            applied = apply_migrations(conn)
+            self.assertIn("v28", applied)
+            self.assertEqual(SCHEMA_VERSION, 28)
+
     def test_schema_v27(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v27", applied)
-            self.assertEqual(SCHEMA_VERSION, 27)
+            self.assertEqual(SCHEMA_VERSION, 28)
 
     def test_schema_v26(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v26", applied)
-            self.assertEqual(SCHEMA_VERSION, 27)
+            self.assertEqual(SCHEMA_VERSION, 28)
 
     def test_eligibility_requires_f7_confidence(self) -> None:
         with conn_ctx(self.db) as conn:
@@ -322,6 +332,70 @@ class ResearchG2Tests(unittest.TestCase):
             self.assertIn("F5", text)
             self.assertIn("F7", text)
             self.assertIn("G2", text)
+
+    def test_compact_prompt_under_budget(self) -> None:
+        ctx = {
+            "symbol": "BTC",
+            "g1": {
+                "signal_type": "CAPITULATION",
+                "reversal_probability": 0.8,
+                "continuation_probability": 0.2,
+                "liquidity_accum": {"funding_negative": True, "oi_rising": True},
+                "capitulation": {"volume_multiple": 3.5},
+                "consecutive_patterns": [{"max_streak": 9, "description": "9 red"}],
+            },
+            "market_event": {"return_pct": -3.2, "direction": "DOWN"},
+            "f5": {"dynamic_confidence": 7.5, "reversal_probability": 0.7, "signal_cause": "shock"},
+            "f7": {"market_score": 65, "final_confidence": 7.5, "liquidation_regime": "neutral", "dominance_regime": "RISK ON"},
+            "f2": {"correlation_verdict": "against", "historical_reversal_rate": 0.78},
+            "trend_v2": {"stage": "Capitulation"},
+        }
+        est = estimate_g2_prompt_tokens(ctx)
+        self.assertLess(est, 1500)
+
+    def test_prompt_cache_reuses_response(self) -> None:
+        from bot.research.market_events.signal_intelligence.claude_cache_g2 import (
+            compute_g2_context_hash,
+            load_prompt_cache,
+            save_prompt_cache,
+        )
+
+        ctx = {
+            "symbol": "BTC",
+            "g1": {"signal_type": "CAP", "reversal_probability": 0.7, "continuation_probability": 0.3,
+                   "liquidity_accum": {}, "consecutive_patterns": []},
+            "market_event": {"return_pct": -2.0, "direction": "DOWN"},
+            "f5": {"dynamic_confidence": 7.0, "reversal_probability": 0.6, "signal_cause": "x"},
+            "f7": {"market_score": 60, "final_confidence": 7.0},
+            "f2": {"historical_reversal_rate": 0.5},
+            "trend_v2": None,
+        }
+        compact = build_g2_compact_summary(ctx)
+        h = compute_g2_context_hash(compact)
+        with conn_ctx(self.db) as conn:
+            apply_migrations(conn)
+            save_prompt_cache(
+                conn, context_hash=h,
+                response={"market_story": "t", "bullish_factors": [], "bearish_factors": [],
+                          "reversal_probability": 0.6, "continuation_probability": 0.4,
+                          "risks": [], "invalidates": [], "summary_ru": "ok"},
+                provider="anthropic", model="test", input_tokens=100, output_tokens=50, cost_usd=0.001,
+            )
+            cached = load_prompt_cache(conn, h)
+            self.assertIsNotNone(cached)
+            self.assertEqual(cached["parsed"]["summary_ru"], "ok")
+
+    def test_g2_trace_latest_event(self) -> None:
+        with conn_ctx(self.db) as conn:
+            apply_migrations(conn)
+            eid = seed_event(conn, symbol="BTC", ret=-3.0)
+            self._seed_full_event(conn, eid)
+            run_research_g2(conn, eid)
+            latest = resolve_latest_g2_event_id(conn)
+            self.assertEqual(latest, eid)
+            text = format_g2_trace(conn, None)
+            self.assertIn(f"Event {eid}", text)
+            self.assertNotIn("missing", text.lower())
 
 
 class ClaudeClientG2Tests(unittest.TestCase):

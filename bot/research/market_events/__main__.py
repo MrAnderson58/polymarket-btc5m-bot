@@ -368,9 +368,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "g2-trace":
         from bot.research.market_events.signal_intelligence.research_g2 import format_g2_trace
-        if not args.event_id:
-            print("g2-trace requires --event-id")
-            return 1
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_g2_trace(conn, args.event_id))

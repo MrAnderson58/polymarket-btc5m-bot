@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -9,7 +10,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from bot.research.market_events.db import insert_returning_id
-from bot.research.market_events.signal_intelligence.ai_context_f0 import build_f0_context_bundle
 from bot.research.market_events.signal_intelligence.config import (
     G2_ENABLED,
     G2_MIN_CONFIDENCE,
@@ -26,20 +26,22 @@ logger = logging.getLogger(__name__)
 _TABLE = "market_events_ai_research_g2"
 
 _G2_JSON_SCHEMA = {
-    "market_story": "string — why market reached this point",
-    "bullish_factors": ["short bullets for reversal case"],
-    "bearish_factors": ["short bullets"],
-    "reversal_probability": "0-1 number (research estimate, does not change engine)",
-    "continuation_probability": "0-1 number",
-    "risks": ["continuation / risk bullets"],
-    "invalidates": ["what invalidates the thesis"],
-    "summary_ru": "one line conclusion e.g. Ждать подтверждения R2.",
+    "market_story": "string",
+    "bullish_factors": ["strings"],
+    "bearish_factors": ["strings"],
+    "reversal_probability": "0-1",
+    "continuation_probability": "0-1",
+    "risks": ["strings"],
+    "invalidates": ["strings"],
+    "summary_ru": "one line Russian",
 }
 
 _SYSTEM_PROMPT = """You are a market research analyst (Claude Sonnet).
-Explain market structure only. You do NOT place trades, open positions,
-or modify confidence scores used by the deterministic trading engine.
-Answer in Russian inside JSON fields. Output ONLY valid JSON matching the schema."""
+Explain market structure only. No trades. No engine score changes.
+Answer in Russian inside JSON fields.
+Output ONLY valid JSON with keys:
+market_story, bullish_factors, bearish_factors, reversal_probability,
+continuation_probability, risks, invalidates, summary_ru."""
 
 
 @dataclass(frozen=True)
@@ -104,7 +106,6 @@ def build_g2_context(conn: Any, event_id: int) -> dict[str, Any] | None:
 
     f5 = load_professional_signal_f5(conn, event_id)
     f7 = load_market_intelligence_f7(conn, event_id)
-    bundle = build_f0_context_bundle(conn, event_id)
 
     f2 = conn.execute(
         "SELECT funding_regime, oi_regime, correlation_verdict, historical_reversal_rate "
@@ -114,6 +115,10 @@ def build_g2_context(conn: Any, event_id: int) -> dict[str, Any] | None:
     trend = conn.execute(
         "SELECT stage, funding, open_interest_delta, volume_multiple, consecutive_bars "
         "FROM market_events_trend_shock_v2 WHERE event_id = ? LIMIT 1",
+        (event_id,),
+    ).fetchone()
+    me = conn.execute(
+        "SELECT return_pct, direction FROM market_events WHERE id = ?",
         (event_id,),
     ).fetchone()
 
@@ -142,17 +147,61 @@ def build_g2_context(conn: Any, event_id: int) -> dict[str, Any] | None:
             "liquidity_accum": json.loads(g1_row["liquidity_accum_json"]) if g1_row["liquidity_accum_json"] else None,
             "capitulation": json.loads(g1_row["capitulation_json"]) if g1_row["capitulation_json"] else None,
         },
-        "market_event": bundle.get("market_event"),
+        "market_event": dict(me) if me else None,
         "f2": dict(f2) if f2 else None,
         "trend_v2": dict(trend) if trend else None,
     }
 
 
+def build_g2_compact_summary(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Compact Claude input — omits duplicate F5/F7 blobs and F0 bundle."""
+    g1 = ctx.get("g1") or {}
+    me = ctx.get("market_event") or {}
+    f5 = ctx.get("f5") or {}
+    f7 = ctx.get("f7") or {}
+    f2 = ctx.get("f2") or {}
+    trend = ctx.get("trend_v2") or {}
+    liq = g1.get("liquidity_accum") or {}
+    cap = g1.get("capitulation") or {}
+    patterns = g1.get("consecutive_patterns") or []
+    best_streak = max((int(p.get("max_streak") or 0) for p in patterns), default=0)
+    slow = g1.get("slow_trend") or {}
+    hist = float(f2.get("historical_reversal_rate") or 0) if f2 else 0.0
+
+    return {
+        "sym": ctx.get("symbol"),
+        "ret": round(float(me.get("return_pct") or 0), 2),
+        "dir": me.get("direction"),
+        "f5_conf": f5.get("dynamic_confidence"),
+        "f5_rev": f5.get("reversal_probability"),
+        "f5_cause": (f5.get("signal_cause") or "")[:80] or None,
+        "f7_score": f7.get("market_score"),
+        "f7_conf": f7.get("final_confidence"),
+        "f7_liq": f7.get("liquidation_regime"),
+        "f7_dom": f7.get("dominance_regime"),
+        "g1_type": g1.get("signal_type"),
+        "g1_rev": g1.get("reversal_probability"),
+        "g1_cont": g1.get("continuation_probability"),
+        "fund_neg": bool(liq.get("funding_negative")),
+        "oi_up": bool(liq.get("oi_rising")),
+        "cap_vol": cap.get("volume_multiple"),
+        "streak": best_streak or None,
+        "slow": (slow.get("description") or "")[:60] or None,
+        "trend": trend.get("stage"),
+        "corr": f2.get("correlation_verdict") if f2 else None,
+        "hist_rev": round(hist, 2) if hist else None,
+    }
+
+
 def build_g2_prompt(ctx: dict[str, Any]) -> str:
-    return json.dumps({
-        "required_schema": _G2_JSON_SCHEMA,
-        "context": ctx,
-    }, ensure_ascii=False, default=str)
+    compact = build_g2_compact_summary(ctx)
+    return json.dumps(compact, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def estimate_g2_prompt_tokens(ctx: dict[str, Any]) -> int:
+    """Rough token estimate for regression budget checks."""
+    prompt = build_g2_prompt(ctx)
+    return max(1, len(prompt) // 4)
 
 
 def _parse_g2_response(data: dict[str, Any]) -> dict[str, Any] | None:
@@ -243,7 +292,7 @@ def analyze_research_g2_deterministic(ctx: dict[str, Any]) -> dict[str, Any]:
 def _call_claude_research(
     conn: Any,
     ctx: dict[str, Any],
-) -> tuple[dict[str, Any], str, str, int, int, float, float, str, str | None]:
+) -> tuple[dict[str, Any], str, str, int, int, float, float, str, str | None, str]:
     from bot.research.market_events.signal_intelligence.claude_client_g2 import (
         ClaudeClientError,
         call_claude_json_g2,
@@ -251,6 +300,7 @@ def _call_claude_research(
         is_claude_configured,
     )
     from bot.research.market_events.signal_intelligence.claude_ops_g2 import (
+        AI_STATUS_CACHED,
         AI_STATUS_DETERMINISTIC,
         AI_STATUS_OK,
         AI_STATUS_RATE_LIMITED,
@@ -259,14 +309,31 @@ def _call_claude_research(
         record_claude_success,
         try_consume_claude_quota,
     )
+    from bot.research.market_events.signal_intelligence.claude_cache_g2 import (
+        compute_g2_context_hash,
+        load_prompt_cache,
+        save_prompt_cache,
+    )
 
     in_tok = out_tok = 0
     cost = 0.0
     latency = 0.0
+    compact = build_g2_compact_summary(ctx)
+    context_hash = compute_g2_context_hash(compact)
 
     if not is_claude_configured():
         fallback = analyze_research_g2_deterministic(ctx)
-        return fallback, "deterministic", "g2_rules_v1", in_tok, out_tok, cost, latency, AI_STATUS_DETERMINISTIC, None
+        return fallback, "deterministic", "g2_rules_v1", in_tok, out_tok, cost, latency, AI_STATUS_DETERMINISTIC, None, context_hash
+
+    cached = load_prompt_cache(conn, context_hash)
+    if cached:
+        result = _parse_g2_response(cached["parsed"])
+        if result:
+            return (
+                result, cached["provider"], cached["model"],
+                cached["input_tokens"], cached["output_tokens"], cached["cost_usd"], 0.0,
+                AI_STATUS_CACHED, None, context_hash,
+            )
 
     allowed, limit_reason = try_consume_claude_quota(conn)
     if not allowed:
@@ -274,7 +341,7 @@ def _call_claude_research(
         return (
             fallback, "deterministic", "g2_rules_v1",
             in_tok, out_tok, cost, latency,
-            AI_STATUS_RATE_LIMITED, limit_reason,
+            AI_STATUS_RATE_LIMITED, limit_reason, context_hash,
         )
 
     model = default_model()
@@ -288,11 +355,21 @@ def _call_claude_research(
         if not result:
             raise ClaudeClientError("invalid_json", "response missing required schema fields")
         record_claude_success(conn, usage=resp.usage, model=resp.model)
+        save_prompt_cache(
+            conn,
+            context_hash=context_hash,
+            response=result,
+            provider="anthropic",
+            model=resp.model,
+            input_tokens=resp.usage.input_tokens,
+            output_tokens=resp.usage.output_tokens,
+            cost_usd=resp.usage.cost_usd,
+        )
         return (
             result, "anthropic", resp.model,
             resp.usage.input_tokens, resp.usage.output_tokens,
             resp.usage.cost_usd, resp.usage.latency_ms,
-            AI_STATUS_OK, None,
+            AI_STATUS_OK, None, context_hash,
         )
     except ClaudeClientError as exc:
         record_claude_failure(conn, error=f"{exc.kind}: {exc.message}", model=model)
@@ -301,7 +378,7 @@ def _call_claude_research(
         return (
             fallback, "deterministic", "g2_rules_v1",
             in_tok, out_tok, cost, latency,
-            AI_STATUS_SKIPPED, str(exc),
+            AI_STATUS_SKIPPED, str(exc), context_hash,
         )
     except Exception as exc:
         record_claude_failure(conn, error=str(exc), model=model)
@@ -310,7 +387,7 @@ def _call_claude_research(
         return (
             fallback, "deterministic", "g2_rules_v1",
             in_tok, out_tok, cost, latency,
-            AI_STATUS_SKIPPED, str(exc),
+            AI_STATUS_SKIPPED, str(exc), context_hash,
         )
 
 
@@ -330,7 +407,7 @@ def run_claude_research_g2(conn: Any, event_id: int, *, force: bool = False) -> 
     if not ctx:
         return None
 
-    result, provider, model, in_tok, out_tok, cost, latency, ai_status, skip_error = _call_claude_research(conn, ctx)
+    result, provider, model, in_tok, out_tok, cost, latency, ai_status, skip_error, context_hash = _call_claude_research(conn, ctx)
 
     visual = run_visual_analysis_g2(
         conn, event_id,
@@ -368,9 +445,9 @@ def run_claude_research_g2(conn: Any, event_id: int, *, force: bool = False) -> 
           reversal_probability, continuation_probability,
           risks_json, invalidates_json, summary_ru,
           confidence, market_score, input_tokens, output_tokens, cost_usd,
-          ai_status, skip_error,
+          ai_status, skip_error, context_hash,
           provider, model, prompt_version, response_json, latency_ms, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             event_id, g1.symbol, g1.signal_type, g1.reversal_probability,
@@ -387,7 +464,7 @@ def run_claude_research_g2(conn: Any, event_id: int, *, force: bool = False) -> 
             json.dumps(result["invalidates"], ensure_ascii=False),
             result["summary_ru"],
             conf, mscore, in_tok, out_tok, cost,
-            ai_status, skip_error,
+            ai_status, skip_error, context_hash,
             provider, model, PROMPT_VERSION_G2,
             json.dumps({**result, "visual": visual, "ai_status": ai_status, "skip_error": skip_error}, ensure_ascii=False),
             latency, now,
@@ -522,9 +599,57 @@ def run_research_g2(conn: Any, event_id: int, *, force: bool = False) -> Researc
     return result
 
 
-def format_g2_trace(conn: Any, event_id: int) -> str:
+def resolve_latest_g2_event_id(conn: Any) -> int | None:
+    row = conn.execute(
+        f"SELECT event_id FROM {_TABLE} ORDER BY created_at DESC LIMIT 1",
+    ).fetchone()
+    if row:
+        return int(row["event_id"])
+    trace = conn.execute(
+        """
+        SELECT event_id FROM market_events_signal_trace_f51
+        WHERE stage IN ('G2 STARTED', 'G2 COMPLETED', 'G2 SKIPPED')
+        ORDER BY created_at DESC LIMIT 1
+        """,
+    ).fetchone()
+    return int(trace["event_id"]) if trace else None
+
+
+def _f7_trace_status(conn: Any, event_id: int) -> tuple[str, list[str]]:
+    from bot.research.market_events.signal_intelligence.market_intel_f7 import (
+        diagnose_f7_skip,
+        load_market_intelligence_f7,
+    )
+    from bot.research.market_events.signal_intelligence.signal_trace_f51 import (
+        STAGE_F7_COMPLETED,
+        STAGE_F7_SKIPPED,
+        fetch_trace_rows,
+    )
+
+    rows = fetch_trace_rows(conn, event_id=event_id)
+    completed = next((r for r in rows if r["stage"] == STAGE_F7_COMPLETED), None)
+    skipped = next((r for r in rows if r["stage"] == STAGE_F7_SKIPPED), None)
+    if completed:
+        parts = ["completed"]
+        if completed.get("reason"):
+            parts.extend(str(completed["reason"]).split("\n"))
+        return "F7", parts
+    if skipped:
+        return "F7 skipped", [skipped.get("reason") or "unknown"]
+    f7 = load_market_intelligence_f7(conn, event_id)
+    if f7:
+        return "F7", ["completed", f"score {float(f7.market_score):.0f}"]
+    reason = diagnose_f7_skip(conn, event_id) or "market score unavailable"
+    return "F7 skipped", [reason]
+
+
+def format_g2_trace(conn: Any, event_id: int | None = None) -> str:
     """Compact G2 pipeline trace for CLI."""
-    from bot.research.market_events.signal_intelligence.market_intel_f7 import load_market_intelligence_f7
+    if event_id is None:
+        event_id = resolve_latest_g2_event_id(conn)
+    if event_id is None:
+        return "No G2 events found."
+
     from bot.research.market_events.signal_intelligence.professional_signal_f5 import load_professional_signal_f5
     from bot.research.market_events.signal_intelligence.signal_trace_f51 import (
         STAGE_G2_COMPLETED,
@@ -539,15 +664,13 @@ def format_g2_trace(conn: Any, event_id: int) -> str:
     if f5:
         lines.extend(["passed", f"{float(f5.dynamic_confidence):.1f}"])
     else:
-        lines.append("missing")
+        lines.append("skipped")
+        lines.append("F5 signal unavailable")
     lines.append("")
 
-    f7 = load_market_intelligence_f7(conn, event_id)
-    lines.append("F7")
-    if f7:
-        lines.extend(["passed", f"{float(f7.market_score):.0f}"])
-    else:
-        lines.append("missing")
+    f7_label, f7_parts = _f7_trace_status(conn, event_id)
+    lines.append(f7_label)
+    lines.extend(f7_parts)
     lines.append("")
 
     trace_rows = fetch_trace_rows(conn, event_id=event_id)
@@ -561,6 +684,11 @@ def format_g2_trace(conn: Any, event_id: int) -> str:
 
     if g2_completed or (g2_row and g2_row["provider"]):
         lines.append("G2")
+        status = "SUCCESS"
+        if g2_row and g2_row["ai_status"] == "CACHED":
+            status = "CACHED"
+        elif g2_row and g2_row["ai_status"] not in ("OK", "CACHED"):
+            status = str(g2_row["ai_status"])
         if g2_completed and g2_completed.get("reason"):
             for part in str(g2_completed["reason"]).split("\n"):
                 lines.append(part)
@@ -571,8 +699,8 @@ def format_g2_trace(conn: Any, event_id: int) -> str:
                 f"latency {float(g2_row['latency_ms'] or 0):.0f} ms",
                 f"tokens {total}",
                 f"cost ${float(g2_row['cost_usd'] or 0):.4f}",
-                f"status {'SUCCESS' if g2_row['ai_status'] == 'OK' else g2_row['ai_status']}",
             ])
+        lines.append(f"status {status}")
     elif g2_skipped:
         lines.append("G2 skipped")
         lines.append(g2_skipped.get("reason") or "unknown")

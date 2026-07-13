@@ -66,6 +66,23 @@ class DemoEventForceG2Tests(unittest.TestCase):
             self.assertIn("Saved to g2 table", text)
             self.assertIn("preview unavailable", text)
 
+    def test_force_g2_f7_trace_not_missing(self) -> None:
+        from bot.research.market_events.signal_intelligence.signal_trace_f51 import (
+            STAGE_F7_COMPLETED,
+            STAGE_F7_SKIPPED,
+        )
+
+        with self._conn() as conn:
+            apply_migrations(conn)
+            code, text = run_demo_event(conn, force_g2=True)
+            self.assertEqual(code, 0)
+            self.assertNotIn("F7 missing", text)
+            rows = conn.execute(
+                "SELECT stage FROM market_events_signal_trace_f51 ORDER BY id DESC LIMIT 20",
+            ).fetchall()
+            stages = {r["stage"] for r in rows}
+            self.assertTrue(STAGE_F7_COMPLETED in stages or STAGE_F7_SKIPPED in stages)
+
     def test_alert_log_uses_message_text_column(self) -> None:
         with self._conn() as conn:
             apply_migrations(conn)

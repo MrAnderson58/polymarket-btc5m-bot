@@ -277,6 +277,53 @@ def run_market_intel_f7(conn: Any, event_id: int) -> MarketIntelligenceF7 | None
     return intel
 
 
+def diagnose_f7_skip(conn: Any, event_id: int) -> str | None:
+    """Return skip reason when F7 cannot run; None if prerequisites are met."""
+    if not F7_ENABLED:
+        return "disabled"
+    row = conn.execute("SELECT 1 FROM market_events WHERE id = ?", (event_id,)).fetchone()
+    if not row:
+        return "event not found"
+    f5 = load_professional_signal_f5(conn, event_id)
+    if not f5:
+        return "F5 signal unavailable"
+    report = load_signal_report_f2(conn, event_id)
+    if not report:
+        return "F2 report unavailable"
+    return None
+
+
+def run_f7_pipeline(conn: Any, event_id: int) -> MarketIntelligenceF7 | None:
+    """Production F7 entry with explicit SUCCESS/SKIPPED trace."""
+    from bot.research.market_events.signal_intelligence.signal_trace_f51 import (
+        record_f7_completed,
+        record_f7_skipped,
+    )
+
+    reason = diagnose_f7_skip(conn, event_id)
+    if reason:
+        record_f7_skipped(conn, event_id=event_id, reason=reason)
+        return None
+
+    try:
+        intel = run_market_intel_f7(conn, event_id)
+    except Exception as exc:
+        record_f7_skipped(conn, event_id=event_id, reason=str(exc) or exc.__class__.__name__)
+        return None
+
+    if not intel:
+        record_f7_skipped(conn, event_id=event_id, reason="market score unavailable")
+        return None
+
+    record_f7_completed(
+        conn,
+        event_id=event_id,
+        market_score=float(intel.market_score),
+        final_confidence=float(intel.final_confidence),
+    )
+    return intel
+
+
 def load_market_intelligence_f7(conn: Any, event_id: int) -> MarketIntelligenceF7 | None:
     row = conn.execute(
         "SELECT * FROM market_events_market_intelligence_f7 WHERE event_id = ?",
