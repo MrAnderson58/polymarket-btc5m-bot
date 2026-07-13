@@ -246,6 +246,18 @@ class ObservationRunner:
 
         conn.commit()
         elapsed = time.monotonic() - t_cycle
+        try:
+            from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
+                write_system_heartbeat,
+            )
+            write_system_heartbeat(
+                conn,
+                writer="observe-run",
+                latency_ms=int(elapsed * 1000),
+            )
+            conn.commit()
+        except Exception as exc:
+            logger.debug("observe heartbeat write skipped: %s", exc)
         self._progress(
             f"cycle={cycle} complete observations={self.stats.observations} "
             f"failed={self.stats.fetch_failed} stale={self.stats.stale_recorded} "

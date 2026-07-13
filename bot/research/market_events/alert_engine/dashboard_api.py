@@ -89,6 +89,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     msg, week_key = build_weekly_report(conn)
                     _json_response(self, {"period": week_key, "report": msg})
                 elif path == "/stats":
+                    from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
+                        read_heartbeat_diagnostics,
+                    )
                     from bot.research.market_events.signal_intelligence.priority_engine_f5 import (
                         dashboard_skipped_count,
                     )
@@ -128,6 +131,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         ).fetchone()[0],
                         "f5_dashboard_only": dashboard_skipped_count(conn),
                         "f5_dashboard_only_today": dashboard_skipped_count(conn, since_ts=day_start),
+                        "heartbeat": read_heartbeat_diagnostics(conn),
                     }
                     _json_response(self, stats)
                 elif path.startswith("/timeline/"):

@@ -111,6 +111,7 @@ def main(argv: list[str] | None = None) -> int:
             "score-correlation",
             "score-recommendations",
             "market-heatmap",
+            "heartbeat-trace",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -474,6 +475,15 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_market_heatmap(conn, limit=8))
+        return 0
+
+    if args.command == "heartbeat-trace":
+        from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
+            format_heartbeat_trace,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_heartbeat_trace(conn))
         return 0
 
     if args.command == "threshold-optimizer":

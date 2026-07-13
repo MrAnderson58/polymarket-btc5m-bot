@@ -91,6 +91,13 @@ def mark_heartbeat_sent(conn: Any, *, now: int | None = None) -> None:
         """,
         (now, now),
     )
+    try:
+        from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
+            write_system_heartbeat,
+        )
+        write_system_heartbeat(conn, writer="telegram_heartbeat")
+    except Exception:
+        pass
 
 
 def send_heartbeat_telegram(conn: Any) -> bool:

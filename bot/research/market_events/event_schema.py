@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 34
+SCHEMA_VERSION = 35
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -614,6 +614,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v34")
             current = 34
+
+        if current < 35:
+            conn.executescript(G351_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (35, now, "Phase G.3.5.1 Telegram command trace"),
+            )
+            applied.append("v35")
+            current = 35
 
     if not applied:
         conn.commit()
@@ -2127,4 +2140,20 @@ CREATE TABLE IF NOT EXISTS market_g35_daily_research (
     telegram_sent INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
 );
+"""
+
+G351_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_command_trace_g351 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER,
+    command TEXT,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL,
+    reason TEXT,
+    latency_ms INTEGER,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_cmd_trace_g351_msg ON market_events_command_trace_g351(message_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_me_cmd_trace_g351_stage ON market_events_command_trace_g351(stage);
 """

@@ -31,11 +31,11 @@ class TelegramIntelligenceG35Tests(unittest.TestCase):
     def _conn(self):
         return market_events_connection(db_path=self.db_path)
 
-    def test_schema_v34(self) -> None:
+    def test_schema_v35(self) -> None:
         with self._conn() as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v34", applied)
-            self.assertEqual(SCHEMA_VERSION, 34)
+            self.assertIn("v35", applied)
+            self.assertEqual(SCHEMA_VERSION, 35)
 
     def test_hourly_brief_renders(self) -> None:
         with self._conn() as conn:

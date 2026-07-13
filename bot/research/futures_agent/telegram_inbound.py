@@ -88,49 +88,6 @@ def extract_message_text(message: dict[str, Any]) -> str | None:
     return None
 
 
-def _handle_market_events_command(text: str) -> str:
-    """Telegram slash-commands → market_events reports (no trades, no ingestion)."""
-    cmd = text.split()[0].lower()
-    from bot.research.market_events.db import market_events_connection
-    from bot.research.market_events.event_schema import apply_migrations
-
-    with market_events_connection() as conn:
-        apply_migrations(conn)
-        if cmd in ("/help",):
-            return "\n".join([
-                "G3.5 Commands",
-                "",
-                "/status  /health",
-                "/market",
-                "/candidates",
-                "/top",
-                "/replay",
-                "/score",
-                "/help",
-            ])
-        if cmd in ("/status", "/health"):
-            from bot.research.market_events.signal_intelligence.health_g3 import format_g3_health_report
-            return format_g3_health_report(conn)
-        if cmd in ("/market",):
-            from bot.research.market_events.signal_intelligence.telegram_intelligence_g35 import (
-                build_hourly_market_brief_g35,
-            )
-            return build_hourly_market_brief_g35(conn)
-        if cmd in ("/candidates",):
-            from bot.research.market_events.signal_intelligence.candidate_g31 import format_candidates_report
-            return format_candidates_report(conn, limit=20)
-        if cmd in ("/top",):
-            from bot.research.market_events.signal_intelligence.candidate_g31 import format_candidates_report
-            return format_candidates_report(conn, limit=1)
-        if cmd in ("/replay",):
-            from bot.research.market_events.signal_intelligence.replay_g32 import format_candidate_replay_report
-            return format_candidate_replay_report(conn, limit=10)
-        if cmd in ("/score",):
-            from bot.research.market_events.signal_intelligence.score_breakdown_g34 import format_score_breakdown_report
-            return format_score_breakdown_report(conn, symbol=None)
-        return "Unknown command. Use /help."
-
-
 def extract_forward_origin(message: dict[str, Any]) -> dict[str, Any] | None:
     fo = message.get("forward_origin")
     if fo:
@@ -176,15 +133,6 @@ def process_telegram_message(
             skipped=True, ignore_reason=IGNORE_EMPTY_MESSAGE,
             processing_ms=_elapsed(),
         )
-
-    # G3.5 Telegram commands (research-only). We intentionally bypass futures_agent ingestion.
-    if text.strip().startswith("/"):
-        try:
-            reply = _handle_market_events_command(text.strip())
-            return InboundResult(chat_id, message_id, reply, processed=True, processing_ms=_elapsed())
-        except Exception as exc:
-            logger.debug("market-events command failed: %s", exc)
-            return InboundResult(chat_id, message_id, "Command error.", processed=True, processing_ms=_elapsed())
 
     received_at = int(message.get("date", time.time()))
     forward_origin = extract_forward_origin(message)
@@ -306,6 +254,51 @@ def handle_update(
             stats.record_ignored()
         log_ignored("non-message update", logger=logger)
         return None
+
+    text = extract_message_text(message)
+    if text and text.strip().startswith("/"):
+        t0 = time.perf_counter()
+        chat = message.get("chat") or {}
+        chat_id = int(chat.get("id", 0))
+        message_id = int(message.get("message_id", 0))
+
+        def _cmd_elapsed() -> int:
+            return int((time.perf_counter() - t0) * 1000)
+
+        if not is_chat_allowed(chat_id):
+            result = InboundResult(
+                chat_id, message_id, None,
+                unauthorized=True, skipped=True,
+                ignore_reason=IGNORE_CHAT_NOT_ALLOWED,
+                processing_ms=_cmd_elapsed(),
+            )
+            _apply_inbound_stats(result, stats)
+            log_ignored(result.ignore_reason, logger=logger)
+            if stats is not None:
+                save_poll_stats(stats)
+            return result
+
+        from bot.research.market_events.signal_intelligence.telegram_command_router_g351 import (
+            route_telegram_command,
+        )
+        route = route_telegram_command(text.strip(), message_id=message_id)
+        reply = route.reply_text if route else "Unknown command. Use /help."
+        result = InboundResult(
+            chat_id, message_id, reply,
+            processed=True, processing_ms=_cmd_elapsed(),
+        )
+        _apply_inbound_stats(result, stats)
+        sent = send_telegram_reply(result.chat_id, result.reply_text)
+        result.reply_sent = sent
+        result.reply_failed = not sent
+        if stats is not None:
+            stats.record_reply(sent=sent)
+        if not sent:
+            logger.warning("command reply failed chat_id=%s message_id=%s", chat_id, message_id)
+        _record_last_message(chat_id, message_id)
+        if stats is not None:
+            save_poll_stats(stats)
+        return result
 
     result = process_telegram_message(message, db_url=db_url)
     _apply_inbound_stats(result, stats)

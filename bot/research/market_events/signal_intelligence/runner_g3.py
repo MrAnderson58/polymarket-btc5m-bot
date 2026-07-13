@@ -126,7 +126,11 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
             logger.debug("g32 replay skipped: %s", exc)
 
         from bot.research.market_events.signal_intelligence.health_g3 import set_g3_ops_state
+        from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
+            write_system_heartbeat,
+        )
         set_g3_ops_state(conn, "last_cycle_ts", str(int(time.time())))
+        write_system_heartbeat(conn, writer="g3-live")
     except Exception as exc:
         stats.errors = 1
         stats.error_messages.append(str(exc))

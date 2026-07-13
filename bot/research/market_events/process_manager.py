@@ -241,16 +241,10 @@ def _health_block(conn: Any) -> list[str]:
     db_ok = row and row[0] == "ok"
     lines.append(f"DB: {'OK' if db_ok else 'FAIL'}")
 
-    sched = conn.execute(
-        "SELECT last_heartbeat_telegram_ts FROM market_events_scheduler_state WHERE id = 1",
-    ).fetchone()
-    if sched and sched["last_heartbeat_telegram_ts"]:
-        age = int(time.time()) - int(sched["last_heartbeat_telegram_ts"])
-        from bot.research.market_events.alert_engine.config import TELEGRAM_HEARTBEAT_SEC
-        hb_ok = age < TELEGRAM_HEARTBEAT_SEC * 2
-        lines.append(f"Heartbeat: {'OK' if hb_ok else 'STALE'} ({_format_age(age)})")
-    else:
-        lines.append("Heartbeat: no telegram heartbeat yet")
+    from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
+        heartbeat_status_line,
+    )
+    lines.append(heartbeat_status_line(conn))
 
     last = conn.execute("SELECT MAX(event_ts) AS t FROM market_events").fetchone()
     if last and last["t"]:
