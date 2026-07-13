@@ -1,0 +1,128 @@
+"""Phase G.3 — background runner (recorder + detector + signals + follow-up)."""
+
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass, field
+
+from bot.research.market_events.db import market_events_connection
+from bot.research.market_events.event_schema import apply_migrations
+from bot.research.market_events.signal_intelligence.config import (
+    G3_ENABLED,
+    G3_RECORDER_INTERVAL_SEC,
+)
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class G3CycleStats:
+    cycles: int = 0
+    snapshots: int = 0
+    trends: int = 0
+    signals: int = 0
+    followups: int = 0
+    errors: int = 0
+    last_snapshot_id: int | None = None
+    error_messages: list[str] = field(default_factory=list)
+
+
+def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
+    """Single G3 production cycle."""
+    from bot.research.market_events.signal_intelligence.daily_report_g3 import maybe_send_daily_report_g3
+    from bot.research.market_events.signal_intelligence.followup_g3 import check_signal_followups_g3
+    from bot.research.market_events.signal_intelligence.health_g3 import update_recorder_health_g3
+    from bot.research.market_events.signal_intelligence.liquidity_engine_g3 import (
+        compute_liquidity_state_g3,
+        persist_liquidity_state_g3,
+    )
+    from bot.research.market_events.signal_intelligence.recorder_g3 import (
+        purge_old_snapshots_g3,
+        record_market_snapshot_g3,
+    )
+    from bot.research.market_events.signal_intelligence.signal_generator_g3 import (
+        evaluate_live_signal_g3,
+        send_live_signal_telegram_g3,
+    )
+    from bot.research.market_events.signal_intelligence.trend_windows_g3 import run_trend_detection_g3
+
+    stats = G3CycleStats(cycles=1)
+    try:
+        snapshot_id, payload = record_market_snapshot_g3(conn, provider=provider)
+        stats.snapshots = 1
+        stats.last_snapshot_id = snapshot_id
+        update_recorder_health_g3(
+            conn,
+            snapshot_id=snapshot_id,
+            latency_ms=payload.collector_latency_ms,
+            status=payload.recorder_status,
+        )
+        purge_old_snapshots_g3(conn)
+
+        trends = run_trend_detection_g3(conn, snapshot_id=snapshot_id)
+        stats.trends = len(trends)
+
+        liquidity = compute_liquidity_state_g3(conn, snapshot_id=snapshot_id)
+        persist_liquidity_state_g3(conn, snapshot_id=snapshot_id, state=liquidity)
+
+        signal = evaluate_live_signal_g3(
+            conn, snapshot_id=snapshot_id, trends=trends, liquidity=liquidity,
+        )
+        if signal:
+            stats.signals = 1
+            if not signal.dashboard_only:
+                send_live_signal_telegram_g3(conn, signal)
+
+        stats.followups = check_signal_followups_g3(conn)
+        maybe_send_daily_report_g3(conn)
+
+        from bot.research.market_events.signal_intelligence.health_g3 import set_g3_ops_state
+        set_g3_ops_state(conn, "last_cycle_ts", str(int(time.time())))
+    except Exception as exc:
+        stats.errors = 1
+        stats.error_messages.append(str(exc))
+        logger.exception("g3 cycle failed: %s", exc)
+        from bot.research.market_events.signal_intelligence.health_g3 import update_recorder_health_g3
+        update_recorder_health_g3(conn, snapshot_id=None, latency_ms=None, status="error", error=str(exc))
+    return stats
+
+
+def run_g3_live(
+    *,
+    max_cycles: int | None = None,
+    interval_sec: int | None = None,
+) -> G3CycleStats:
+    """Run G3 background loop until max_cycles or forever."""
+    if not G3_ENABLED:
+        logger.info("G3 disabled (ME_G3_LIVE_SIGNAL=false)")
+        return G3CycleStats()
+
+    interval = interval_sec if interval_sec is not None else G3_RECORDER_INTERVAL_SEC
+    total = G3CycleStats()
+    cycle = 0
+
+    with market_events_connection() as conn:
+        apply_migrations(conn)
+
+    while max_cycles is None or cycle < max_cycles:
+        cycle += 1
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            stats = run_g3_cycle(conn)
+            conn.commit()
+        total.cycles += stats.cycles
+        total.snapshots += stats.snapshots
+        total.trends += stats.trends
+        total.signals += stats.signals
+        total.followups += stats.followups
+        total.errors += stats.errors
+        total.error_messages.extend(stats.error_messages)
+        if stats.last_snapshot_id:
+            total.last_snapshot_id = stats.last_snapshot_id
+
+        if max_cycles is not None and cycle >= max_cycles:
+            break
+        time.sleep(interval)
+
+    return total

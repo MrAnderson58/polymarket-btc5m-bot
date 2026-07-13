@@ -76,6 +76,13 @@ SERVICES: tuple[ManagedService, ...] = (
         markers=("bot.research.market_events ai-worker-run",),
     ),
     ManagedService(
+        key="g3-live",
+        label="g3",
+        module_args=("-m", "bot.research.market_events", "g3-run"),
+        log_name="me-g3-live.log",
+        markers=("bot.research.market_events g3-run",),
+    ),
+    ManagedService(
         key="dashboard",
         label="dashboard",
         module_args=("-m", "bot.research.market_events", "dashboard-api-serve"),

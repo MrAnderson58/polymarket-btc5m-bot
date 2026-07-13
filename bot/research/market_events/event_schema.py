@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 28
+SCHEMA_VERSION = 29
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -536,6 +536,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v28")
             current = 28
+
+        if current < 29:
+            conn.executescript(G3_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (29, now, "Phase G.3 live signal production engine"),
+            )
+            applied.append("v29")
+            current = 29
 
     if not applied:
         conn.commit()
@@ -1768,4 +1781,160 @@ CREATE TABLE IF NOT EXISTS market_events_g2_prompt_cache (
 );
 
 CREATE INDEX IF NOT EXISTS idx_g2_research_hash ON market_events_ai_research_g2(context_hash);
+"""
+
+G3_DDL = """
+CREATE TABLE IF NOT EXISTS market_snapshots_g3 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_uuid TEXT NOT NULL UNIQUE,
+    snapshot_ts INTEGER NOT NULL,
+    btc_price REAL,
+    eth_price REAL,
+    sol_price REAL,
+    bnb_price REAL,
+    total3 REAL,
+    btc_dominance REAL,
+    funding REAL,
+    open_interest REAL,
+    liquidations REAL,
+    volume REAL,
+    atr REAL,
+    fear_greed REAL,
+    dxy REAL,
+    spx REAL,
+    qqq REAL,
+    vix REAL,
+    gold REAL,
+    oil REAL,
+    usdt_dominance REAL,
+    volume_delta REAL,
+    exchange_ts INTEGER,
+    collector_latency_ms REAL,
+    recorder_status TEXT NOT NULL DEFAULT 'ok',
+    raw_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_g3_snapshots_ts ON market_snapshots_g3(snapshot_ts DESC);
+
+CREATE TABLE IF NOT EXISTS market_trend_windows_g3 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    window_minutes INTEGER NOT NULL,
+    pattern_type TEXT NOT NULL,
+    consecutive_candles INTEGER NOT NULL DEFAULT 0,
+    trend_score REAL NOT NULL DEFAULT 0,
+    direction TEXT NOT NULL DEFAULT 'NEUTRAL',
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (snapshot_id) REFERENCES market_snapshots_g3(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g3_trend_snap ON market_trend_windows_g3(snapshot_id, symbol);
+
+CREATE TABLE IF NOT EXISTS market_liquidity_state_g3 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL UNIQUE,
+    primary_state TEXT NOT NULL,
+    accumulation_prob REAL NOT NULL DEFAULT 0,
+    distribution_prob REAL NOT NULL DEFAULT 0,
+    short_squeeze_prob REAL NOT NULL DEFAULT 0,
+    long_squeeze_prob REAL NOT NULL DEFAULT 0,
+    capitulation_prob REAL NOT NULL DEFAULT 0,
+    exhaustion_prob REAL NOT NULL DEFAULT 0,
+    recovery_prob REAL NOT NULL DEFAULT 0,
+    continuation_prob REAL NOT NULL DEFAULT 0,
+    factors_json TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (snapshot_id) REFERENCES market_snapshots_g3(id)
+);
+
+CREATE TABLE IF NOT EXISTS market_live_signals_g3 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_uuid TEXT NOT NULL UNIQUE,
+    snapshot_id INTEGER,
+    event_id INTEGER,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    probability REAL NOT NULL,
+    market_score REAL NOT NULL,
+    liquidity_state TEXT NOT NULL,
+    liquidity_probability REAL NOT NULL,
+    risk_reward REAL NOT NULL,
+    btc_context TEXT,
+    trend_summary TEXT,
+    reason_json TEXT NOT NULL DEFAULT '[]',
+    trade_plan_json TEXT NOT NULL DEFAULT '{}',
+    claude_summary TEXT,
+    historical_json TEXT NOT NULL DEFAULT '[]',
+    telegram_rendered TEXT NOT NULL DEFAULT '',
+    telegram_sent INTEGER NOT NULL DEFAULT 0,
+    dashboard_only INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    position_size_pct REAL,
+    model_version TEXT NOT NULL DEFAULT 'g3_v1',
+    entry_price REAL,
+    tp1 REAL,
+    tp2 REAL,
+    tp3 REAL,
+    sl REAL,
+    pnl_pct REAL,
+    holding_seconds INTEGER,
+    max_drawdown_pct REAL,
+    max_profit_pct REAL,
+    created_at INTEGER NOT NULL,
+    closed_at INTEGER,
+    FOREIGN KEY (snapshot_id) REFERENCES market_snapshots_g3(id),
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g3_signals_ts ON market_live_signals_g3(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_g3_signals_event ON market_live_signals_g3(event_id);
+CREATE INDEX IF NOT EXISTS idx_g3_signals_status ON market_live_signals_g3(status);
+
+CREATE TABLE IF NOT EXISTS market_signal_followup_g3 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_id INTEGER NOT NULL,
+    followup_type TEXT NOT NULL,
+    telegram_sent INTEGER NOT NULL DEFAULT 0,
+    message_text TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (signal_id) REFERENCES market_live_signals_g3(id)
+);
+
+CREATE TABLE IF NOT EXISTS market_daily_report_g3 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_date TEXT NOT NULL UNIQUE,
+    report_json TEXT NOT NULL,
+    telegram_sent INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS weight_history_g3 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_id INTEGER NOT NULL,
+    funding_weight REAL NOT NULL,
+    oi_weight REAL NOT NULL,
+    atr_weight REAL NOT NULL,
+    trend_weight REAL NOT NULL,
+    btc_weight REAL NOT NULL,
+    history_weight REAL NOT NULL,
+    recommended_funding REAL,
+    recommended_oi REAL,
+    recommended_atr REAL,
+    recommended_trend REAL,
+    recommended_btc REAL,
+    recommended_history REAL,
+    notes_json TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (signal_id) REFERENCES market_live_signals_g3(id)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_g3_ops_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
 """

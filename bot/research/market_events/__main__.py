@@ -100,6 +100,9 @@ def main(argv: list[str] | None = None) -> int:
             "claude-test",
             "claude-health",
             "g2-trace",
+            "g3-run",
+            "g3-health",
+            "g3-trace",
             "db-info",
             "market-db-info",
             "market-db-check",
@@ -371,6 +374,29 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_g2_trace(conn, args.event_id))
+        return 0
+
+    if args.command == "g3-run":
+        from bot.research.market_events.signal_intelligence.runner_g3 import run_g3_live
+        stats = run_g3_live(max_cycles=args.max_cycles, interval_sec=args.heartbeat_sec)
+        print(
+            f"G3 cycles={stats.cycles} snapshots={stats.snapshots} trends={stats.trends} "
+            f"signals={stats.signals} followups={stats.followups} errors={stats.errors}",
+        )
+        return 1 if stats.errors and not stats.snapshots else 0
+
+    if args.command == "g3-health":
+        from bot.research.market_events.signal_intelligence.health_g3 import format_g3_health_report
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_g3_health_report(conn))
+        return 0
+
+    if args.command == "g3-trace":
+        from bot.research.market_events.signal_intelligence.signal_generator_g3 import format_g3_trace
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_g3_trace(conn, args.event_id))
         return 0
 
     if args.command == "system-validation":

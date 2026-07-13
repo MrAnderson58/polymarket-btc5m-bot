@@ -34,6 +34,36 @@ def send_professional_alert_f5(conn: Any, event_id: int) -> bool:
     if not F5_ENABLED or not alert_shock_enabled():
         return False
 
+    g3_row = conn.execute(
+        """
+        SELECT telegram_rendered, telegram_sent, dashboard_only
+        FROM market_live_signals_g3 WHERE event_id = ? ORDER BY id DESC LIMIT 1
+        """,
+        (event_id,),
+    ).fetchone()
+    if g3_row and g3_row["telegram_sent"] and not g3_row["dashboard_only"]:
+        logger.debug("f5 alert skipped — G3 telegram already sent event=%s", event_id)
+        return True
+    if g3_row and g3_row["telegram_rendered"] and not g3_row["telegram_sent"] and not g3_row["dashboard_only"]:
+        from bot.research.market_events.market_event_alerts import ALERT_SHOCK, _safe_alert
+        from bot.research.market_events.signal_intelligence.signal_trace_f51 import record_f5_delivery_trace
+    dedupe_key = f"g3-event-{event_id}"
+        ok = _safe_alert(
+            conn, event_id=event_id, alert_type=ALERT_SHOCK, detail=dedupe_key,
+            message=str(g3_row["telegram_rendered"]), enabled=True,
+        )
+        if ok:
+            conn.execute(
+                "UPDATE market_live_signals_g3 SET telegram_sent = 1 WHERE event_id = ?",
+                (event_id,),
+            )
+        record_f5_delivery_trace(
+            conn, event_id=event_id, message_id=None,
+            dynamic_confidence=0.0, telegram_eligible=True,
+            telegram_skip_reason=None, telegram_sent=ok,
+        )
+        return ok
+
     signal = load_professional_signal_f5(conn, event_id)
     if not signal:
         signal = run_signal_engine_f5(conn, event_id)

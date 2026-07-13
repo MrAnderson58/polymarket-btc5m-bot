@@ -207,6 +207,14 @@ def on_shock_f0(conn: Any, *, event_id: int, force_g2: bool = False) -> None:
         logger.debug("g2 research agent skipped: %s", exc)
 
     try:
+        from bot.research.market_events.signal_intelligence.config import G3_ENABLED
+        if G3_ENABLED:
+            from bot.research.market_events.signal_intelligence.signal_generator_g3 import run_g3_for_event
+            run_g3_for_event(conn, event_id)
+    except Exception as exc:
+        logger.debug("g3 live signal skipped: %s", exc)
+
+    try:
         from bot.research.market_events.signal_intelligence.config import F5_ENABLED, TREND_SHOCK_DEFER_ALERT
         if F5_ENABLED:
             from bot.research.market_events.signal_intelligence.alert_f5 import send_professional_alert_f5

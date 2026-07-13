@@ -68,6 +68,20 @@ G2_PROMPT_MAX_INPUT_TOKENS = int(os.getenv("ME_G2_PROMPT_MAX_INPUT_TOKENS", "150
 
 PROMPT_VERSION_F0 = "f0_signal_v1"
 
+G3_ENABLED = os.getenv("ME_G3_LIVE_SIGNAL", "true").lower() in ("1", "true", "yes")
+G3_RECORDER_INTERVAL_SEC = int(os.getenv("ME_G3_RECORDER_INTERVAL_SEC", "60"))
+G3_SNAPSHOT_RETENTION_DAYS = int(os.getenv("ME_G3_SNAPSHOT_RETENTION_DAYS", "365"))
+G3_MIN_CONFIDENCE = float(os.getenv("ME_G3_MIN_CONFIDENCE", "7.5"))
+G3_MIN_MARKET_SCORE = float(os.getenv("ME_G3_MIN_MARKET_SCORE", "65"))
+G3_MIN_LIQUIDITY_PROB = float(os.getenv("ME_G3_MIN_LIQUIDITY_PROB", "0.70"))
+G3_MIN_RISK_REWARD = float(os.getenv("ME_G3_MIN_RISK_REWARD", "2.5"))
+G3_MAX_SIGNALS_PER_DAY = int(os.getenv("ME_G3_MAX_SIGNALS_PER_DAY", "10"))
+G3_DAILY_REPORT_HOUR_LOCAL = int(os.getenv("ME_G3_DAILY_REPORT_HOUR", "9"))
+G3_MODEL_VERSION = "g3_v1"
+G3_SIGNAL_SYMBOLS = tuple(
+    s.strip().upper() for s in os.getenv("ME_G3_SIGNAL_SYMBOLS", "SOL,ETH,BNB").split(",") if s.strip()
+)
+
 MTF_DETECTORS = {
     "SHOCK_M5": {"window_minutes": 5, "min_return_pct": 1.2, "min_atr_multiple": 1.5},
     "SHOCK_M10": {"window_minutes": 10, "min_return_pct": 1.5, "min_atr_multiple": 1.6},

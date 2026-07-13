@@ -40,7 +40,7 @@ class SignalIntelligenceF2Tests(unittest.TestCase):
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v18", applied)
-            self.assertEqual(SCHEMA_VERSION, 28)
+            self.assertEqual(SCHEMA_VERSION, 29)
 
     def test_exchange_consensus_from_candles(self) -> None:
         with conn_ctx(self.db) as conn:
