@@ -12,6 +12,38 @@ from bot.research.market_events.market_event_alerts import ALERT_AI, ALERT_SHOCK
 ALERT_TEST = "TELEGRAM_TEST"
 
 
+def _try_alert_message_text(conn: Any, event_id: int) -> str | None:
+    """Best-effort Telegram preview from alert log; never raises."""
+    try:
+        row = conn.execute(
+            """
+            SELECT message_text FROM market_event_alert_log
+            WHERE event_id = ? ORDER BY id DESC LIMIT 1
+            """,
+            (event_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return str(row["message_text"]) if row["message_text"] else None
+    except Exception:
+        return None
+
+
+def _has_research_agent_telegram(
+    conn: Any,
+    event_id: int,
+    *,
+    g2_telegram_block: str | None,
+) -> bool:
+    try:
+        if g2_telegram_block and "🧠 Research Agent" in g2_telegram_block:
+            return True
+        preview = _try_alert_message_text(conn, event_id)
+        return bool(preview and "🧠 Research Agent" in preview)
+    except Exception:
+        return bool(g2_telegram_block and "🧠 Research Agent" in g2_telegram_block)
+
+
 def _db_ok(conn: Any) -> bool:
     row = conn.execute("PRAGMA quick_check").fetchone()
     return bool(row and row[0] == "ok")
@@ -231,17 +263,19 @@ def run_demo_event(conn: Any, *, force_g2: bool = False) -> tuple[int, str]:
                 f"6. Saved to g2 table          yes (status={g2['ai_status']})",
                 f"7. Requests today             {usage['value'] if usage else '0'}",
             ])
-            tg = conn.execute(
-                """
-                SELECT message FROM market_event_alert_log
-                WHERE event_id = ? ORDER BY id DESC LIMIT 1
-                """,
-                (event_id,),
-            ).fetchone()
-            has_research = "🧠 Research Agent" in (g2["telegram_block"] or "")
-            if tg and "🧠 Research Agent" in (tg["message"] or ""):
-                has_research = True
-            lines.append(f"8. Telegram Research Agent    {'yes' if has_research else 'no'}")
+            has_research = False
+            preview: str | None = None
+            try:
+                has_research = _has_research_agent_telegram(
+                    conn, event_id, g2_telegram_block=g2["telegram_block"],
+                )
+                preview = _try_alert_message_text(conn, event_id)
+            except Exception:
+                has_research = "🧠 Research Agent" in (g2["telegram_block"] or "")
+            lines.append(
+                f"8. Telegram Research Agent    {'yes' if has_research else 'no'}"
+                + ("" if preview is not None else " (preview unavailable)"),
+            )
         else:
             lines.append("3. G2 research                NOT SAVED")
 
