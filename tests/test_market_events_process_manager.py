@@ -22,7 +22,8 @@ class ProcessManagerTests(unittest.TestCase):
         keys = {s.key for s in SERVICES}
         self.assertIn("shock-paper-core", keys)
         self.assertIn("dashboard", keys)
-        self.assertEqual(len(SERVICES), 5)
+        self.assertEqual(len(SERVICES), 6)
+        self.assertIn("g3-live", keys)
 
     @patch("bot.research.market_events.process_manager._ps_rows")
     def test_find_by_ps_markers(self, mock_ps) -> None:

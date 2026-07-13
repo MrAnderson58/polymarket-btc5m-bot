@@ -45,9 +45,7 @@ def send_professional_alert_f5(conn: Any, event_id: int) -> bool:
         logger.debug("f5 alert skipped — G3 telegram already sent event=%s", event_id)
         return True
     if g3_row and g3_row["telegram_rendered"] and not g3_row["telegram_sent"] and not g3_row["dashboard_only"]:
-        from bot.research.market_events.market_event_alerts import ALERT_SHOCK, _safe_alert
-        from bot.research.market_events.signal_intelligence.signal_trace_f51 import record_f5_delivery_trace
-    dedupe_key = f"g3-event-{event_id}"
+        dedupe_key = f"g3-event-{event_id}"
         ok = _safe_alert(
             conn, event_id=event_id, alert_type=ALERT_SHOCK, detail=dedupe_key,
             message=str(g3_row["telegram_rendered"]), enabled=True,
