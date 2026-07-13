@@ -69,8 +69,8 @@ class CandidateG31Tests(unittest.TestCase):
     def test_schema_v30(self) -> None:
         with self._conn() as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v31", applied)
-            self.assertEqual(SCHEMA_VERSION, 31)
+            self.assertIn("v33", applied)
+            self.assertEqual(SCHEMA_VERSION, 33)
 
     def test_universe_includes_extended_symbols(self) -> None:
         with self._conn() as conn:
@@ -112,6 +112,7 @@ class CandidateG31Tests(unittest.TestCase):
     def test_cli_reports(self) -> None:
         with self._conn() as conn:
             apply_migrations(conn)
+            _seed_candles(conn, symbol="SOL", n=80)
             sid = persist_snapshot_g3(conn, SnapshotPayloadG3(
                 snapshot_uuid="cli-test", snapshot_ts=int(time.time()), funding=-0.0001,
             ))
@@ -133,7 +134,7 @@ class CandidateG31Tests(unittest.TestCase):
             persist_candidates_g31(conn, snapshot_id=sid, candidates=candidates)
 
             top = format_candidates_report(conn, limit=5)
-            self.assertIn("SOL", top)
+            self.assertIn("Coverage", top)
             stats = format_candidate_stats(conn, hours=24)
             self.assertIn("Total candidates", stats)
 

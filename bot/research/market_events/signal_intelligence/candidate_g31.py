@@ -35,6 +35,7 @@ STATE_REJECTED = "rejected"
 STATE_CANDIDATE = "candidate"
 STATE_ACCEPTED = "accepted"
 STATE_INSUFFICIENT = "insufficient_data"
+STATE_PROVISIONAL = "provisional"
 
 _TABLE = "market_candidate_g31"
 
@@ -56,6 +57,8 @@ class CandidateG31:
     candidate_state: str
     rejection_reason: str | None
     direction: str | None
+    trend_coverage_pct: float | None = None
+    trend_windows_json: str | None = None
     trend: TrendWindowG3 | None = None
 
 
@@ -155,13 +158,157 @@ def _score_candidate(
     f5_conf: float | None,
     f7_score: float | None,
     f7_conf: float | None,
+    coverage_pct: float = 100.0,
 ) -> tuple[float, float, float]:
     liq_prob = liquidity.probabilities.get(liquidity.primary_state, 0.1)
     trend_score = trend.trend_score
-    confidence = f7_conf or f5_conf or min(10.0, 5.0 + trend_score / 20.0)
+    base_conf = f7_conf or f5_conf or min(10.0, 5.0 + trend_score / 20.0)
+    if coverage_pct < 100.0:
+        base_conf = round(base_conf * (0.7 + 0.3 * coverage_pct / 100.0), 2)
+    confidence = base_conf
     market_score = f7_score or min(100.0, trend_score * 0.55 + liq_prob * 100 * 0.25 + volume_score * 0.2)
     liquidity_score = round(liq_prob * 100.0, 1)
     return round(confidence, 2), round(market_score, 1), liquidity_score
+
+
+def _make_candidate(
+    *,
+    symbol: str,
+    trend: TrendWindowG3 | None,
+    coverage: Any,
+    liquidity: LiquidityStateG3 | None = None,
+    volume_score: float = 0,
+    funding_score: float | None = None,
+    oi_score: float = 50,
+    atr_score: float = 50,
+    fear_greed: float | None = None,
+    f5_conf: float | None = None,
+    f7_score: float | None = None,
+    f7_conf: float | None = None,
+    waiting_claude: bool = False,
+    conn: Any | None = None,
+) -> CandidateG31:
+    """Build candidate using weighted trend coverage — never reject for missing history alone."""
+    from bot.research.market_events.signal_intelligence.trend_coverage_g33 import (
+        format_provisional_reason,
+        windows_detail_json,
+    )
+
+    cov_pct = coverage.coverage_pct
+    windows_json = windows_detail_json(coverage)
+    trend = coverage.best_trend or trend
+
+    if not trend or coverage.weighted_trend_score <= 0:
+        return CandidateG31(
+            symbol=symbol,
+            trend_score=0.0,
+            market_score=None,
+            liquidity_score=None,
+            confidence=None,
+            rr=None,
+            btc_alignment="Neutral",
+            funding_score=funding_score,
+            oi_score=oi_score,
+            volume_score=volume_score,
+            atr_score=atr_score,
+            fear_greed=fear_greed,
+            candidate_state=STATE_PROVISIONAL,
+            rejection_reason=format_provisional_reason(cov_pct),
+            direction=None,
+            trend_coverage_pct=cov_pct,
+            trend_windows_json=windows_json,
+            trend=trend,
+        )
+
+    if trend.trend_score < coverage.weighted_trend_score:
+        trend = TrendWindowG3(
+            symbol=trend.symbol,
+            window_minutes=trend.window_minutes,
+            pattern_type=trend.pattern_type,
+            consecutive_candles=trend.consecutive_candles,
+            trend_score=coverage.weighted_trend_score,
+            direction=coverage.direction,
+            details={**trend.details, "coverage_pct": cov_pct},
+        )
+
+    direction = "LONG" if trend.direction == "UP" else "SHORT"
+    confidence, market_score, liquidity_score = _score_candidate(
+        trend=trend,
+        liquidity=liquidity,  # type: ignore[arg-type]
+        volume_score=volume_score,
+        f5_conf=f5_conf,
+        f7_score=f7_score,
+        f7_conf=f7_conf,
+        coverage_pct=cov_pct,
+    )
+    liq_prob = liquidity.probabilities.get(liquidity.primary_state, 0.0) if liquidity else 0.0
+    probability = min(0.95, liq_prob * 0.6 + (confidence / 10.0) * 0.4)
+    rr = _compute_rr(confidence=confidence, probability=probability)
+    btc_alignment, btc_conflict = _btc_alignment_label(conn, symbol=symbol, direction=direction) if conn else ("Neutral", False)
+
+    provisional_note = format_provisional_reason(cov_pct) if cov_pct < 100.0 else None
+
+    checks: list[tuple[bool, str]] = [
+        (funding_score is not None, "Funding unavailable"),
+        (volume_score >= 40.0, f"Volume weak ({volume_score:.0f})"),
+        (_has_reversal_confirmation(conn, symbol=symbol, trend=trend) if conn else True, "No reversal confirmation"),
+        (confidence >= G3_MIN_CONFIDENCE, provisional_note or f"Confidence {confidence:.1f} < {G3_MIN_CONFIDENCE}"),
+        (market_score >= G3_MIN_MARKET_SCORE, f"Market Score {market_score:.0f} < {G3_MIN_MARKET_SCORE:.0f}"),
+        (liq_prob >= G3_MIN_LIQUIDITY_PROB, f"Liquidity {liquidity_score:.0f}% < {G3_MIN_LIQUIDITY_PROB * 100:.0f}%"),
+        (rr >= G3_MIN_RISK_REWARD, f"RR {rr:.1f} < {G3_MIN_RISK_REWARD}"),
+        (not btc_conflict, "BTC against trend"),
+    ]
+    for ok, reason in checks:
+        if not ok:
+            state = STATE_PROVISIONAL if cov_pct < 100.0 and "Confidence" in (reason or "") else STATE_REJECTED
+            if reason and reason.startswith("Confidence provisional"):
+                state = STATE_PROVISIONAL
+            return CandidateG31(
+                symbol=symbol,
+                trend_score=trend.trend_score,
+                market_score=market_score,
+                liquidity_score=liquidity_score,
+                confidence=confidence,
+                rr=rr,
+                btc_alignment=btc_alignment,
+                funding_score=funding_score,
+                oi_score=oi_score,
+                volume_score=volume_score,
+                atr_score=atr_score,
+                fear_greed=fear_greed,
+                candidate_state=state,
+                rejection_reason=reason,
+                direction=direction,
+                trend_coverage_pct=cov_pct,
+                trend_windows_json=windows_json,
+                trend=trend,
+            )
+
+    reason = "Waiting Claude" if waiting_claude else None
+    state = STATE_PROVISIONAL if cov_pct < 100.0 else STATE_CANDIDATE
+    if cov_pct < 100.0 and not reason:
+        reason = format_provisional_reason(cov_pct)
+
+    return CandidateG31(
+        symbol=symbol,
+        trend_score=trend.trend_score,
+        market_score=market_score,
+        liquidity_score=liquidity_score,
+        confidence=confidence,
+        rr=rr,
+        btc_alignment=btc_alignment,
+        funding_score=funding_score,
+        oi_score=oi_score,
+        volume_score=volume_score,
+        atr_score=atr_score,
+        fear_greed=fear_greed,
+        candidate_state=state,
+        rejection_reason=reason,
+        direction=direction,
+        trend_coverage_pct=cov_pct,
+        trend_windows_json=windows_json,
+        trend=trend,
+    )
 
 
 def _compute_rr(*, confidence: float, probability: float) -> float:
@@ -195,101 +342,30 @@ def evaluate_symbol_candidate_g31(
     oi_score = _oi_score(oi_rising if isinstance(oi_rising, bool) else None)
     atr_raw = float(snapshot_row["atr"]) if snapshot_row and snapshot_row["atr"] is not None else None
 
-    bars = load_recent_candles(conn, symbol=symbol, venue="binance_futures", timeframe="5m", limit=48)
+    bars = load_recent_candles(conn, symbol=symbol, venue="binance_futures", timeframe="5m", limit=300)
     volume_score = _volume_score(bars)
     atr_score = _atr_score(atr_raw, bars)
 
-    trend = _best_trend(trends, symbol)
-    if not trend or trend.trend_score < 25:
-        ts = trend.trend_score if trend else None
-        return CandidateG31(
-            symbol=symbol,
-            trend_score=ts,
-            market_score=None,
-            liquidity_score=None,
-            confidence=None,
-            rr=None,
-            btc_alignment="Neutral",
-            funding_score=funding_score,
-            oi_score=oi_score,
-            volume_score=volume_score,
-            atr_score=atr_score,
-            fear_greed=fear_greed,
-            candidate_state=STATE_INSUFFICIENT,
-            rejection_reason="Insufficient trend data",
-            direction=None,
-            trend=trend,
-        )
+    from bot.research.market_events.signal_intelligence.trend_coverage_g33 import (
+        compute_trend_coverage,
+    )
+    coverage = compute_trend_coverage(bars, trends, symbol=symbol)
 
-    direction = "LONG" if trend.direction == "UP" else "SHORT"
-    confidence, market_score, liquidity_score = _score_candidate(
-        trend=trend,
+    return _make_candidate(
+        symbol=symbol,
+        trend=coverage.best_trend,
+        coverage=coverage,
         liquidity=liquidity,
         volume_score=volume_score,
+        funding_score=funding_score,
+        oi_score=oi_score,
+        atr_score=atr_score,
+        fear_greed=fear_greed,
         f5_conf=f5_conf,
         f7_score=f7_score,
         f7_conf=f7_conf,
-    )
-    liq_prob = liquidity.probabilities.get(liquidity.primary_state, 0.0)
-    probability = min(0.95, liq_prob * 0.6 + (confidence / 10.0) * 0.4)
-    rr = _compute_rr(confidence=confidence, probability=probability)
-    btc_alignment, btc_conflict = _btc_alignment_label(conn, symbol=symbol, direction=direction)
-
-    checks: list[tuple[bool, str]] = [
-        (funding_raw is not None, "Funding unavailable"),
-        (volume_score >= 40.0, f"Volume weak ({volume_score:.0f})"),
-        (
-            _has_reversal_confirmation(conn, symbol=symbol, trend=trend),
-            "No reversal confirmation",
-        ),
-        (confidence >= G3_MIN_CONFIDENCE, f"Confidence {confidence:.1f} < {G3_MIN_CONFIDENCE}"),
-        (market_score >= G3_MIN_MARKET_SCORE, f"Market Score {market_score:.0f} < {G3_MIN_MARKET_SCORE:.0f}"),
-        (
-            liq_prob >= G3_MIN_LIQUIDITY_PROB,
-            f"Liquidity {liquidity_score:.0f}% < {G3_MIN_LIQUIDITY_PROB * 100:.0f}%",
-        ),
-        (rr >= G3_MIN_RISK_REWARD, f"RR {rr:.1f} < {G3_MIN_RISK_REWARD}"),
-        (not btc_conflict, "BTC against trend"),
-    ]
-    for ok, reason in checks:
-        if not ok:
-            return CandidateG31(
-                symbol=symbol,
-                trend_score=trend.trend_score,
-                market_score=market_score,
-                liquidity_score=liquidity_score,
-                confidence=confidence,
-                rr=rr,
-                btc_alignment=btc_alignment,
-                funding_score=funding_score,
-                oi_score=oi_score,
-                volume_score=volume_score,
-                atr_score=atr_score,
-                fear_greed=fear_greed,
-                candidate_state=STATE_REJECTED,
-                rejection_reason=reason,
-                direction=direction,
-                trend=trend,
-            )
-
-    reason = "Waiting Claude" if waiting_claude else None
-    return CandidateG31(
-        symbol=symbol,
-        trend_score=trend.trend_score,
-        market_score=market_score,
-        liquidity_score=liquidity_score,
-        confidence=confidence,
-        rr=rr,
-        btc_alignment=btc_alignment,
-        funding_score=funding_score,
-        oi_score=oi_score,
-        volume_score=volume_score,
-        atr_score=atr_score,
-        fear_greed=fear_greed,
-        candidate_state=STATE_CANDIDATE,
-        rejection_reason=reason,
-        direction=direction,
-        trend=trend,
+        waiting_claude=waiting_claude,
+        conn=conn,
     )
 
 
@@ -375,6 +451,8 @@ def persist_candidates_g31(
     snapshot_id: int,
     candidates: list[CandidateG31],
     candidate_ts: int | None = None,
+    liquidity: LiquidityStateG3 | None = None,
+    claude_conf: float | None = None,
 ) -> int:
     ts = candidate_ts or int(time.time())
     n = 0
@@ -385,14 +463,15 @@ def persist_candidates_g31(
             INSERT INTO {_TABLE} (
               snapshot_id, candidate_ts, symbol, trend_score, market_score, liquidity_score,
               confidence, rr, btc_alignment, funding_score, oi_score, volume_score, atr_score,
-              fear_greed, candidate_state, rejection_reason, direction, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              fear_greed, candidate_state, rejection_reason, direction,
+              trend_coverage_pct, trend_windows_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 snapshot_id, ts, c.symbol, c.trend_score, c.market_score, c.liquidity_score,
                 c.confidence, c.rr, c.btc_alignment, c.funding_score, c.oi_score,
                 c.volume_score, c.atr_score, c.fear_greed, c.candidate_state,
-                c.rejection_reason, c.direction, ts,
+                c.rejection_reason, c.direction, c.trend_coverage_pct, c.trend_windows_json, ts,
             ),
         )
         try:
@@ -407,6 +486,23 @@ def persist_candidates_g31(
             )
         except Exception as exc:
             logger.debug("g32 seed skipped %s: %s", c.symbol, exc)
+        try:
+            from bot.research.market_events.signal_intelligence.config import G34_ENABLED
+            if G34_ENABLED and c.confidence is not None:
+                from bot.research.market_events.signal_intelligence.score_breakdown_g34 import (
+                    build_score_breakdown_g34,
+                    persist_score_breakdown_g34,
+                )
+                liq_state = liquidity.primary_state if liquidity else None
+                breakdown = build_score_breakdown_g34(
+                    conn,
+                    candidate=c,
+                    claude_conf=claude_conf,
+                    liquidity_state=liq_state,
+                )
+                persist_score_breakdown_g34(conn, candidate_id=cid, breakdown=breakdown)
+        except Exception as exc:
+            logger.debug("g34 breakdown skipped %s: %s", c.symbol, exc)
         n += 1
     return n
 
@@ -419,16 +515,34 @@ def run_candidate_pipeline_g31(
     liquidity: LiquidityStateG3,
     event_id: int | None = None,
 ) -> list[CandidateG31]:
+    f7_conf = None
+    if event_id:
+        f7 = conn.execute(
+            "SELECT final_confidence FROM market_events_market_intelligence_f7 WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        if f7:
+            f7_conf = float(f7["final_confidence"])
+
     candidates = build_candidates_g31(
         conn, snapshot_id=snapshot_id, trends=trends, liquidity=liquidity, event_id=event_id,
     )
     if candidates:
-        persist_candidates_g31(conn, snapshot_id=snapshot_id, candidates=candidates)
+        persist_candidates_g31(
+            conn,
+            snapshot_id=snapshot_id,
+            candidates=candidates,
+            liquidity=liquidity,
+            claude_conf=f7_conf,
+        )
     return candidates
 
 
 def pick_best_candidate_g31(candidates: list[CandidateG31]) -> CandidateG31 | None:
-    ready = [c for c in candidates if c.candidate_state == STATE_CANDIDATE and c.confidence is not None]
+    ready = [
+        c for c in candidates
+        if c.candidate_state in (STATE_CANDIDATE, STATE_PROVISIONAL) and c.confidence is not None
+    ]
     if not ready:
         return None
     return max(ready, key=lambda c: (c.confidence or 0, c.market_score or 0))
@@ -438,9 +552,9 @@ def mark_candidate_accepted_g31(conn: Any, *, snapshot_id: int, symbol: str) -> 
     conn.execute(
         f"""
         UPDATE {_TABLE} SET candidate_state = ?, rejection_reason = NULL
-        WHERE snapshot_id = ? AND symbol = ? AND candidate_state = ?
+        WHERE snapshot_id = ? AND symbol = ? AND candidate_state IN (?, ?)
         """,
-        (STATE_ACCEPTED, snapshot_id, symbol, STATE_CANDIDATE),
+        (STATE_ACCEPTED, snapshot_id, symbol, STATE_CANDIDATE, STATE_PROVISIONAL),
     )
 
 
@@ -473,10 +587,15 @@ def format_candidates_report(conn: Any, *, limit: int = 20) -> str:
     for r in rows:
         conf = r["confidence"]
         conf_s = f"{float(conf):.1f}" if conf is not None else "—"
+        cov = r["trend_coverage_pct"] if "trend_coverage_pct" in r.keys() else None
+        cov_s = f"{float(cov):.0f}%" if cov is not None else "—"
         state = r["candidate_state"]
         if state == STATE_REJECTED or state == STATE_INSUFFICIENT:
             status = "Rejected"
             reason = r["rejection_reason"] or "—"
+        elif state == STATE_PROVISIONAL:
+            status = "Provisional"
+            reason = r["rejection_reason"] or "Confidence provisional"
         elif state == STATE_ACCEPTED:
             status = "Accepted"
             reason = "Signal generated"
@@ -489,6 +608,9 @@ def format_candidates_report(conn: Any, *, limit: int = 20) -> str:
             "",
             "Confidence",
             conf_s,
+            "",
+            "Coverage",
+            cov_s,
             "",
             status,
             "",

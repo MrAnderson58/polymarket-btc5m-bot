@@ -49,6 +49,7 @@ def format_professional_telegram_g3(
     historical: list[dict[str, Any]],
     signal_uuid: str,
     paper_mode: bool = True,
+    trend_coverage_pct: float | None = None,
 ) -> str:
     side = "LONG" if direction.upper() in ("UP", "LONG") else "SHORT"
     pair = f"{symbol}USDT" if not symbol.endswith("USDT") else symbol
@@ -61,6 +62,20 @@ def format_professional_telegram_g3(
         "Confidence",
         f"{confidence:.1f} / 10",
         "",
+    ]
+    if trend_coverage_pct is not None:
+        lines.extend([
+            "Coverage",
+            f"{trend_coverage_pct:.0f}%",
+            "",
+        ])
+        if trend_coverage_pct < 80.0:
+            lines.extend([
+                "⚠ История ещё накапливается.",
+                "",
+            ])
+
+    lines.extend([
         "Probability",
         f"{probability * 100:.0f}%",
         "",
@@ -83,7 +98,7 @@ def format_professional_telegram_g3(
         btc_context or "Neutral",
         "",
         "Reason",
-    ]
+    ])
     for r in reasons[:6]:
         lines.append(f"• {r}")
 

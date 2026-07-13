@@ -235,6 +235,7 @@ def evaluate_live_signal_g3(
         historical=historical,
         signal_uuid=signal_uuid,
         paper_mode=True,
+        trend_coverage_pct=best_cand.trend_coverage_pct,
     )
 
     now = int(time.time())

@@ -358,6 +358,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "tab": "Replay",
                         "rows": replay_dashboard_rows(conn, limit=limit),
                     })
+                elif path == "/trend-coverage":
+                    from bot.research.market_events.signal_intelligence.trend_coverage_g33 import (
+                        trend_coverage_dashboard,
+                    )
+                    limit = _query_int(qs, "limit", 50)
+                    _json_response(self, trend_coverage_dashboard(conn, limit=limit))
+                elif path == "/score-diagnostics":
+                    from bot.research.market_events.signal_intelligence.score_breakdown_g34 import (
+                        score_diagnostics_dashboard,
+                    )
+                    hours = _query_int(qs, "hours", 24)
+                    _json_response(self, score_diagnostics_dashboard(conn, hours=hours))
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -366,7 +378,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/exchanges", "/signals", "/signals-f5",
                             "/market-score", "/liquidations", "/dominance", "/whales",
                             "/signal-outcomes", "/near-miss", "/liquidity-trend", "/ai-research",
-                            "/candidates", "/replay",
+                            "/candidates", "/replay", "/trend-coverage", "/score-diagnostics",
                         ],
                     })
         except Exception as exc:

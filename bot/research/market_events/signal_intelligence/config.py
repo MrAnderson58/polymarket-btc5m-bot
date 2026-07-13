@@ -92,6 +92,8 @@ G32_REPLAY_INTERVAL_SEC = int(os.getenv("ME_G32_REPLAY_INTERVAL_SEC", "300"))
 G32_DEFAULT_STOP_PCT = float(os.getenv("ME_G32_DEFAULT_STOP_PCT", "1.0"))
 G32_MISSED_TOP_N = int(os.getenv("ME_G32_MISSED_TOP_N", "5"))
 
+G34_ENABLED = os.getenv("ME_G34_SCORE_BREAKDOWN", "true").lower() in ("1", "true", "yes")
+
 MTF_DETECTORS = {
     "SHOCK_M5": {"window_minutes": 5, "min_return_pct": 1.2, "min_atr_multiple": 1.5},
     "SHOCK_M10": {"window_minutes": 10, "min_return_pct": 1.5, "min_atr_multiple": 1.6},

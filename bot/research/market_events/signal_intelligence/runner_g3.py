@@ -92,6 +92,14 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
         maybe_send_daily_report_g3(conn)
 
         try:
+            from bot.research.market_events.signal_intelligence.score_breakdown_g34 import (
+                maybe_send_calibration_daily_g34,
+            )
+            maybe_send_calibration_daily_g34(conn)
+        except Exception as exc:
+            logger.debug("g34 daily digest skipped: %s", exc)
+
+        try:
             from bot.research.market_events.signal_intelligence.missed_opportunities_g32 import (
                 maybe_send_missed_opportunities_g32,
             )

@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 31
+SCHEMA_VERSION = 33
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -575,6 +575,32 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v31")
             current = 31
+
+        if current < 32:
+            conn.executescript(G33_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (32, now, "Phase G.3.3 weighted trend coverage"),
+            )
+            applied.append("v32")
+            current = 32
+
+        if current < 33:
+            conn.executescript(G34_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (33, now, "Phase G.3.4 score breakdown and calibration"),
+            )
+            applied.append("v33")
+            current = 33
 
     if not applied:
         conn.commit()
@@ -2020,4 +2046,46 @@ CREATE TABLE IF NOT EXISTS market_candidate_outcomes_g32 (
 
 CREATE INDEX IF NOT EXISTS idx_g32_outcomes_status ON market_candidate_outcomes_g32(replay_status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_g32_outcomes_profit ON market_candidate_outcomes_g32(max_profit_pct DESC);
+"""
+
+G33_DDL = """
+ALTER TABLE market_candidate_g31 ADD COLUMN trend_coverage_pct REAL;
+ALTER TABLE market_candidate_g31 ADD COLUMN trend_windows_json TEXT;
+"""
+
+G34_DDL = """
+CREATE TABLE IF NOT EXISTS market_score_breakdown_g34 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id INTEGER NOT NULL,
+    score_type TEXT NOT NULL,
+    factor TEXT NOT NULL,
+    raw_value REAL,
+    normalized_value REAL,
+    weight REAL,
+    contribution REAL NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (candidate_id) REFERENCES market_candidate_g31(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g34_breakdown_candidate ON market_score_breakdown_g34(candidate_id, score_type);
+CREATE INDEX IF NOT EXISTS idx_g34_breakdown_factor ON market_score_breakdown_g34(factor, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_score_conflicts_g34 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id INTEGER NOT NULL,
+    conflict_type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (candidate_id) REFERENCES market_candidate_g31(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g34_conflicts_type ON market_score_conflicts_g34(conflict_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_calibration_daily_g34 (
+    report_date TEXT PRIMARY KEY,
+    summary_json TEXT NOT NULL,
+    telegram_sent INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
 """
