@@ -349,6 +349,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "stats": stats,
                         "candidates": [dict(r) for r in rows],
                     })
+                elif path == "/replay":
+                    from bot.research.market_events.signal_intelligence.replay_g32 import (
+                        replay_dashboard_rows,
+                    )
+                    limit = _query_int(qs, "limit", 50)
+                    _json_response(self, {
+                        "tab": "Replay",
+                        "rows": replay_dashboard_rows(conn, limit=limit),
+                    })
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -357,7 +366,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/exchanges", "/signals", "/signals-f5",
                             "/market-score", "/liquidations", "/dominance", "/whales",
                             "/signal-outcomes", "/near-miss", "/liquidity-trend", "/ai-research",
-                            "/candidates",
+                            "/candidates", "/replay",
                         ],
                     })
         except Exception as exc:

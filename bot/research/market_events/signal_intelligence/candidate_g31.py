@@ -379,7 +379,7 @@ def persist_candidates_g31(
     ts = candidate_ts or int(time.time())
     n = 0
     for c in candidates:
-        insert_returning_id(
+        cid = insert_returning_id(
             conn,
             f"""
             INSERT INTO {_TABLE} (
@@ -395,6 +395,18 @@ def persist_candidates_g31(
                 c.rejection_reason, c.direction, ts,
             ),
         )
+        try:
+            from bot.research.market_events.signal_intelligence.replay_g32 import seed_outcome_g32
+            seed_outcome_g32(
+                conn,
+                candidate_id=cid,
+                symbol=c.symbol,
+                direction=c.direction,
+                created_at=ts,
+                rr=c.rr,
+            )
+        except Exception as exc:
+            logger.debug("g32 seed skipped %s: %s", c.symbol, exc)
         n += 1
     return n
 

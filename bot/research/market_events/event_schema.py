@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 30
+SCHEMA_VERSION = 31
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -562,6 +562,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v30")
             current = 30
+
+        if current < 31:
+            conn.executescript(G32_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (31, now, "Phase G.3.2 candidate replay and threshold optimizer"),
+            )
+            applied.append("v31")
+            current = 31
 
     if not applied:
         conn.commit()
@@ -1979,4 +1992,32 @@ CREATE TABLE IF NOT EXISTS market_candidate_g31 (
 CREATE INDEX IF NOT EXISTS idx_g31_candidates_ts ON market_candidate_g31(candidate_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_g31_candidates_sym ON market_candidate_g31(symbol, candidate_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_g31_candidates_state ON market_candidate_g31(candidate_state, candidate_ts DESC);
+"""
+
+G32_DDL = """
+CREATE TABLE IF NOT EXISTS market_candidate_outcomes_g32 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id INTEGER NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    direction TEXT,
+    created_at INTEGER NOT NULL,
+    price_entry REAL,
+    price_15m REAL,
+    price_30m REAL,
+    price_1h REAL,
+    price_2h REAL,
+    price_4h REAL,
+    price_24h REAL,
+    max_profit_pct REAL DEFAULT 0,
+    max_drawdown_pct REAL DEFAULT 0,
+    would_hit_tp INTEGER DEFAULT 0,
+    would_hit_sl INTEGER DEFAULT 0,
+    best_rr REAL,
+    replay_status TEXT NOT NULL DEFAULT 'OPEN',
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (candidate_id) REFERENCES market_candidate_g31(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g32_outcomes_status ON market_candidate_outcomes_g32(replay_status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_g32_outcomes_profit ON market_candidate_outcomes_g32(max_profit_pct DESC);
 """

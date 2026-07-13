@@ -31,6 +31,7 @@ from bot.research.market_events.event_schema import (
     F41_ALTER_STATEMENTS,
     G3_DDL,
     G31_DDL,
+    G32_DDL,
     MIGRATIONS_TABLE,
     SCHEMA_VERSION,
 )
@@ -58,6 +59,7 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     20: "Phase F.6 trader performance learning",
     29: "Phase G.3 live signal production engine",
     30: "Phase G.3.1 candidate pipeline",
+    31: "Phase G.3.2 candidate replay and threshold optimizer",
 }
 
 
@@ -118,6 +120,7 @@ def full_pg_ddl() -> str:
         F6_DDL,
         G3_DDL,
         G31_DDL,
+        G32_DDL,
     ]
     ddl = sqlite_ddl_to_pg("\n".join(blocks))
     alters = [pg_alter_add_column(s) for s in (
@@ -250,4 +253,5 @@ ALL_TABLES: tuple[str, ...] = (
     "weight_history_g3",
     "market_events_g3_ops_state",
     "market_candidate_g31",
+    "market_candidate_outcomes_g32",
 )

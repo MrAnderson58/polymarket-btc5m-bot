@@ -105,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
             "g3-trace",
             "candidates",
             "candidate-stats",
+            "candidate-replay",
+            "threshold-optimizer",
             "db-info",
             "market-db-info",
             "market-db-check",
@@ -415,6 +417,22 @@ def main(argv: list[str] | None = None) -> int:
             apply_migrations(conn)
             hours = max(1, args.days * 24 if args.days else 24)
             print(format_candidate_stats(conn, hours=hours))
+        return 0
+
+    if args.command == "candidate-replay":
+        from bot.research.market_events.signal_intelligence.replay_g32 import format_candidate_replay_report
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_candidate_replay_report(conn, limit=20))
+        return 0
+
+    if args.command == "threshold-optimizer":
+        from bot.research.market_events.signal_intelligence.threshold_optimizer_g32 import (
+            format_threshold_optimizer_report,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_threshold_optimizer_report(conn, days=max(1, args.days)))
         return 0
 
     if args.command == "system-validation":

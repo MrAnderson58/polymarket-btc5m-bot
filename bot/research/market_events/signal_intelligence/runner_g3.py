@@ -24,6 +24,7 @@ class G3CycleStats:
     candidates: int = 0
     signals: int = 0
     followups: int = 0
+    replay_updates: int = 0
     errors: int = 0
     last_snapshot_id: int | None = None
     error_messages: list[str] = field(default_factory=list)
@@ -90,6 +91,16 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
         stats.followups = check_signal_followups_g3(conn)
         maybe_send_daily_report_g3(conn)
 
+        try:
+            from bot.research.market_events.signal_intelligence.missed_opportunities_g32 import (
+                maybe_send_missed_opportunities_g32,
+            )
+            from bot.research.market_events.signal_intelligence.replay_g32 import maybe_run_replay_g32
+            stats.replay_updates = maybe_run_replay_g32(conn)
+            maybe_send_missed_opportunities_g32(conn)
+        except Exception as exc:
+            logger.debug("g32 replay skipped: %s", exc)
+
         from bot.research.market_events.signal_intelligence.health_g3 import set_g3_ops_state
         set_g3_ops_state(conn, "last_cycle_ts", str(int(time.time())))
     except Exception as exc:
@@ -130,6 +141,7 @@ def run_g3_live(
         total.candidates += stats.candidates
         total.signals += stats.signals
         total.followups += stats.followups
+        total.replay_updates += stats.replay_updates
         total.errors += stats.errors
         total.error_messages.extend(stats.error_messages)
         if stats.last_snapshot_id:

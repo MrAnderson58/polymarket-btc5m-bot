@@ -76,7 +76,7 @@ class TrendShockValidationTests(unittest.TestCase):
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v18", applied)
-            self.assertEqual(SCHEMA_VERSION, 30)
+            self.assertEqual(SCHEMA_VERSION, 31)
 
     def test_cascade_detected_by_trend_not_single_bar_mtf(self) -> None:
         bars = _cascade_bars_iran_scenario()

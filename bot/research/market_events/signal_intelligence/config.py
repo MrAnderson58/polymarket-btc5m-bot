@@ -87,6 +87,10 @@ G31_DEFAULT_UNIVERSE = (
 G31_SIGNAL_SYMBOLS = tuple(
     s.strip().upper() for s in os.getenv("ME_G31_UNIVERSE_SYMBOLS", "").split(",") if s.strip()
 )
+G32_ENABLED = os.getenv("ME_G32_CANDIDATE_REPLAY", "true").lower() in ("1", "true", "yes")
+G32_REPLAY_INTERVAL_SEC = int(os.getenv("ME_G32_REPLAY_INTERVAL_SEC", "300"))
+G32_DEFAULT_STOP_PCT = float(os.getenv("ME_G32_DEFAULT_STOP_PCT", "1.0"))
+G32_MISSED_TOP_N = int(os.getenv("ME_G32_MISSED_TOP_N", "5"))
 
 MTF_DETECTORS = {
     "SHOCK_M5": {"window_minutes": 5, "min_return_pct": 1.2, "min_atr_multiple": 1.5},
