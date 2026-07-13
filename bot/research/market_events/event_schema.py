@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 26
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -484,6 +484,32 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v24")
             current = 24
+
+        if current < 25:
+            conn.executescript(G2_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (25, now, "Phase G.2 Claude research agent"),
+            )
+            applied.append("v25")
+            current = 25
+
+        if current < 26:
+            conn.executescript(G2_V26_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (26, now, "Phase G.2 Claude research agent v2"),
+            )
+            applied.append("v26")
+            current = 26
 
     if not applied:
         conn.commit()
@@ -1605,4 +1631,85 @@ CREATE TABLE IF NOT EXISTS market_events_g1_pattern_stats (
     reversal_rate REAL NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL
 );
+"""
+
+G2_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_ai_research_g2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    g1_signal_type TEXT,
+    g1_reversal_probability REAL,
+    why_at_this_point TEXT NOT NULL,
+    reversal_signs_json TEXT NOT NULL DEFAULT '[]',
+    continuation_signs_json TEXT NOT NULL DEFAULT '[]',
+    invalidation_json TEXT NOT NULL DEFAULT '[]',
+    conclusion TEXT NOT NULL,
+    telegram_block TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT 'deterministic',
+    model TEXT NOT NULL DEFAULT '',
+    prompt_version TEXT NOT NULL,
+    response_json TEXT,
+    latency_ms REAL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g2_research_event ON market_events_ai_research_g2(event_id);
+CREATE INDEX IF NOT EXISTS idx_g2_research_symbol ON market_events_ai_research_g2(symbol, created_at DESC);
+"""
+
+G2_V26_DDL = """
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN market_story TEXT;
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN bullish_factors_json TEXT DEFAULT '[]';
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN bearish_factors_json TEXT DEFAULT '[]';
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN reversal_probability REAL;
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN continuation_probability REAL;
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN risks_json TEXT DEFAULT '[]';
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN invalidates_json TEXT DEFAULT '[]';
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN summary_ru TEXT;
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN confidence REAL;
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN market_score REAL;
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN input_tokens INTEGER DEFAULT 0;
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN output_tokens INTEGER DEFAULT 0;
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN cost_usd REAL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS market_events_g2_visual_analysis (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL UNIQUE,
+    has_image INTEGER NOT NULL DEFAULT 0,
+    platform TEXT,
+    bos_choch TEXT,
+    demand_supply_json TEXT NOT NULL DEFAULT '{}',
+    liquidity_sweep TEXT,
+    entry_zones_json TEXT NOT NULL DEFAULT '[]',
+    model_agreement TEXT,
+    agreement_score REAL,
+    visual_json TEXT NOT NULL DEFAULT '{}',
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    cost_usd REAL DEFAULT 0,
+    provider TEXT NOT NULL DEFAULT 'deterministic',
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (event_id) REFERENCES market_events(id)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_g2_learning_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    useful_signals_json TEXT NOT NULL DEFAULT '[]',
+    false_signals_json TEXT NOT NULL DEFAULT '[]',
+    experiments_json TEXT NOT NULL DEFAULT '[]',
+    note_json TEXT NOT NULL DEFAULT '{}',
+    summary_ru TEXT,
+    provider TEXT,
+    model TEXT,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    cost_usd REAL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_g2_learning_event ON market_events_g2_learning_notes(event_id);
 """

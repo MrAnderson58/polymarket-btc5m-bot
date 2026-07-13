@@ -28,6 +28,7 @@ def on_shock_f0(conn: Any, *, event_id: int) -> None:
         STAGE_F4,
         STAGE_F5,
         STAGE_G1,
+        STAGE_G2,
         STAGE_F7,
         record_parser_validation_snapshot,
         run_traced,
@@ -168,6 +169,21 @@ def on_shock_f0(conn: Any, *, event_id: int) -> None:
         )
     except Exception as exc:
         logger.debug("g1 liquidity trend skipped: %s", exc)
+
+    try:
+        from bot.research.market_events.signal_intelligence.config import G2_ENABLED
+        run_traced(
+            conn,
+            event_id=event_id,
+            stage=STAGE_G2,
+            enabled=G2_ENABLED,
+            fn=lambda: __import__(
+                "bot.research.market_events.signal_intelligence.research_g2",
+                fromlist=["run_claude_research_g2"],
+            ).run_claude_research_g2(conn, event_id),
+        )
+    except Exception as exc:
+        logger.debug("g2 research agent skipped: %s", exc)
 
     try:
         from bot.research.market_events.signal_intelligence.config import F5_ENABLED

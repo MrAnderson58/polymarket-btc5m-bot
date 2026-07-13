@@ -672,6 +672,22 @@ class ShockPaperRunner:
                     except Exception as exc:
                         logger.debug("g1 reversal learning skipped: %s", exc)
                     try:
+                        from bot.research.market_events.signal_intelligence.learning_g2 import (
+                            record_paper_learning_g2,
+                        )
+                        record_paper_learning_g2(
+                            conn,
+                            event_id=eid,
+                            symbol=active.shock.symbol,
+                            entry_ts=pos.entry_ts,
+                            entry_price=float(pos.entry_price or 0),
+                            net_return=net_return(pos.gross_return or 0.0),
+                            exit_reason=pos.exit_reason,
+                            duration_seconds=pos.exit_ts - pos.entry_ts if pos.exit_ts else None,
+                        )
+                    except Exception as exc:
+                        logger.debug("g2 paper learning skipped: %s", exc)
+                    try:
                         from bot.research.market_events.alert_engine.scheduler import on_event_resolved
                         on_event_resolved(conn, event_id=eid)
                     except Exception:

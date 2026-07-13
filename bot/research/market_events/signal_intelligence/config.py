@@ -57,6 +57,13 @@ F73_QUIET_MARKET_HOURS = int(os.getenv("ME_F73_QUIET_MARKET_HOURS", "12"))
 G1_ENABLED = os.getenv("ME_G1_LIQUIDITY_TREND", "true").lower() in ("1", "true", "yes")
 G1_MIN_REVERSAL_PROB = float(os.getenv("ME_G1_MIN_REVERSAL_PROB", "0.65"))
 
+G2_ENABLED = os.getenv("ME_G2_CLAUDE_RESEARCH", "true").lower() in ("1", "true", "yes")
+G2_MIN_CONFIDENCE = float(os.getenv("ME_G2_MIN_CONFIDENCE", "7.0"))
+G2_MIN_MARKET_SCORE = float(os.getenv("ME_G2_MIN_MARKET_SCORE", "60"))
+G2_MIN_G1_REVERSAL_PROB = float(os.getenv("ME_G2_MIN_G1_REVERSAL_PROB", "0.65"))
+G2_TELEGRAM_FORMAT = os.getenv("ME_G2_TELEGRAM_FORMAT", "true").lower() in ("1", "true", "yes")
+PROMPT_VERSION_G2 = "g2_research_v2"
+
 PROMPT_VERSION_F0 = "f0_signal_v1"
 
 MTF_DETECTORS = {

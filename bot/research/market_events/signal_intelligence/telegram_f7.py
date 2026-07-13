@@ -199,5 +199,15 @@ def render_professional_telegram_f7(
     else:
         lines.append("Анализ подтверждает setup.")
 
+    try:
+        from bot.research.market_events.signal_intelligence.config import G2_TELEGRAM_FORMAT
+        if G2_TELEGRAM_FORMAT:
+            from bot.research.market_events.signal_intelligence.research_g2 import load_research_g2
+            g2 = load_research_g2(conn, event_id)
+            if g2 and g2.telegram_block:
+                lines.extend(["", g2.telegram_block])
+    except Exception:
+        pass
+
     lines.extend(["", "PAPER ONLY"])
     return "\n".join(lines)

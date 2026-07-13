@@ -322,6 +322,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "total": int(stats_row["n"] if stats_row else 0),
                         "signals": [dict(r) for r in rows],
                     })
+                elif path == "/ai-research":
+                    limit = _query_int(qs, "limit", 50)
+                    rows = conn.execute(
+                        """
+                        SELECT r.*, e.return_pct FROM market_events_ai_research_g2 r
+                        JOIN market_events e ON e.id = r.event_id
+                        ORDER BY r.created_at DESC LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                    _json_response(self, {"research": [dict(r) for r in rows]})
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -329,7 +340,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/timeline/{id}", "/exhaustion", "/opportunity", "/multitimeframe",
                             "/exchanges", "/signals", "/signals-f5",
                             "/market-score", "/liquidations", "/dominance", "/whales",
-                            "/signal-outcomes", "/near-miss", "/liquidity-trend",
+                            "/signal-outcomes", "/near-miss", "/liquidity-trend", "/ai-research",
                         ],
                     })
         except Exception as exc:

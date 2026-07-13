@@ -230,4 +230,7 @@ ALL_TABLES: tuple[str, ...] = (
     "market_events_mtf_trend_g1",
     "market_events_reversal_learning_g1",
     "market_events_g1_pattern_stats",
+    "market_events_ai_research_g2",
+    "market_events_g2_visual_analysis",
+    "market_events_g2_learning_notes",
 )
