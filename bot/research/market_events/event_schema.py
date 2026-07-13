@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -510,6 +510,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v26")
             current = 26
+
+        if current < 27:
+            conn.executescript(G2_V27_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (27, now, "Phase G.2 Claude ops and fail-safe"),
+            )
+            applied.append("v27")
+            current = 27
 
     if not applied:
         conn.commit()
@@ -1712,4 +1725,15 @@ CREATE TABLE IF NOT EXISTS market_events_g2_learning_notes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_g2_learning_event ON market_events_g2_learning_notes(event_id);
+"""
+
+G2_V27_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_g2_ops_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN ai_status TEXT;
+ALTER TABLE market_events_ai_research_g2 ADD COLUMN skip_error TEXT;
 """

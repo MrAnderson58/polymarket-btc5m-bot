@@ -59,6 +59,13 @@ def record_paper_learning_g2(
     if not G2_ENABLED:
         return
 
+    existing = conn.execute(
+        "SELECT 1 FROM market_events_g2_learning_notes WHERE event_id = ?",
+        (event_id,),
+    ).fetchone()
+    if existing:
+        return
+
     g2 = conn.execute(
         "SELECT response_json, g1_signal_type FROM market_events_ai_research_g2 WHERE event_id = ?",
         (event_id,),
@@ -94,25 +101,40 @@ def record_paper_learning_g2(
 
     try:
         from bot.research.market_events.signal_intelligence.claude_client_g2 import (
+            ClaudeClientError,
             call_claude_json_g2,
             default_model,
             is_claude_configured,
         )
+        from bot.research.market_events.signal_intelligence.claude_ops_g2 import (
+            record_claude_failure,
+            record_claude_success,
+            try_consume_claude_quota,
+        )
         if is_claude_configured():
-            parsed, resp = call_claude_json_g2(
-                system=_LEARNING_SYSTEM, prompt=prompt, label="g2_learning",
-            )
-            result = {
-                "useful_signals": [str(x) for x in parsed.get("useful_signals", [])][:6],
-                "false_signals": [str(x) for x in parsed.get("false_signals", [])][:6],
-                "next_experiments": [str(x) for x in parsed.get("next_experiments", [])][:6],
-                "summary_ru": str(parsed.get("summary_ru") or ""),
-            }
-            in_tok, out_tok, cost = resp.usage.input_tokens, resp.usage.output_tokens, resp.usage.cost_usd
-            provider, model = "anthropic", resp.model
+            allowed, _ = try_consume_claude_quota(conn)
+            if not allowed:
+                result = _learning_deterministic(payload, net_return)
+            else:
+                parsed, resp = call_claude_json_g2(
+                    system=_LEARNING_SYSTEM, prompt=prompt, label="g2_learning",
+                )
+                result = {
+                    "useful_signals": [str(x) for x in parsed.get("useful_signals", [])][:6],
+                    "false_signals": [str(x) for x in parsed.get("false_signals", [])][:6],
+                    "next_experiments": [str(x) for x in parsed.get("next_experiments", [])][:6],
+                    "summary_ru": str(parsed.get("summary_ru") or ""),
+                }
+                in_tok, out_tok, cost = resp.usage.input_tokens, resp.usage.output_tokens, resp.usage.cost_usd
+                provider, model = "anthropic", resp.model
+                record_claude_success(conn, usage=resp.usage, model=resp.model)
         else:
             result = _learning_deterministic(payload, net_return)
-    except Exception:
+    except ClaudeClientError as exc:
+        record_claude_failure(conn, error=f"{exc.kind}: {exc.message}", model=default_model())
+        result = _learning_deterministic(payload, net_return)
+    except Exception as exc:
+        record_claude_failure(conn, error=str(exc), model=default_model())
         result = _learning_deterministic(payload, net_return)
 
     now = int(time.time())

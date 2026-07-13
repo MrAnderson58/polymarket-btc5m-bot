@@ -103,33 +103,55 @@ def run_visual_analysis_g2(conn: Any, event_id: int, *, shock_context: dict[str,
     in_tok = out_tok = 0
     cost = 0.0
     provider = "deterministic"
+    ai_status = "DETERMINISTIC"
+    skip_error: str | None = None
 
     try:
         from bot.research.market_events.signal_intelligence.claude_client_g2 import (
+            ClaudeClientError,
             call_claude_vision_json_g2,
+            call_claude_json_g2,
+            default_model,
             is_claude_configured,
         )
-        if is_claude_configured() and (image_path or image_b64):
-            parsed, resp = call_claude_vision_json_g2(
-                system=_VISUAL_SYSTEM,
-                prompt=prompt,
-                image_path=image_path,
-                image_base64=image_b64,
-                label="g2_visual",
-            )
-            result = _normalize_visual(parsed, chart_ctx)
-            in_tok, out_tok, cost = resp.usage.input_tokens, resp.usage.output_tokens, resp.usage.cost_usd
-            provider = "anthropic"
-        elif is_claude_configured():
-            from bot.research.market_events.signal_intelligence.claude_client_g2 import call_claude_json_g2
-            parsed, resp = call_claude_json_g2(system=_VISUAL_SYSTEM, prompt=prompt, label="g2_visual_text")
-            result = _normalize_visual(parsed, chart_ctx)
-            in_tok, out_tok, cost = resp.usage.input_tokens, resp.usage.output_tokens, resp.usage.cost_usd
-            provider = "anthropic"
+        from bot.research.market_events.signal_intelligence.claude_ops_g2 import (
+            record_claude_failure,
+            record_claude_success,
+            try_consume_claude_quota,
+        )
+        if is_claude_configured():
+            allowed, limit_reason = try_consume_claude_quota(conn)
+            if not allowed:
+                result = _visual_deterministic(chart_ctx, shock_context)
+                ai_status, skip_error = "RATE_LIMITED", limit_reason
+            elif image_path or image_b64:
+                parsed, resp = call_claude_vision_json_g2(
+                    system=_VISUAL_SYSTEM,
+                    prompt=prompt,
+                    image_path=image_path,
+                    image_base64=image_b64,
+                    label="g2_visual",
+                )
+                result = _normalize_visual(parsed, chart_ctx)
+                in_tok, out_tok, cost = resp.usage.input_tokens, resp.usage.output_tokens, resp.usage.cost_usd
+                provider, ai_status = "anthropic", "OK"
+                record_claude_success(conn, usage=resp.usage, model=resp.model)
+            else:
+                parsed, resp = call_claude_json_g2(system=_VISUAL_SYSTEM, prompt=prompt, label="g2_visual_text")
+                result = _normalize_visual(parsed, chart_ctx)
+                in_tok, out_tok, cost = resp.usage.input_tokens, resp.usage.output_tokens, resp.usage.cost_usd
+                provider, ai_status = "anthropic", "OK"
+                record_claude_success(conn, usage=resp.usage, model=resp.model)
         else:
             result = _visual_deterministic(chart_ctx, shock_context)
-    except Exception:
+    except ClaudeClientError as exc:
+        record_claude_failure(conn, error=f"{exc.kind}: {exc.message}", model=default_model())
         result = _visual_deterministic(chart_ctx, shock_context)
+        ai_status, skip_error = "AI_SKIPPED", str(exc)
+    except Exception as exc:
+        record_claude_failure(conn, error=str(exc), model=default_model())
+        result = _visual_deterministic(chart_ctx, shock_context)
+        ai_status, skip_error = "AI_SKIPPED", str(exc)
 
     now = int(time.time())
     insert_returning_id(
@@ -158,6 +180,9 @@ def run_visual_analysis_g2(conn: Any, event_id: int, *, shock_context: dict[str,
             in_tok, out_tok, cost, provider, now,
         ),
     )
+    result["_ai_status"] = ai_status
+    if skip_error:
+        result["_skip_error"] = skip_error
     return result
 
 

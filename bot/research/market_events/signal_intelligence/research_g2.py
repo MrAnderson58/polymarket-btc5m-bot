@@ -233,34 +233,78 @@ def analyze_research_g2_deterministic(ctx: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _call_claude_research(ctx: dict[str, Any]) -> tuple[dict[str, Any], str, str, int, int, float, float]:
+def _call_claude_research(
+    conn: Any,
+    ctx: dict[str, Any],
+) -> tuple[dict[str, Any], str, str, int, int, float, float, str, str | None]:
+    from bot.research.market_events.signal_intelligence.claude_client_g2 import (
+        ClaudeClientError,
+        call_claude_json_g2,
+        default_model,
+        is_claude_configured,
+    )
+    from bot.research.market_events.signal_intelligence.claude_ops_g2 import (
+        AI_STATUS_DETERMINISTIC,
+        AI_STATUS_OK,
+        AI_STATUS_RATE_LIMITED,
+        AI_STATUS_SKIPPED,
+        record_claude_failure,
+        record_claude_success,
+        try_consume_claude_quota,
+    )
+
     in_tok = out_tok = 0
     cost = 0.0
     latency = 0.0
 
-    try:
-        from bot.research.market_events.signal_intelligence.claude_client_g2 import (
-            call_claude_json_g2,
-            is_claude_configured,
-        )
-        if is_claude_configured():
-            parsed, resp = call_claude_json_g2(
-                system=_SYSTEM_PROMPT,
-                prompt=build_g2_prompt(ctx),
-                label="g2_research",
-            )
-            result = _parse_g2_response(parsed)
-            if result:
-                return (
-                    result, "anthropic", resp.model,
-                    resp.usage.input_tokens, resp.usage.output_tokens,
-                    resp.usage.cost_usd, resp.usage.latency_ms,
-                )
-    except Exception as exc:
-        logger.debug("g2 claude research failed: %s", exc)
+    if not is_claude_configured():
+        fallback = analyze_research_g2_deterministic(ctx)
+        return fallback, "deterministic", "g2_rules_v1", in_tok, out_tok, cost, latency, AI_STATUS_DETERMINISTIC, None
 
-    fallback = analyze_research_g2_deterministic(ctx)
-    return fallback, "deterministic", "g2_rules_v1", in_tok, out_tok, cost, latency
+    allowed, limit_reason = try_consume_claude_quota(conn)
+    if not allowed:
+        fallback = analyze_research_g2_deterministic(ctx)
+        return (
+            fallback, "deterministic", "g2_rules_v1",
+            in_tok, out_tok, cost, latency,
+            AI_STATUS_RATE_LIMITED, limit_reason,
+        )
+
+    model = default_model()
+    try:
+        parsed, resp = call_claude_json_g2(
+            system=_SYSTEM_PROMPT,
+            prompt=build_g2_prompt(ctx),
+            label="g2_research",
+        )
+        result = _parse_g2_response(parsed)
+        if not result:
+            raise ClaudeClientError("invalid_json", "response missing required schema fields")
+        record_claude_success(conn, usage=resp.usage, model=resp.model)
+        return (
+            result, "anthropic", resp.model,
+            resp.usage.input_tokens, resp.usage.output_tokens,
+            resp.usage.cost_usd, resp.usage.latency_ms,
+            AI_STATUS_OK, None,
+        )
+    except ClaudeClientError as exc:
+        record_claude_failure(conn, error=f"{exc.kind}: {exc.message}", model=model)
+        logger.warning("g2 claude research AI_SKIPPED: %s", exc)
+        fallback = analyze_research_g2_deterministic(ctx)
+        return (
+            fallback, "deterministic", "g2_rules_v1",
+            in_tok, out_tok, cost, latency,
+            AI_STATUS_SKIPPED, str(exc),
+        )
+    except Exception as exc:
+        record_claude_failure(conn, error=str(exc), model=model)
+        logger.warning("g2 claude research AI_SKIPPED: %s", exc)
+        fallback = analyze_research_g2_deterministic(ctx)
+        return (
+            fallback, "deterministic", "g2_rules_v1",
+            in_tok, out_tok, cost, latency,
+            AI_STATUS_SKIPPED, str(exc),
+        )
 
 
 def run_claude_research_g2(conn: Any, event_id: int) -> ResearchG2 | None:
@@ -278,7 +322,7 @@ def run_claude_research_g2(conn: Any, event_id: int) -> ResearchG2 | None:
     if not ctx:
         return None
 
-    result, provider, model, in_tok, out_tok, cost, latency = _call_claude_research(ctx)
+    result, provider, model, in_tok, out_tok, cost, latency, ai_status, skip_error = _call_claude_research(conn, ctx)
 
     visual = run_visual_analysis_g2(
         conn, event_id,
@@ -316,8 +360,9 @@ def run_claude_research_g2(conn: Any, event_id: int) -> ResearchG2 | None:
           reversal_probability, continuation_probability,
           risks_json, invalidates_json, summary_ru,
           confidence, market_score, input_tokens, output_tokens, cost_usd,
+          ai_status, skip_error,
           provider, model, prompt_version, response_json, latency_ms, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             event_id, g1.symbol, g1.signal_type, g1.reversal_probability,
@@ -334,8 +379,9 @@ def run_claude_research_g2(conn: Any, event_id: int) -> ResearchG2 | None:
             json.dumps(result["invalidates"], ensure_ascii=False),
             result["summary_ru"],
             conf, mscore, in_tok, out_tok, cost,
+            ai_status, skip_error,
             provider, model, PROMPT_VERSION_G2,
-            json.dumps({**result, "visual": visual}, ensure_ascii=False),
+            json.dumps({**result, "visual": visual, "ai_status": ai_status, "skip_error": skip_error}, ensure_ascii=False),
             latency, now,
         ),
     )

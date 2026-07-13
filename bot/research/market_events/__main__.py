@@ -97,6 +97,8 @@ def main(argv: list[str] | None = None) -> int:
             "detector-stats",
             "threshold-report",
             "liquidity-trend-report",
+            "claude-test",
+            "claude-health",
             "db-info",
             "market-db-info",
             "market-db-check",
@@ -343,6 +345,19 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(liquidity_trend_report(conn, days=max(1, args.days)))
+        return 0
+
+    if args.command == "claude-test":
+        from bot.research.market_events.signal_intelligence.claude_ops_g2 import run_claude_test
+        code, text = run_claude_test()
+        print(text)
+        return code
+
+    if args.command == "claude-health":
+        from bot.research.market_events.signal_intelligence.claude_ops_g2 import format_claude_health_report
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_claude_health_report(conn))
         return 0
 
     if args.command == "system-validation":

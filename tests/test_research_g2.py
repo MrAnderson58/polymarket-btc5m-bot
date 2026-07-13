@@ -15,6 +15,12 @@ from bot.research.market_events.signal_intelligence.claude_client_g2 import (
     _estimate_cost,
     is_claude_configured,
 )
+from bot.research.market_events.signal_intelligence.claude_ops_g2 import (
+    AI_STATUS_SKIPPED,
+    format_claude_health_report,
+    get_daily_usage,
+    try_consume_claude_quota,
+)
 from bot.research.market_events.signal_intelligence.learning_g2 import record_paper_learning_g2
 from bot.research.market_events.signal_intelligence.research_g2 import (
     analyze_research_g2_deterministic,
@@ -88,11 +94,17 @@ class ResearchG2Tests(unittest.TestCase):
         self._patch.stop()
         self._tmp.cleanup()
 
+    def test_schema_v27(self) -> None:
+        with conn_ctx(self.db) as conn:
+            applied = apply_migrations(conn)
+            self.assertIn("v27", applied)
+            self.assertEqual(SCHEMA_VERSION, 27)
+
     def test_schema_v26(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v26", applied)
-            self.assertEqual(SCHEMA_VERSION, 26)
+            self.assertEqual(SCHEMA_VERSION, 27)
 
     def test_eligibility_requires_f7_confidence(self) -> None:
         with conn_ctx(self.db) as conn:
@@ -196,6 +208,86 @@ class ResearchG2Tests(unittest.TestCase):
     def test_cost_estimate(self) -> None:
         cost = _estimate_cost("claude-sonnet-5", 1000, 500)
         self.assertGreater(cost, 0)
+
+    def _seed_full_event(self, conn, eid: int) -> None:
+        seed_candles(conn, symbol="BTC", n=40, shock=True)
+        _seed_g1_row(conn, eid)
+        _seed_f5_f7(conn, eid)
+        conn.execute(
+            """
+            INSERT INTO market_events_signal_reports_f2 (
+              event_id, exchange_consensus, exchange_detail_json, funding_regime, oi_regime,
+              rvol_20, rvol_100, vwap_deviation_pct, volume_label, market_structure_json,
+              market_structure_labels, atr_percentile, atr_expansion, atr_exhaustion,
+              correlation_snapshot_json, correlation_verdict, historical_count,
+              historical_reversal_count, historical_reversal_rate, historical_similarity_json,
+              confidence_score, confidence_breakdown_json, reversal_probability,
+              entry_recommendation, expected_target_pct, expected_stop_pct,
+              ai_summary_v2_ru, telegram_rendered, prompt_version, created_at
+            ) VALUES (?, 'aligned', '[]', 'flattening', 'rising', 2.0, 1.5, 0.2, 'high',
+              '{}', '[]', 70, 1.5, 0, '{}', 'against', 10, 7, 0.78, '[]',
+              7.5, '{}', 0.75, 'wait', 2.0, 1.0, 'test', 'test', 'f2', ?)
+            """,
+            (eid, int(time.time())),
+        )
+
+    def test_event_cache_skips_second_analysis(self) -> None:
+        with conn_ctx(self.db) as conn:
+            apply_migrations(conn)
+            eid = seed_event(conn, symbol="BTC", ret=-3.0)
+            self._seed_full_event(conn, eid)
+            first = run_claude_research_g2(conn, eid)
+            second = run_claude_research_g2(conn, eid)
+            self.assertIsNotNone(first)
+            self.assertIsNotNone(second)
+            count = conn.execute(
+                "SELECT COUNT(*) AS n FROM market_events_ai_research_g2 WHERE event_id = ?",
+                (eid,),
+            ).fetchone()
+            self.assertEqual(int(count["n"]), 1)
+
+    @patch("bot.research.market_events.signal_intelligence.claude_client_g2.call_claude_json_g2")
+    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}, clear=False)
+    def test_ai_skipped_on_invalid_json(self, mock_call: MagicMock) -> None:
+        from bot.research.market_events.signal_intelligence.claude_client_g2 import ClaudeClientError
+
+        mock_call.side_effect = ClaudeClientError("invalid_json", "bad json")
+        with conn_ctx(self.db) as conn:
+            apply_migrations(conn)
+            eid = seed_event(conn, symbol="BTC", ret=-3.0)
+            self._seed_full_event(conn, eid)
+            result = run_claude_research_g2(conn, eid)
+            self.assertIsNotNone(result)
+            row = conn.execute(
+                "SELECT ai_status, skip_error, provider FROM market_events_ai_research_g2 WHERE event_id = ?",
+                (eid,),
+            ).fetchone()
+            self.assertEqual(row["ai_status"], AI_STATUS_SKIPPED)
+            self.assertIn("bad json", row["skip_error"])
+            self.assertEqual(row["provider"], "deterministic")
+
+    def test_daily_rate_limit(self) -> None:
+        with conn_ctx(self.db) as conn:
+            apply_migrations(conn)
+            with patch(
+                "bot.research.market_events.signal_intelligence.claude_ops_g2.G2_DAILY_REQUEST_LIMIT",
+                2,
+            ):
+                ok1, _ = try_consume_claude_quota(conn)
+                ok2, _ = try_consume_claude_quota(conn)
+                ok3, reason = try_consume_claude_quota(conn)
+                self.assertTrue(ok1 and ok2)
+                self.assertFalse(ok3)
+                self.assertIn("daily_limit", reason or "")
+                usage = get_daily_usage(conn)
+                self.assertEqual(usage["requests_today"], 2)
+
+    def test_claude_health_report(self) -> None:
+        with conn_ctx(self.db) as conn:
+            apply_migrations(conn)
+            text = format_claude_health_report(conn)
+            self.assertIn("CLAUDE HEALTH", text)
+            self.assertIn("Requests:", text)
 
 
 class ClaudeClientG2Tests(unittest.TestCase):

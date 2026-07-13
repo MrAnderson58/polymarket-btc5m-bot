@@ -33,6 +33,18 @@ _COST_PER_M_OUTPUT = {
 _RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 529})
 
 
+class ClaudeClientError(Exception):
+    """Classified Claude API / parsing failure for fail-safe handling."""
+
+    def __init__(self, kind: str, message: str) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
+
+    def __str__(self) -> str:
+        return self.message
+
+
 @dataclass(frozen=True)
 class ClaudeUsageG2:
     input_tokens: int
@@ -137,20 +149,37 @@ def call_claude_g2(
         try:
             data = _post_messages(body)
             break
-        except (requests.Timeout, requests.ConnectionError) as exc:
+        except requests.Timeout as exc:
             last_exc = exc
-            logger.warning("g2 claude attempt %d timeout/connection: %s", attempt + 1, exc)
+            logger.warning("g2 claude attempt %d timeout: %s", attempt + 1, exc)
+        except requests.ConnectionError as exc:
+            last_exc = exc
+            logger.warning("g2 claude attempt %d connection: %s", attempt + 1, exc)
         except requests.HTTPError as exc:
             last_exc = exc
             status = exc.response.status_code if exc.response is not None else 0
             if status not in _RETRYABLE_STATUS:
-                raise
+                if status == 429:
+                    raise ClaudeClientError("http_429", f"rate limited: HTTP 429") from exc
+                if status >= 500:
+                    raise ClaudeClientError("http_5xx", f"server error: HTTP {status}") from exc
+                raise ClaudeClientError("http_error", f"HTTP {status}: {exc}") from exc
             logger.warning("g2 claude attempt %d http %s", attempt + 1, status)
         if attempt < max_retries():
             time.sleep(min(2 ** attempt, 4))
 
     if not data:
-        raise RuntimeError(f"claude call failed after retries: {last_exc}")
+        if isinstance(last_exc, requests.Timeout):
+            raise ClaudeClientError("timeout", f"timeout after {timeout_sec()}s: {last_exc}")
+        if isinstance(last_exc, requests.ConnectionError):
+            raise ClaudeClientError("network", f"network error: {last_exc}")
+        if isinstance(last_exc, requests.HTTPError):
+            status = last_exc.response.status_code if last_exc.response is not None else 0
+            if status == 429:
+                raise ClaudeClientError("http_429", "rate limited after retries: HTTP 429")
+            if status >= 500:
+                raise ClaudeClientError("http_5xx", f"server error after retries: HTTP {status}")
+        raise ClaudeClientError("unknown", f"claude call failed after retries: {last_exc}")
 
     usage_raw = data.get("usage") or {}
     in_tok = int(usage_raw.get("input_tokens") or 0)
@@ -174,14 +203,16 @@ def call_claude_json_g2(
     resp = call_claude_g2(system=system_json, user_content=prompt, model=model, label=label)
     try:
         return json.loads(resp.text), resp
-    except json.JSONDecodeError:
-        # Try to extract JSON object from response
+    except json.JSONDecodeError as exc:
         text = resp.text.strip()
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:
-            return json.loads(text[start:end + 1]), resp
-        raise
+            try:
+                return json.loads(text[start:end + 1]), resp
+            except json.JSONDecodeError:
+                pass
+        raise ClaudeClientError("invalid_json", f"invalid JSON response: {exc}") from exc
 
 
 def _image_block_from_path(path: str) -> dict[str, Any] | None:
@@ -225,9 +256,12 @@ def call_claude_vision_json_g2(
     resp = call_claude_g2(system=system_json, user_content=content, model=model, label=label)
     try:
         return json.loads(resp.text), resp
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
         text = resp.text.strip()
         start, end = text.find("{"), text.rfind("}")
         if start >= 0 and end > start:
-            return json.loads(text[start:end + 1]), resp
-        raise
+            try:
+                return json.loads(text[start:end + 1]), resp
+            except json.JSONDecodeError:
+                pass
+        raise ClaudeClientError("invalid_json", f"invalid JSON response: {exc}") from exc
