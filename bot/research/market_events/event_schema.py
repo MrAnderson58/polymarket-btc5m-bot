@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 30
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -549,6 +549,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v29")
             current = 29
+
+        if current < 30:
+            conn.executescript(G31_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (30, now, "Phase G.3.1 candidate pipeline"),
+            )
+            applied.append("v30")
+            current = 30
 
     if not applied:
         conn.commit()
@@ -1937,4 +1950,33 @@ CREATE TABLE IF NOT EXISTS market_events_g3_ops_state (
     value TEXT NOT NULL,
     updated_at INTEGER NOT NULL
 );
+"""
+
+G31_DDL = """
+CREATE TABLE IF NOT EXISTS market_candidate_g31 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER,
+    candidate_ts INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    trend_score REAL,
+    market_score REAL,
+    liquidity_score REAL,
+    confidence REAL,
+    rr REAL,
+    btc_alignment TEXT,
+    funding_score REAL,
+    oi_score REAL,
+    volume_score REAL,
+    atr_score REAL,
+    fear_greed REAL,
+    candidate_state TEXT NOT NULL,
+    rejection_reason TEXT,
+    direction TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (snapshot_id) REFERENCES market_snapshots_g3(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g31_candidates_ts ON market_candidate_g31(candidate_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_g31_candidates_sym ON market_candidate_g31(symbol, candidate_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_g31_candidates_state ON market_candidate_g31(candidate_state, candidate_ts DESC);
 """

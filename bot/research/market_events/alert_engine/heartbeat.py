@@ -18,6 +18,14 @@ def _t(key: str, **kwargs) -> str:
 
 
 def build_heartbeat_message(conn: Any) -> str:
+    from bot.research.market_events.signal_intelligence.candidate_g31 import (
+        build_idle_candidate_telegram_g31,
+    )
+
+    idle = build_idle_candidate_telegram_g31(conn)
+    if idle:
+        return idle
+
     now = int(time.time())
     day_start = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
 

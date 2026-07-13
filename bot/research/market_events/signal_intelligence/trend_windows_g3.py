@@ -166,10 +166,12 @@ def run_trend_detection_g3(
     conn: Any,
     *,
     snapshot_id: int,
-    symbols: tuple[str, ...] = ("SOL", "ETH", "BNB", "BTC"),
+    symbols: tuple[str, ...] | None = None,
 ) -> list[TrendWindowG3]:
+    from bot.research.market_events.signal_intelligence.candidate_g31 import load_g31_universe_symbols
+    syms = symbols or load_g31_universe_symbols(conn)
     all_trends: list[TrendWindowG3] = []
-    for sym in symbols:
+    for sym in syms:
         trends = detect_trends_g3(conn, symbol=sym)
         all_trends.extend(trends)
     if all_trends:

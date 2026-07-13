@@ -43,7 +43,7 @@ class ProfessionalSignalF5Tests(unittest.TestCase):
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v18", applied)
-            self.assertEqual(SCHEMA_VERSION, 29)
+            self.assertEqual(SCHEMA_VERSION, 30)
             tables = {
                 r[0] for r in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'",

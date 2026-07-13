@@ -78,8 +78,14 @@ G3_MIN_RISK_REWARD = float(os.getenv("ME_G3_MIN_RISK_REWARD", "2.5"))
 G3_MAX_SIGNALS_PER_DAY = int(os.getenv("ME_G3_MAX_SIGNALS_PER_DAY", "10"))
 G3_DAILY_REPORT_HOUR_LOCAL = int(os.getenv("ME_G3_DAILY_REPORT_HOUR", "9"))
 G3_MODEL_VERSION = "g3_v1"
-G3_SIGNAL_SYMBOLS = tuple(
-    s.strip().upper() for s in os.getenv("ME_G3_SIGNAL_SYMBOLS", "SOL,ETH,BNB").split(",") if s.strip()
+G31_ENABLED = os.getenv("ME_G31_CANDIDATE_PIPELINE", "true").lower() in ("1", "true", "yes")
+G31_IDLE_SIGNAL_HOURS = int(os.getenv("ME_G31_IDLE_SIGNAL_HOURS", "12"))
+G31_DEFAULT_UNIVERSE = (
+    "BTC", "ETH", "SOL", "MANTA", "SUI", "DOGE", "XRP", "BNB", "TON", "ADA",
+    "LINK", "AVAX", "MATIC", "APT", "ARB", "OP", "PEPE", "WIF", "NEAR", "INJ",
+)
+G31_SIGNAL_SYMBOLS = tuple(
+    s.strip().upper() for s in os.getenv("ME_G31_UNIVERSE_SYMBOLS", "").split(",") if s.strip()
 )
 
 MTF_DETECTORS = {

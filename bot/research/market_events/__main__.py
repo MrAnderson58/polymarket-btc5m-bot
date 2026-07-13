@@ -103,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
             "g3-run",
             "g3-health",
             "g3-trace",
+            "candidates",
+            "candidate-stats",
             "db-info",
             "market-db-info",
             "market-db-check",
@@ -381,7 +383,8 @@ def main(argv: list[str] | None = None) -> int:
         stats = run_g3_live(max_cycles=args.max_cycles, interval_sec=args.heartbeat_sec)
         print(
             f"G3 cycles={stats.cycles} snapshots={stats.snapshots} trends={stats.trends} "
-            f"signals={stats.signals} followups={stats.followups} errors={stats.errors}",
+            f"candidates={stats.candidates} signals={stats.signals} followups={stats.followups} "
+            f"errors={stats.errors}",
         )
         return 1 if stats.errors and not stats.snapshots else 0
 
@@ -397,6 +400,21 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_g3_trace(conn, args.event_id))
+        return 0
+
+    if args.command == "candidates":
+        from bot.research.market_events.signal_intelligence.candidate_g31 import format_candidates_report
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_candidates_report(conn, limit=20))
+        return 0
+
+    if args.command == "candidate-stats":
+        from bot.research.market_events.signal_intelligence.candidate_g31 import format_candidate_stats
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            hours = max(1, args.days * 24 if args.days else 24)
+            print(format_candidate_stats(conn, hours=hours))
         return 0
 
     if args.command == "system-validation":

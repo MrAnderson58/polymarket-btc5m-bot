@@ -12,12 +12,13 @@ from typing import Any
 from bot.research.market_events.db import insert_returning_id
 from bot.research.market_events.signal_intelligence.config import (
     G3_MAX_SIGNALS_PER_DAY,
-    G3_MIN_CONFIDENCE,
-    G3_MIN_LIQUIDITY_PROB,
-    G3_MIN_MARKET_SCORE,
-    G3_MIN_RISK_REWARD,
     G3_MODEL_VERSION,
-    G3_SIGNAL_SYMBOLS,
+)
+from bot.research.market_events.signal_intelligence.candidate_g31 import (
+    CandidateG31,
+    STATE_CANDIDATE,
+    mark_candidate_accepted_g31,
+    pick_best_candidate_g31,
 )
 from bot.research.market_events.signal_intelligence.dominance_context_f7 import classify_dominance
 from bot.research.market_events.signal_intelligence.liquidity_engine_g3 import LiquidityStateG3
@@ -119,70 +120,51 @@ def evaluate_live_signal_g3(
     trends: list[TrendWindowG3],
     liquidity: LiquidityStateG3,
     event_id: int | None = None,
+    candidates: list[CandidateG31] | None = None,
 ) -> LiveSignalG3 | None:
-    f5_conf = f7_score = f7_conf = None
+    if candidates is None:
+        from bot.research.market_events.signal_intelligence.candidate_g31 import build_candidates_g31
+        candidates = build_candidates_g31(
+            conn, snapshot_id=snapshot_id, trends=trends, liquidity=liquidity, event_id=event_id,
+        )
+
+    best_cand = pick_best_candidate_g31(candidates)
+    if not best_cand or not best_cand.trend or not best_cand.direction:
+        return None
+
+    best_sym = best_cand.symbol
+    best_trend = best_cand.trend
+    direction = best_cand.direction
+    confidence = float(best_cand.confidence or 0)
+    market_score = float(best_cand.market_score or 0)
+    liq_prob = float(best_cand.liquidity_score or 0) / 100.0
+    probability = min(0.95, liq_prob * 0.6 + (confidence / 10.0) * 0.4)
+
     g2_summary = None
     if event_id:
-        f5 = conn.execute(
-            "SELECT dynamic_confidence FROM market_events_signal_reports_f5 WHERE event_id = ?",
-            (event_id,),
-        ).fetchone()
-        f7 = conn.execute(
-            "SELECT market_score, final_confidence FROM market_events_market_intelligence_f7 WHERE event_id = ?",
-            (event_id,),
-        ).fetchone()
         g2 = conn.execute(
             "SELECT summary_ru, reversal_probability FROM market_events_ai_research_g2 WHERE event_id = ?",
             (event_id,),
         ).fetchone()
-        if f5:
-            f5_conf = float(f5["dynamic_confidence"])
-        if f7:
-            f7_score = float(f7["market_score"])
-            f7_conf = float(f7["final_confidence"])
         if g2 and g2["summary_ru"]:
             g2_summary = str(g2["summary_ru"])
-
-    best_sym = None
-    best_trend = None
-    best_score = -1.0
-    for sym in G3_SIGNAL_SYMBOLS:
-        tw = _best_trend(trends, sym)
-        if tw and tw.trend_score > best_score:
-            best_sym, best_trend, best_score = sym, tw, tw.trend_score
-
-    if not best_sym or not best_trend:
-        return None
-
-    direction = "LONG" if best_trend.direction == "UP" else "SHORT"
-    confidence, market_score, probability = _score_signal(
-        trend=best_trend,
-        liquidity=liquidity,
-        f5_conf=f5_conf,
-        f7_score=f7_score,
-        f7_conf=f7_conf,
-    )
-    liq_prob = liquidity.probabilities.get(liquidity.primary_state, 0.0)
-
-    if confidence < G3_MIN_CONFIDENCE:
-        return None
-    if market_score < G3_MIN_MARKET_SCORE:
-        return None
-    if liq_prob < G3_MIN_LIQUIDITY_PROB:
-        return None
-    if _btc_conflicts(conn, symbol=best_sym, direction=direction):
-        return None
-
     price = None
     if event_id:
         price = resolve_event_price(conn, event_id=event_id, symbol=best_sym)
     if not price:
-        snap = conn.execute(
-            f"SELECT {best_sym.lower()}_price AS p FROM market_snapshots_g3 WHERE id = ?",
-            (snapshot_id,),
-        ).fetchone()
-        if snap and snap["p"]:
-            price = float(snap["p"])
+        col = best_sym.lower()
+        if col in ("btc", "eth", "sol", "bnb"):
+            snap = conn.execute(
+                f"SELECT {col}_price AS p FROM market_snapshots_g3 WHERE id = ?",
+                (snapshot_id,),
+            ).fetchone()
+            if snap and snap["p"]:
+                price = float(snap["p"])
+        if not price:
+            from bot.research.market_events.signal_intelligence.candles import load_recent_candles
+            bars = load_recent_candles(conn, symbol=best_sym, venue="binance_futures", timeframe="5m", limit=2)
+            if bars:
+                price = float(bars[-1].close)
 
     from bot.research.market_events.signal_intelligence.risk_reward_f5 import (
         RiskRewardF5,
@@ -201,8 +183,6 @@ def evaluate_live_signal_g3(
         risk_reward=rr_obj,
         final_confidence=confidence,
     )
-    if trade_plan.risk_reward < G3_MIN_RISK_REWARD:
-        return None
 
     dom = classify_dominance(conn, shock_symbol=best_sym)
     btc_context = dom.regime if dom else "Neutral"
@@ -280,6 +260,8 @@ def evaluate_live_signal_g3(
         ),
     )
 
+    mark_candidate_accepted_g31(conn, snapshot_id=snapshot_id, symbol=best_sym)
+
     return LiveSignalG3(
         signal_id=signal_id,
         signal_uuid=signal_uuid,
@@ -337,20 +319,27 @@ def run_g3_for_event(conn: Any, event_id: int) -> LiveSignalG3 | None:
     if existing:
         return None
 
+    from bot.research.market_events.signal_intelligence.candidate_g31 import run_candidate_pipeline_g31
     from bot.research.market_events.signal_intelligence.recorder_g3 import record_market_snapshot_g3
     from bot.research.market_events.signal_intelligence.trend_windows_g3 import run_trend_detection_g3
     from bot.research.market_events.signal_intelligence.liquidity_engine_g3 import (
         compute_liquidity_state_g3,
         persist_liquidity_state_g3,
     )
+    from bot.research.market_events.signal_intelligence.candidate_g31 import load_g31_universe_symbols
 
     snapshot_id, _ = record_market_snapshot_g3(conn)
-    trends = run_trend_detection_g3(conn, snapshot_id=snapshot_id)
+    symbols = load_g31_universe_symbols(conn)
+    trends = run_trend_detection_g3(conn, snapshot_id=snapshot_id, symbols=symbols)
     liquidity = compute_liquidity_state_g3(conn, snapshot_id=snapshot_id)
     persist_liquidity_state_g3(conn, snapshot_id=snapshot_id, state=liquidity)
 
-    signal = evaluate_live_signal_g3(
+    candidates = run_candidate_pipeline_g31(
         conn, snapshot_id=snapshot_id, trends=trends, liquidity=liquidity, event_id=event_id,
+    )
+    signal = evaluate_live_signal_g3(
+        conn, snapshot_id=snapshot_id, trends=trends, liquidity=liquidity,
+        event_id=event_id, candidates=candidates,
     )
     if signal and not signal.dashboard_only:
         send_live_signal_telegram_g3(conn, signal)

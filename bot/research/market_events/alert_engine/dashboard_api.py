@@ -333,6 +333,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         (limit,),
                     ).fetchall()
                     _json_response(self, {"research": [dict(r) for r in rows]})
+                elif path == "/candidates":
+                    from bot.research.market_events.signal_intelligence.candidate_g31 import (
+                        candidate_stats_dict,
+                        fetch_top_candidates_g31,
+                    )
+                    limit = _query_int(qs, "limit", 100)
+                    hours = _query_int(qs, "hours", 24)
+                    rows = fetch_top_candidates_g31(conn, limit=limit)
+                    stats = candidate_stats_dict(conn, hours=hours)
+                    latest_ts = rows[0]["candidate_ts"] if rows else None
+                    _json_response(self, {
+                        "tab": "Candidates",
+                        "latest_cycle_ts": latest_ts,
+                        "stats": stats,
+                        "candidates": [dict(r) for r in rows],
+                    })
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -341,6 +357,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/exchanges", "/signals", "/signals-f5",
                             "/market-score", "/liquidations", "/dominance", "/whales",
                             "/signal-outcomes", "/near-miss", "/liquidity-trend", "/ai-research",
+                            "/candidates",
                         ],
                     })
         except Exception as exc:

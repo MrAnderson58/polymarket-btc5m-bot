@@ -21,6 +21,7 @@ class G3CycleStats:
     cycles: int = 0
     snapshots: int = 0
     trends: int = 0
+    candidates: int = 0
     signals: int = 0
     followups: int = 0
     errors: int = 0
@@ -49,6 +50,11 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
 
     stats = G3CycleStats(cycles=1)
     try:
+        from bot.research.market_events.signal_intelligence.candidate_g31 import (
+            load_g31_universe_symbols,
+            run_candidate_pipeline_g31,
+        )
+
         snapshot_id, payload = record_market_snapshot_g3(conn, provider=provider)
         stats.snapshots = 1
         stats.last_snapshot_id = snapshot_id
@@ -60,14 +66,21 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
         )
         purge_old_snapshots_g3(conn)
 
-        trends = run_trend_detection_g3(conn, snapshot_id=snapshot_id)
+        universe = load_g31_universe_symbols(conn)
+        trends = run_trend_detection_g3(conn, snapshot_id=snapshot_id, symbols=universe)
         stats.trends = len(trends)
 
         liquidity = compute_liquidity_state_g3(conn, snapshot_id=snapshot_id)
         persist_liquidity_state_g3(conn, snapshot_id=snapshot_id, state=liquidity)
 
+        candidates = run_candidate_pipeline_g31(
+            conn, snapshot_id=snapshot_id, trends=trends, liquidity=liquidity,
+        )
+        stats.candidates = len(candidates)
+
         signal = evaluate_live_signal_g3(
             conn, snapshot_id=snapshot_id, trends=trends, liquidity=liquidity,
+            candidates=candidates,
         )
         if signal:
             stats.signals = 1
@@ -114,6 +127,7 @@ def run_g3_live(
         total.cycles += stats.cycles
         total.snapshots += stats.snapshots
         total.trends += stats.trends
+        total.candidates += stats.candidates
         total.signals += stats.signals
         total.followups += stats.followups
         total.errors += stats.errors
