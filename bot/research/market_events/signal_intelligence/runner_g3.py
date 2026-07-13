@@ -100,6 +100,22 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
             logger.debug("g34 daily digest skipped: %s", exc)
 
         try:
+            from bot.research.market_events.signal_intelligence.telegram_intelligence_g35 import (
+                maybe_send_candidate_alerts_g35,
+                maybe_send_claude_insight_g35,
+                maybe_send_daily_research_g35,
+                maybe_send_hourly_market_brief_g35,
+                maybe_send_upgrades_downgrades_g35,
+            )
+            maybe_send_hourly_market_brief_g35(conn)
+            maybe_send_candidate_alerts_g35(conn)
+            maybe_send_upgrades_downgrades_g35(conn)
+            maybe_send_daily_research_g35(conn)
+            maybe_send_claude_insight_g35(conn)
+        except Exception as exc:
+            logger.debug("g35 telegram intelligence skipped: %s", exc)
+
+        try:
             from bot.research.market_events.signal_intelligence.missed_opportunities_g32 import (
                 maybe_send_missed_opportunities_g32,
             )

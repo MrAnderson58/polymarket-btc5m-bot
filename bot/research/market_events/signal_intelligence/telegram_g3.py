@@ -54,6 +54,11 @@ def format_professional_telegram_g3(
     side = "LONG" if direction.upper() in ("UP", "LONG") else "SHORT"
     pair = f"{symbol}USDT" if not symbol.endswith("USDT") else symbol
 
+    tv_symbol = f"BINANCE:{pair}.P"
+    tradingview = f"https://www.tradingview.com/chart/?symbol={tv_symbol}"
+    binance = f"https://www.binance.com/en/futures/{pair}"
+    coinglass = f"https://www.coinglass.com/tv/Binance_{pair}"
+
     lines = [
         f"🚨 {pair} {side}",
         "",
@@ -151,6 +156,19 @@ def format_professional_telegram_g3(
         signal_uuid,
         "",
         f"Model {G3_MODEL_VERSION}",
+    ])
+    lines.extend([
+        "",
+        "Charts",
+        "",
+        "TradingView",
+        tradingview,
+        "",
+        "Binance Futures",
+        binance,
+        "",
+        "Coinglass",
+        coinglass,
     ])
     return "\n".join(lines)
 

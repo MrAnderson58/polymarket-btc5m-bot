@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 33
+SCHEMA_VERSION = 34
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -601,6 +601,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v33")
             current = 33
+
+        if current < 34:
+            conn.executescript(G35_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (34, now, "Phase G.3.5 Telegram intelligence"),
+            )
+            applied.append("v34")
+            current = 34
 
     if not applied:
         conn.commit()
@@ -2085,6 +2098,32 @@ CREATE INDEX IF NOT EXISTS idx_g34_conflicts_type ON market_score_conflicts_g34(
 CREATE TABLE IF NOT EXISTS market_calibration_daily_g34 (
     report_date TEXT PRIMARY KEY,
     summary_json TEXT NOT NULL,
+    telegram_sent INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+"""
+
+G35_DDL = """
+CREATE TABLE IF NOT EXISTS market_g35_candidate_state (
+    symbol TEXT PRIMARY KEY,
+    candidate_id INTEGER,
+    candidate_ts INTEGER NOT NULL,
+    candidate_state TEXT NOT NULL,
+    confidence REAL,
+    market_score REAL,
+    liquidity_score REAL,
+    funding_score REAL,
+    oi_score REAL,
+    volume_score REAL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (candidate_id) REFERENCES market_candidate_g31(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g35_candidate_state_ts ON market_g35_candidate_state(candidate_ts DESC);
+
+CREATE TABLE IF NOT EXISTS market_g35_daily_research (
+    report_date TEXT PRIMARY KEY,
+    report_json TEXT NOT NULL,
     telegram_sent INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
 );

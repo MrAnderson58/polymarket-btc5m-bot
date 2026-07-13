@@ -104,19 +104,19 @@ class ResearchG2Tests(unittest.TestCase):
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v28", applied)
-            self.assertEqual(SCHEMA_VERSION, 33)
+            self.assertEqual(SCHEMA_VERSION, 34)
 
     def test_schema_v27(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v27", applied)
-            self.assertEqual(SCHEMA_VERSION, 33)
+            self.assertEqual(SCHEMA_VERSION, 34)
 
     def test_schema_v26(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v26", applied)
-            self.assertEqual(SCHEMA_VERSION, 33)
+            self.assertEqual(SCHEMA_VERSION, 34)
 
     def test_eligibility_requires_f7_confidence(self) -> None:
         with conn_ctx(self.db) as conn:

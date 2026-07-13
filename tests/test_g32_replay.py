@@ -68,8 +68,8 @@ class G32ReplayTests(unittest.TestCase):
     def test_schema_v31(self) -> None:
         with self._conn() as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v33", applied)
-            self.assertEqual(SCHEMA_VERSION, 33)
+            self.assertIn("v34", applied)
+            self.assertEqual(SCHEMA_VERSION, 34)
 
     def test_outcome_seeded_and_updated(self) -> None:
         with self._conn() as conn:

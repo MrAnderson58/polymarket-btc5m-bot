@@ -69,8 +69,8 @@ class CandidateG31Tests(unittest.TestCase):
     def test_schema_v30(self) -> None:
         with self._conn() as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v33", applied)
-            self.assertEqual(SCHEMA_VERSION, 33)
+            self.assertIn("v34", applied)
+            self.assertEqual(SCHEMA_VERSION, 34)
 
     def test_universe_includes_extended_symbols(self) -> None:
         with self._conn() as conn:

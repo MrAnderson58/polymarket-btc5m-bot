@@ -34,6 +34,7 @@ from bot.research.market_events.event_schema import (
     G32_DDL,
     G33_DDL,
     G34_DDL,
+    G35_DDL,
     MIGRATIONS_TABLE,
     SCHEMA_VERSION,
 )
@@ -64,6 +65,7 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     31: "Phase G.3.2 candidate replay and threshold optimizer",
     32: "Phase G.3.3 weighted trend coverage",
     33: "Phase G.3.4 score breakdown and calibration",
+    34: "Phase G.3.5 Telegram intelligence",
 }
 
 
@@ -125,7 +127,9 @@ def full_pg_ddl() -> str:
         G3_DDL,
         G31_DDL,
         G32_DDL,
+        G33_DDL,
         G34_DDL,
+        G35_DDL,
     ]
     ddl = sqlite_ddl_to_pg("\n".join(blocks))
     alters = [pg_alter_add_column(s) for s in (
@@ -263,4 +267,9 @@ ALL_TABLES: tuple[str, ...] = (
     "market_events_g3_ops_state",
     "market_candidate_g31",
     "market_candidate_outcomes_g32",
+    "market_score_breakdown_g34",
+    "market_score_conflicts_g34",
+    "market_calibration_daily_g34",
+    "market_g35_candidate_state",
+    "market_g35_daily_research",
 )

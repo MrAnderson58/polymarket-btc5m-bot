@@ -94,6 +94,11 @@ G32_MISSED_TOP_N = int(os.getenv("ME_G32_MISSED_TOP_N", "5"))
 
 G34_ENABLED = os.getenv("ME_G34_SCORE_BREAKDOWN", "true").lower() in ("1", "true", "yes")
 
+G35_ENABLED = os.getenv("ME_G35_TELEGRAM_INTELLIGENCE", "true").lower() in ("1", "true", "yes")
+G35_HOURLY_BRIEF_ENABLED = os.getenv("ME_G35_HOURLY_BRIEF", "true").lower() in ("1", "true", "yes")
+G35_CANDIDATE_ALERTS_ENABLED = os.getenv("ME_G35_CANDIDATE_ALERTS", "true").lower() in ("1", "true", "yes")
+G35_CLAUDE_INSIGHT_ENABLED = os.getenv("ME_G35_CLAUDE_INSIGHT", "true").lower() in ("1", "true", "yes")
+
 MTF_DETECTORS = {
     "SHOCK_M5": {"window_minutes": 5, "min_return_pct": 1.2, "min_atr_multiple": 1.5},
     "SHOCK_M10": {"window_minutes": 10, "min_return_pct": 1.5, "min_atr_multiple": 1.6},
