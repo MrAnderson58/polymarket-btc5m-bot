@@ -30,6 +30,10 @@ from bot.research.market_events.signal_intelligence.experimental_g39 import (
     threshold_failures_g39,
 )
 from bot.research.market_events.signal_intelligence.liquidity_engine_g3 import LiquidityStateG3
+from bot.research.market_events.signal_intelligence.trade_geometry_s12 import (
+    assert_sendable_geometry_s12,
+    shock_direction_for_trade_side,
+)
 from bot.research.market_events.signal_intelligence.trade_plan_f71 import compute_trade_plan_f71
 
 logger = logging.getLogger(__name__)
@@ -233,10 +237,21 @@ def persist_shadow_signal_g40(
     )
     plan = compute_trade_plan_f71(
         price=price,
-        shock_direction="DOWN" if direction == "SHORT" else "UP",
+        shock_direction=shock_direction_for_trade_side(direction),
         risk_reward=rr_obj,
         final_confidence=conf,
     )
+    geom = assert_sendable_geometry_s12(
+        direction=direction,
+        entry=plan.entry,
+        tp1=plan.tp1,
+        tp2=plan.tp2,
+        sl=plan.sl,
+        tp3=plan.tp3,
+        context=f"shadow {candidate.symbol}",
+    )
+    if not geom.ok:
+        return None
 
     claude_summary = _claude_summary_at_signal(conn, symbol=candidate.symbol, candidate=candidate)
     telegram = format_shadow_telegram_g40(candidate=candidate, claude_summary=claude_summary)

@@ -24,6 +24,10 @@ from bot.research.market_events.signal_intelligence.dominance_context_f7 import 
 from bot.research.market_events.signal_intelligence.liquidity_engine_g3 import LiquidityStateG3
 from bot.research.market_events.signal_intelligence.reversal_learning_g1 import lookup_historical_reversal_rate
 from bot.research.market_events.signal_intelligence.telegram_g3 import format_professional_telegram_g3
+from bot.research.market_events.signal_intelligence.trade_geometry_s12 import (
+    assert_sendable_geometry_s12,
+    shock_direction_for_trade_side,
+)
 from bot.research.market_events.signal_intelligence.trade_plan_f71 import (
     compute_position_size_pct,
     compute_trade_plan_f71,
@@ -179,10 +183,21 @@ def evaluate_live_signal_g3(
     )
     trade_plan = compute_trade_plan_f71(
         price=price or 100.0,
-        shock_direction="DOWN" if direction == "SHORT" else "UP",
+        shock_direction=shock_direction_for_trade_side(direction),
         risk_reward=rr_obj,
         final_confidence=confidence,
     )
+    geom = assert_sendable_geometry_s12(
+        direction=direction,
+        entry=trade_plan.entry,
+        tp1=trade_plan.tp1,
+        tp2=trade_plan.tp2,
+        sl=trade_plan.sl,
+        tp3=trade_plan.tp3,
+        context=f"live {best_sym}",
+    )
+    if not geom.ok:
+        return None
 
     dom = classify_dominance(conn, shock_symbol=best_sym)
     btc_context = dom.regime if dom else "Neutral"

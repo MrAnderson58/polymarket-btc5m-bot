@@ -25,6 +25,10 @@ from bot.research.market_events.signal_intelligence.shadow_g40 import (
     compute_grade_g40,
     passes_shadow_g40,
 )
+from bot.research.market_events.signal_intelligence.trade_geometry_s12 import (
+    assert_sendable_geometry_s12,
+    shock_direction_for_trade_side,
+)
 from bot.research.market_events.signal_intelligence.trade_plan_f71 import compute_trade_plan_f71
 
 logger = logging.getLogger(__name__)
@@ -199,10 +203,21 @@ def persist_validation_signal_s11(
     )
     plan = compute_trade_plan_f71(
         price=price,
-        shock_direction="DOWN" if direction == "SHORT" else "UP",
+        shock_direction=shock_direction_for_trade_side(direction),
         risk_reward=rr_obj,
         final_confidence=conf,
     )
+    geom = assert_sendable_geometry_s12(
+        direction=direction,
+        entry=plan.entry,
+        tp1=plan.tp1,
+        tp2=plan.tp2,
+        sl=plan.sl,
+        tp3=plan.tp3,
+        context=f"validation {candidate.symbol}",
+    )
+    if not geom.ok:
+        return None
 
     signal_uuid = str(uuid.uuid4())
     now = int(time.time())

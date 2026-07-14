@@ -31,6 +31,10 @@ from bot.research.market_events.signal_intelligence.telegram_g3 import (
     format_result_g3,
     format_tp_hit_g3,
 )
+from bot.research.market_events.signal_intelligence.trade_geometry_s12 import (
+    assert_sendable_geometry_s12,
+    shock_direction_for_trade_side,
+)
 from bot.research.market_events.signal_intelligence.trade_plan_f71 import compute_trade_plan_f71
 from bot.research.market_events.signal_intelligence.trend_windows_g3 import TrendWindowG3
 
@@ -254,10 +258,21 @@ def evaluate_experimental_signal_g39(
     )
     plan = compute_trade_plan_f71(
         price=price,
-        shock_direction="DOWN" if direction == "SHORT" else "UP",
+        shock_direction=shock_direction_for_trade_side(direction),
         risk_reward=rr_obj,
         final_confidence=conf,
     )
+    geom = assert_sendable_geometry_s12(
+        direction=direction,
+        entry=plan.entry,
+        tp1=plan.tp1,
+        tp2=plan.tp2,
+        sl=plan.sl,
+        tp3=plan.tp3,
+        context=f"experimental {best.symbol}",
+    )
+    if not geom.ok:
+        return None
     trade_json = {
         "entry": plan.entry,
         "sl": plan.sl,
