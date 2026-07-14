@@ -36,6 +36,7 @@ SUPPORTED_COMMANDS = frozenset({
     "/history-backfill",
     "/experimental",
     "/shadow",
+    "/validation",
 })
 
 # Commands that INSERT/UPDATE — never open on readonly connection.
@@ -119,11 +120,12 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
             "/watch SOL  /watchlist",
             "/why-not BTC  /top-blockers  /pipeline",
             "/trend-status BTC  /history-backfill",
-            "/experimental",
-            "/shadow",
-            "/research  /research-debug  /dataset",
-            "/help",
-        ])
+                    "/experimental",
+                    "/shadow",
+                    "/validation",
+                    "/research  /research-debug  /dataset",
+                    "/help",
+                ])
     if cmd == "/status":
         from bot.research.market_events.signal_intelligence.health_g3 import format_g3_health_report
         from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
@@ -244,6 +246,11 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
             format_shadow_report_g40,
         )
         return format_shadow_open_g40(conn) + "\n\n---\n\n" + format_shadow_report_g40(conn, days=1)
+    if cmd == "/validation":
+        from bot.research.market_events.signal_intelligence.validation_signal_s11 import (
+            format_validation_open_s11,
+        )
+        return format_validation_open_s11(conn)
     return "Unknown command. Use /help."
 
 

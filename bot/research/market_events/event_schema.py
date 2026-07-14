@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 45
+SCHEMA_VERSION = 46
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -765,6 +765,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v45")
             current = 45
+
+        if current < 46:
+            conn.executescript(S11_VALIDATION_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (46, now, "Phase S1.1 Validation Signal Pipeline"),
+            )
+            applied.append("v46")
+            current = 46
 
     if not applied:
         conn.commit()
@@ -2763,4 +2776,71 @@ CREATE INDEX IF NOT EXISTS idx_me_inbound_trace_g04_ts
   ON market_events_inbound_trace_g04(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_me_inbound_trace_g04_msg
   ON market_events_inbound_trace_g04(message_id, created_at DESC);
+"""
+
+S11_VALIDATION_DDL = """
+CREATE TABLE IF NOT EXISTS market_validation_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_uuid TEXT NOT NULL UNIQUE,
+    signal_type TEXT NOT NULL DEFAULT 'VALIDATION_SIGNAL',
+    snapshot_id INTEGER,
+    event_id INTEGER,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entry REAL,
+    tp1 REAL,
+    tp2 REAL,
+    tp3 REAL,
+    sl REAL,
+    confidence REAL NOT NULL,
+    market_score REAL NOT NULL,
+    liquidity REAL NOT NULL,
+    rr REAL NOT NULL,
+    volume REAL,
+    funding_score REAL,
+    btc_regime TEXT,
+    production_rejection_json TEXT,
+    market_snapshot_json TEXT,
+    telegram_rendered TEXT,
+    telegram_sent INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    grade TEXT,
+    result_label TEXT,
+    pnl_pct REAL,
+    max_profit REAL DEFAULT 0,
+    max_drawdown REAL DEFAULT 0,
+    holding_time_sec INTEGER DEFAULT 0,
+    tp1_hit INTEGER NOT NULL DEFAULT 0,
+    tp2_hit INTEGER NOT NULL DEFAULT 0,
+    tp3_hit INTEGER NOT NULL DEFAULT 0,
+    sl_hit INTEGER NOT NULL DEFAULT 0,
+    result_telegram_sent INTEGER NOT NULL DEFAULT 0,
+    closed_at INTEGER,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_validation_signals_ts ON market_validation_signals(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_validation_signals_status ON market_validation_signals(status);
+CREATE INDEX IF NOT EXISTS idx_validation_signals_symbol ON market_validation_signals(symbol);
+
+CREATE TABLE IF NOT EXISTS market_validation_horizons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_id INTEGER NOT NULL,
+    horizon_label TEXT NOT NULL,
+    horizon_sec INTEGER NOT NULL,
+    checked_at INTEGER NOT NULL,
+    current_price REAL,
+    pnl REAL,
+    max_profit REAL,
+    max_drawdown REAL,
+    tp1_hit INTEGER NOT NULL DEFAULT 0,
+    tp2_hit INTEGER NOT NULL DEFAULT 0,
+    tp3_hit INTEGER NOT NULL DEFAULT 0,
+    sl_hit INTEGER NOT NULL DEFAULT 0,
+    holding_time_sec INTEGER,
+    FOREIGN KEY (signal_id) REFERENCES market_validation_signals(id),
+    UNIQUE(signal_id, horizon_label)
+);
+
+CREATE INDEX IF NOT EXISTS idx_validation_horizons_signal ON market_validation_horizons(signal_id);
 """

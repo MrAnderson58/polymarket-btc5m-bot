@@ -135,6 +135,9 @@ def main(argv: list[str] | None = None) -> int:
             "shadow-open",
             "shadow-trace",
             "shadow-self-test",
+            "validation-open",
+            "validation-report",
+            "validation-force",
             "pipeline-audit",
             "recorder-debug",
             "telegram-debug",
@@ -792,6 +795,43 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_shadow_self_test_g401(conn))
+        return 0
+
+    if args.command == "validation-open":
+        from bot.research.market_events.signal_intelligence.validation_signal_s11 import (
+            format_validation_open_s11,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_validation_open_s11(conn))
+        return 0
+
+    if args.command == "validation-report":
+        from bot.research.market_events.signal_intelligence.validation_signal_s11 import (
+            format_validation_report_s11,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_validation_report_s11(conn, days=max(1, args.days)))
+        return 0
+
+    if args.command == "validation-force":
+        from bot.research.market_events.signal_intelligence.validation_signal_s11 import (
+            force_validation_signal_s11,
+            format_validation_open_s11,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            sig = force_validation_signal_s11(conn)
+            conn.commit()
+            if sig:
+                print(f"VALIDATION SIGNAL created id={sig.signal_id} symbol={sig.symbol}")
+                print("")
+                print(sig.telegram_rendered)
+            else:
+                print("VALIDATION SIGNAL not created (no candidates)")
+            print("")
+            print(format_validation_open_s11(conn))
         return 0
 
     if args.command == "pipeline-audit":

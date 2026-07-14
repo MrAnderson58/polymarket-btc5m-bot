@@ -142,6 +142,20 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
         except Exception as exc:
             logger.warning("g40 shadow lane failed: %s", exc)
 
+        try:
+            from bot.research.market_events.signal_intelligence.validation_signal_s11 import (
+                check_validation_followups_s11,
+                maybe_run_validation_lane_s11,
+            )
+            maybe_run_validation_lane_s11(
+                conn,
+                snapshot_id=snapshot_id,
+                candidates=candidates,
+            )
+            check_validation_followups_s11(conn)
+        except Exception as exc:
+            logger.warning("s11 validation lane failed: %s", exc)
+
         stats.followups = check_signal_followups_g3(conn)
         maybe_send_daily_report_g3(conn)
 
