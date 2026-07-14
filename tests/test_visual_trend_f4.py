@@ -36,7 +36,7 @@ class VisualTrendF4Tests(unittest.TestCase):
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v18", applied)
-            self.assertEqual(SCHEMA_VERSION, 40)
+            self.assertEqual(SCHEMA_VERSION, 41)
 
     def test_platform_detect_tradingview(self) -> None:
         self.assertEqual(

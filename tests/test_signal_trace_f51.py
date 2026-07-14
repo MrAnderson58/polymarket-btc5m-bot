@@ -51,7 +51,7 @@ class SignalTraceF51Tests(unittest.TestCase):
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v22", applied)
-            self.assertEqual(SCHEMA_VERSION, 40)
+            self.assertEqual(SCHEMA_VERSION, 41)
             tables = {
                 r[0] for r in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'",

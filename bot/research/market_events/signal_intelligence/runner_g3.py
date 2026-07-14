@@ -68,6 +68,14 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
         purge_old_snapshots_g3(conn)
 
         universe = load_g31_universe_symbols(conn)
+        try:
+            from bot.research.market_events.signal_intelligence.trend_history_g38 import (
+                ensure_universe_history_g38,
+            )
+            ensure_universe_history_g38(conn, universe, provider=provider)
+        except Exception as exc:
+            logger.debug("g38 candle history ensure skipped: %s", exc)
+
         trends = run_trend_detection_g3(conn, snapshot_id=snapshot_id, symbols=universe)
         stats.trends = len(trends)
 

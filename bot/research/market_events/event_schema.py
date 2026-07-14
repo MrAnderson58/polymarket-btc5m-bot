@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 40
+SCHEMA_VERSION = 41
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -696,6 +696,23 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v40")
             current = 40
+
+        if current < 41:
+            for stmt in G37_ALTER_STATEMENTS:
+                try:
+                    conn.execute(stmt)
+                except sqlite3.OperationalError:
+                    pass
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (41, now, "Phase G.3.7 Signal Discovery Diagnostics"),
+            )
+            applied.append("v41")
+            current = 41
 
     if not applied:
         conn.commit()
@@ -2520,3 +2537,8 @@ CREATE TABLE IF NOT EXISTS market_telegram_vision_g36 (
 
 CREATE INDEX IF NOT EXISTS idx_g36_vision_ts ON market_telegram_vision_g36(created_at DESC);
 """
+
+G37_ALTER_STATEMENTS = (
+    "ALTER TABLE market_candidate_g31 ADD COLUMN pipeline_trace_json TEXT",
+    "ALTER TABLE market_candidate_g31 ADD COLUMN score_source TEXT",
+)

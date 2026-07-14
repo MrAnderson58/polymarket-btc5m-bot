@@ -424,6 +424,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         market_memory_dashboard_g36,
                     )
                     _json_response(self, market_memory_dashboard_g36(conn))
+                elif path == "/signal-discovery":
+                    from bot.research.market_events.signal_intelligence.signal_discovery_g37 import (
+                        signal_discovery_dashboard_g37,
+                    )
+                    hours = _query_int(qs, "hours", 24)
+                    _json_response(self, signal_discovery_dashboard_g37(conn, hours=hours))
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -436,6 +442,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/validation", "/validation/feature-importance",
                             "/validation/false-rejects", "/validation/false-accepts",
                             "/validation/optimizer", "/quant-research", "/market-memory",
+                            "/signal-discovery",
                         ],
                     })
         except Exception as exc:

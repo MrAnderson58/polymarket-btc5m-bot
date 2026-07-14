@@ -60,6 +60,8 @@ class CandidateG31:
     trend_coverage_pct: float | None = None
     trend_windows_json: str | None = None
     trend: TrendWindowG3 | None = None
+    score_source: str | None = None
+    pipeline_trace_json: str | None = None
 
 
 def load_g31_universe_symbols(conn: Any) -> tuple[str, ...]:
@@ -166,9 +168,10 @@ def _score_candidate(
     if coverage_pct < 100.0:
         base_conf = round(base_conf * (0.7 + 0.3 * coverage_pct / 100.0), 2)
     confidence = base_conf
-    market_score = f7_score or min(100.0, trend_score * 0.55 + liq_prob * 100 * 0.25 + volume_score * 0.2)
+    per_symbol_ms = min(100.0, trend_score * 0.55 + liq_prob * 100 * 0.25 + volume_score * 0.2)
+    market_score = round(per_symbol_ms, 1)
     liquidity_score = round(liq_prob * 100.0, 1)
-    return round(confidence, 2), round(market_score, 1), liquidity_score
+    return round(confidence, 2), market_score, liquidity_score
 
 
 def _make_candidate(
@@ -247,6 +250,9 @@ def _make_candidate(
     btc_alignment, btc_conflict = _btc_alignment_label(conn, symbol=symbol, direction=direction) if conn else ("Neutral", False)
 
     provisional_note = format_provisional_reason(cov_pct) if cov_pct < 100.0 else None
+    score_source = "per_symbol"
+    if f7_score is not None:
+        score_source = f"per_symbol(f7_event={f7_score:.0f})"
 
     checks: list[tuple[bool, str]] = [
         (funding_score is not None, "Funding unavailable"),
@@ -282,6 +288,7 @@ def _make_candidate(
                 trend_coverage_pct=cov_pct,
                 trend_windows_json=windows_json,
                 trend=trend,
+                score_source=score_source,
             )
 
     reason = "Waiting Claude" if waiting_claude else None
@@ -308,6 +315,7 @@ def _make_candidate(
         trend_coverage_pct=cov_pct,
         trend_windows_json=windows_json,
         trend=trend,
+        score_source=score_source,
     )
 
 
@@ -457,6 +465,30 @@ def persist_candidates_g31(
     ts = candidate_ts or int(time.time())
     n = 0
     for c in candidates:
+        trace_json = c.pipeline_trace_json
+        if not trace_json:
+            try:
+                from bot.research.market_events.signal_intelligence.signal_discovery_g37 import (
+                    build_pipeline_trace_json_g37,
+                )
+                row = {
+                    "symbol": c.symbol,
+                    "trend_score": c.trend_score,
+                    "market_score": c.market_score,
+                    "liquidity_score": c.liquidity_score,
+                    "confidence": c.confidence,
+                    "rr": c.rr,
+                    "funding_score": c.funding_score,
+                    "volume_score": c.volume_score,
+                    "btc_alignment": c.btc_alignment,
+                    "candidate_state": c.candidate_state,
+                    "rejection_reason": c.rejection_reason,
+                    "score_source": c.score_source,
+                }
+                trace_json = build_pipeline_trace_json_g37(row)
+            except Exception:
+                trace_json = None
+
         cid = insert_returning_id(
             conn,
             f"""
@@ -464,14 +496,15 @@ def persist_candidates_g31(
               snapshot_id, candidate_ts, symbol, trend_score, market_score, liquidity_score,
               confidence, rr, btc_alignment, funding_score, oi_score, volume_score, atr_score,
               fear_greed, candidate_state, rejection_reason, direction,
-              trend_coverage_pct, trend_windows_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              trend_coverage_pct, trend_windows_json, pipeline_trace_json, score_source, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 snapshot_id, ts, c.symbol, c.trend_score, c.market_score, c.liquidity_score,
                 c.confidence, c.rr, c.btc_alignment, c.funding_score, c.oi_score,
                 c.volume_score, c.atr_score, c.fear_greed, c.candidate_state,
-                c.rejection_reason, c.direction, c.trend_coverage_pct, c.trend_windows_json, ts,
+                c.rejection_reason, c.direction, c.trend_coverage_pct, c.trend_windows_json,
+                trace_json, c.score_source or "per_symbol", ts,
             ),
         )
         try:

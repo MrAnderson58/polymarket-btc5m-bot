@@ -40,6 +40,7 @@ from bot.research.market_events.event_schema import (
     G501_ALTER_STATEMENTS,
     G51_DDL,
     G36_DDL,
+    G37_ALTER_STATEMENTS,
     G351_DDL,
     MIGRATIONS_TABLE,
     SCHEMA_VERSION,
@@ -78,6 +79,7 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     38: "Phase G.5.0.1 Claude reliability and research quality",
     39: "Phase G.5.1 Research Data Lake",
     40: "Phase G.3.6 Telegram Vision and Market Memory",
+    41: "Phase G.3.7 Signal Discovery Diagnostics",
 }
 
 
@@ -160,6 +162,7 @@ def full_pg_ddl() -> str:
             "ALTER TABLE market_candidate_g31 ADD COLUMN trend_windows_json TEXT",
         ]
         + list(G501_ALTER_STATEMENTS)
+        + list(G37_ALTER_STATEMENTS)
     )]
     return ddl + "\n" + ";\n".join(alters) + ";"
 

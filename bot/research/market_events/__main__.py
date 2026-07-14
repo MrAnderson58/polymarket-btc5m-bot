@@ -124,6 +124,11 @@ def main(argv: list[str] | None = None) -> int:
             "research-data-audit",
             "research-lake-build",
             "market-memory",
+            "signal-discovery",
+            "why-not",
+            "trend-status",
+            "history-backfill",
+            "trend-history-report",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -155,6 +160,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--heartbeat-sec", type=int, default=None, help="Heartbeat interval (default 60)")
     parser.add_argument("--seconds", type=int, default=30, help="Duration for collector-path-audit")
     parser.add_argument("--days", type=int, default=7)
+    parser.add_argument("--hours", type=int, default=24, help="Hours of candle history (G3.8)")
+    parser.add_argument(
+        "--skip-pipeline",
+        action="store_true",
+        help="history-backfill: skip post-backfill trend/candidate rebuild",
+    )
     parser.add_argument("--strategy", type=str, default=None, help="Strategy name prefix filter")
     parser.add_argument("--symbol", default=None, help="Single symbol for activation-explain")
     parser.add_argument("--run-tag", default="e4_default", help="Historical replay run tag")
@@ -611,6 +622,74 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_market_memory_cli_g36(conn, symbol))
+        return 0
+
+    if args.command == "signal-discovery":
+        from bot.research.market_events.signal_intelligence.signal_discovery_g37 import (
+            format_signal_discovery_report_g37,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_signal_discovery_report_g37(conn, hours=max(24, args.days * 24)))
+        return 0
+
+    if args.command == "why-not":
+        from bot.research.market_events.signal_intelligence.signal_discovery_g37 import (
+            format_pipeline_trace_g37,
+            format_why_not_g37,
+        )
+        symbol = (args.symbol or "BTC").upper()
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_why_not_g37(conn, symbol))
+            print("")
+            print(format_pipeline_trace_g37(conn, symbol))
+        return 0
+
+    if args.command == "trend-status":
+        from bot.research.market_events.signal_intelligence.trend_history_g38 import (
+            format_candle_source_report_g38,
+            format_trend_status_g38,
+        )
+        symbol = getattr(args, "symbol", None)
+        hours = max(1, args.hours or 24)
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_trend_status_g38(conn, symbol=symbol, hours=hours))
+            print("")
+            print("---")
+            print("")
+            print(format_candle_source_report_g38(conn, hours=hours))
+        return 0
+
+    if args.command == "history-backfill":
+        from bot.research.market_events.signal_intelligence.trend_history_g38 import (
+            format_history_backfill_summary_g38,
+            run_history_backfill_g38,
+        )
+        hours = max(1, args.hours or 24)
+        syms = explicit_symbols
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            stats = run_history_backfill_g38(
+                conn,
+                symbols=syms,
+                hours=hours,
+                run_pipeline=not args.skip_pipeline,
+            )
+            conn.commit()
+            print("")
+            print(format_history_backfill_summary_g38(stats))
+        return 0
+
+    if args.command == "trend-history-report":
+        from bot.research.market_events.signal_intelligence.trend_history_g38 import (
+            format_trend_history_report_g38,
+        )
+        hours = max(1, args.hours or 24)
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_trend_history_report_g38(conn, hours=hours))
         return 0
 
     if args.command == "threshold-optimizer":

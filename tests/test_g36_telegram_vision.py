@@ -42,8 +42,8 @@ class TelegramVisionG36Tests(unittest.TestCase):
     def test_schema_v40_vision_table(self) -> None:
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v40", applied)
-            self.assertEqual(SCHEMA_VERSION, 40)
+            self.assertIn("v41", applied)
+            self.assertEqual(SCHEMA_VERSION, 41)
             tables = {
                 r[0] for r in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'",

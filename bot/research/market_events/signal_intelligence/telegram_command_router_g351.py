@@ -25,6 +25,11 @@ SUPPORTED_COMMANDS = frozenset({
     "/analyze",
     "/watch",
     "/watchlist",
+    "/why-not",
+    "/top-blockers",
+    "/pipeline",
+    "/trend-status",
+    "/history-backfill",
 })
 
 
@@ -117,6 +122,8 @@ def handle_market_events_command(
                     "/replay  /score",
                     "/vision  (send chart photo)",
                     "/watch SOL  /watchlist",
+                    "/why-not BTC  /top-blockers  /pipeline",
+                    "/trend-status BTC  /history-backfill",
                     "/research  /research-debug  /dataset",
                     "/help",
                 ])
@@ -188,6 +195,46 @@ def handle_market_events_command(
             elif cmd == "/watchlist":
                 from bot.research.market_events.signal_intelligence.watchlist_g36 import format_watchlist_g36
                 reply = format_watchlist_g36(conn)
+            elif cmd == "/why-not":
+                from bot.research.market_events.signal_intelligence.signal_discovery_g37 import (
+                    format_why_not_g37,
+                )
+                sym = args[0] if args else "BTC"
+                reply = format_why_not_g37(conn, sym)
+            elif cmd == "/top-blockers":
+                from bot.research.market_events.signal_intelligence.signal_discovery_g37 import (
+                    format_top_blockers_g37,
+                )
+                reply = format_top_blockers_g37(conn, hours=24)
+            elif cmd == "/pipeline":
+                from bot.research.market_events.signal_intelligence.signal_discovery_g37 import (
+                    format_pipeline_funnel_g37,
+                    format_recommendations_g37,
+                    format_distribution_g37,
+                    market_score_stuck_audit_g37,
+                )
+                audit = market_score_stuck_audit_g37(conn, hours=24)
+                reply = "\n\n".join([
+                    format_pipeline_funnel_g37(conn),
+                    format_distribution_g37(conn, field="market_score"),
+                    format_distribution_g37(conn, field="rr"),
+                    format_recommendations_g37(conn),
+                    f"Score audit: {audit['message']}",
+                ])
+            elif cmd == "/trend-status":
+                from bot.research.market_events.signal_intelligence.trend_history_g38 import (
+                    format_trend_status_g38,
+                )
+                sym = args[0] if args else None
+                reply = format_trend_status_g38(conn, symbol=sym, hours=24)
+            elif cmd == "/history-backfill":
+                from bot.research.market_events.signal_intelligence.trend_history_g38 import (
+                    format_history_backfill_summary_g38,
+                    run_history_backfill_g38,
+                )
+                stats = run_history_backfill_g38(conn, hours=24, run_pipeline=True)
+                conn.commit()
+                reply = format_history_backfill_summary_g38(stats)
             else:
                 reply = "Unknown command. Use /help."
 

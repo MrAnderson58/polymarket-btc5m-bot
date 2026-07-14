@@ -69,8 +69,8 @@ class MarketMemoryG36Tests(unittest.TestCase):
     def test_schema_market_memory_table(self) -> None:
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v40", applied)
-            self.assertEqual(SCHEMA_VERSION, 40)
+            self.assertIn("v41", applied)
+            self.assertEqual(SCHEMA_VERSION, 41)
             cols = {r[1] for r in conn.execute("PRAGMA table_info(market_market_memory)").fetchall()}
             self.assertIn("funding", cols)
             self.assertIn("claude_summary", cols)
