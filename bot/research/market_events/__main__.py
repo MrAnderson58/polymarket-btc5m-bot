@@ -135,6 +135,10 @@ def main(argv: list[str] | None = None) -> int:
             "shadow-open",
             "shadow-trace",
             "shadow-self-test",
+            "pipeline-audit",
+            "recorder-debug",
+            "telegram-debug",
+            "emit-test-signal",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -761,6 +765,47 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_shadow_self_test_g401(conn))
+        return 0
+
+    if args.command == "pipeline-audit":
+        from bot.research.market_events.signal_intelligence.pipeline_audit_g0 import (
+            format_pipeline_audit_g0,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_pipeline_audit_g0(conn))
+        return 0
+
+    if args.command == "recorder-debug":
+        from bot.research.market_events.signal_intelligence.pipeline_audit_g0 import (
+            format_recorder_debug_g0,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_recorder_debug_g0(conn))
+        return 0
+
+    if args.command == "telegram-debug":
+        from bot.research.market_events.signal_intelligence.pipeline_audit_g0 import (
+            format_telegram_debug_g0,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_telegram_debug_g0(conn))
+        return 0
+
+    if args.command == "emit-test-signal":
+        from bot.research.market_events.signal_intelligence.pipeline_audit_g0 import (
+            count_emit_test_shadow_signals_g0,
+            format_emit_test_signal_g0,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_emit_test_signal_g0(conn))
+            conn.commit()
+            n = count_emit_test_shadow_signals_g0(conn)
+            print("")
+            print(f"emit-test shadow signals total: {n}")
         return 0
 
     if args.command == "threshold-optimizer":

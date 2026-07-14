@@ -169,6 +169,7 @@ def execute_shadow_pipeline_g401(
     send_telegram: bool = True,
 ) -> ShadowPipelineResultG401:
     """Run traced shadow pipeline for one candidate; persist + telegram when eligible."""
+    logger.info("SHADOW START symbol=%s snapshot_id=%s", candidate.symbol, snapshot_id)
     result = build_shadow_trace_g401(
         conn,
         candidate=candidate,
@@ -178,7 +179,17 @@ def execute_shadow_pipeline_g401(
     )
 
     if result.outcome != "IN_PROGRESS":
+        thr = next((s for s in result.steps if s.step == "Thresholds"), None)
+        if thr and thr.status == "FAIL":
+            logger.info("SHADOW FAILED reason=thresholds symbol=%s detail=%s", candidate.symbol, thr.reason)
+        elif thr and thr.status == "SKIP":
+            logger.info("SHADOW SKIPPED reason=%s symbol=%s", thr.reason, candidate.symbol)
+        skip = next((s for s in result.steps if s.step == "Persist" and s.status == "SKIPPED"), None)
+        if skip:
+            logger.info("SHADOW SKIPPED reason=%s symbol=%s", skip.reason, candidate.symbol)
         return result
+
+    logger.info("SHADOW THRESHOLDS PASS symbol=%s", candidate.symbol)
 
     try:
         sig = persist_shadow_signal_g40(
@@ -189,10 +200,7 @@ def execute_shadow_pipeline_g401(
         result.add("Telegram", "SKIP", "persist failed")
         result.add("Followup scheduled", "NO", "persist failed")
         result.error = str(exc)
-        logger.error(
-            "SHADOW ERROR persist failed symbol=%s enabled=%s reason=%s",
-            candidate.symbol, G40_SHADOW_ENABLED, exc,
-        )
+        logger.error("SHADOW FAILED reason=persist exception symbol=%s err=%s", candidate.symbol, exc)
         raise ShadowPipelineError(str(exc)) from exc
 
     if not sig:
@@ -200,12 +208,13 @@ def execute_shadow_pipeline_g401(
         result.add("Telegram", "SKIP", "persist returned None")
         result.add("Followup scheduled", "NO", "persist returned None")
         result.error = "persist returned None"
-        logger.error("SHADOW ERROR persist returned None symbol=%s", candidate.symbol)
+        logger.error("SHADOW FAILED reason=persist returned None symbol=%s", candidate.symbol)
         raise ShadowPipelineError("persist returned None")
 
     result.signal_id = sig.signal_id
     result.signal = sig
     result.add("Persist", "PASS")
+    logger.info("SHADOW DB INSERT id=%s symbol=%s", sig.signal_id, candidate.symbol)
     logger.info(
         "SHADOW CREATED id=%s symbol=%s confidence=%s market_score=%s rr=%s",
         sig.signal_id,
@@ -222,13 +231,16 @@ def execute_shadow_pipeline_g401(
         except Exception as exc:
             result.add("Telegram", "FAIL", str(exc))
             result.add("Followup scheduled", "YES", "signal persisted")
+            logger.error("SHADOW FAILED reason=telegram symbol=%s err=%s", candidate.symbol, exc)
             return result
     result.add("Telegram", "SENT" if tg_ok else "SKIP", None if tg_ok else "alerts disabled or dedupe")
+    logger.info("SHADOW TELEGRAM sent=%s id=%s symbol=%s", tg_ok, sig.signal_id, candidate.symbol)
     result.add(
         "Followup scheduled",
         "YES",
         f"horizons: {', '.join(h for h, _ in SHADOW_HORIZON_SECS)}",
     )
+    logger.info("SHADOW FOLLOWUP scheduled=YES id=%s symbol=%s", sig.signal_id, candidate.symbol)
     return result
 
 
@@ -241,6 +253,10 @@ def run_shadow_pipeline_g401(
     candidate_ts: int | None = None,
 ) -> list[ShadowPipelineResultG401]:
     """Traced shadow lane — replaces silent maybe_run_shadow_lane."""
+    logger.info(
+        "SHADOW START lane snapshot_id=%s candidates=%s enabled=%s",
+        snapshot_id, len(candidates), G40_SHADOW_ENABLED,
+    )
     results: list[ShadowPipelineResultG401] = []
     ts = candidate_ts or int(time.time())
 

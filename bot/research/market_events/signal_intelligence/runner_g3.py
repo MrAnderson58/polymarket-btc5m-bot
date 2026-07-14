@@ -20,9 +20,13 @@ logger = logging.getLogger(__name__)
 class G3CycleStats:
     cycles: int = 0
     snapshots: int = 0
+    history_bars: int = 0
     trends: int = 0
     candidates: int = 0
     signals: int = 0
+    experimental: int = 0
+    shadow: int = 0
+    telegram: int = 0
     followups: int = 0
     replay_updates: int = 0
     errors: int = 0
@@ -50,6 +54,7 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
     from bot.research.market_events.signal_intelligence.trend_windows_g3 import run_trend_detection_g3
 
     stats = G3CycleStats(cycles=1)
+    logger.info("Cycle started")
     try:
         from bot.research.market_events.signal_intelligence.candidate_g31 import (
             load_g31_universe_symbols,
@@ -72,9 +77,10 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
             from bot.research.market_events.signal_intelligence.trend_history_g38 import (
                 ensure_universe_history_g38,
             )
-            ensure_universe_history_g38(conn, universe, provider=provider)
+            history_results = ensure_universe_history_g38(conn, universe, provider=provider)
+            stats.history_bars = sum(r.bars_after for r in history_results)
         except Exception as exc:
-            logger.debug("g38 candle history ensure skipped: %s", exc)
+            logger.warning("g38 candle history ensure failed: %s", exc)
 
         trends = run_trend_detection_g3(conn, snapshot_id=snapshot_id, symbols=universe)
         stats.trends = len(trends)
@@ -94,22 +100,25 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
         if signal:
             stats.signals = 1
             if not signal.dashboard_only:
-                send_live_signal_telegram_g3(conn, signal)
+                if send_live_signal_telegram_g3(conn, signal):
+                    stats.telegram += 1
 
         try:
             from bot.research.market_events.signal_intelligence.experimental_g39 import (
                 check_experimental_followups_g39,
                 maybe_run_experimental_g39,
             )
-            maybe_run_experimental_g39(
+            exp_sig = maybe_run_experimental_g39(
                 conn,
                 snapshot_id=snapshot_id,
                 candidates=candidates,
                 liquidity=liquidity,
             )
+            if exp_sig:
+                stats.experimental = 1
             check_experimental_followups_g39(conn)
         except Exception as exc:
-            logger.debug("g39 experimental lane skipped: %s", exc)
+            logger.warning("g39 experimental lane failed: %s", exc)
 
         try:
             from bot.research.market_events.signal_intelligence.shadow_g40 import (
@@ -119,16 +128,19 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
             from bot.research.market_events.signal_intelligence.shadow_pipeline_g401 import (
                 ShadowPipelineError,
             )
-            maybe_run_shadow_lane_g40(
+            shadow_created = maybe_run_shadow_lane_g40(
                 conn,
                 snapshot_id=snapshot_id,
                 candidates=candidates,
             )
+            stats.shadow = len(shadow_created)
             check_shadow_followups_g40(conn)
         except ShadowPipelineError as exc:
+            stats.errors += 1
+            stats.error_messages.append(f"shadow: {exc}")
             logger.error("g40 shadow pipeline error: %s", exc)
         except Exception as exc:
-            logger.debug("g40 shadow lane skipped: %s", exc)
+            logger.warning("g40 shadow lane failed: %s", exc)
 
         stats.followups = check_signal_followups_g3(conn)
         maybe_send_daily_report_g3(conn)
@@ -207,10 +219,23 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
         )
         set_g3_ops_state(conn, "last_cycle_ts", str(int(time.time())))
         write_system_heartbeat(conn, writer="g3-live")
+
+        logger.info(
+            "Cycle completed | Snapshots=%s History=%s Trend=%s Candidates=%s "
+            "Experimental=%s Shadow=%s Telegram=%s Followup=%s",
+            stats.snapshots,
+            stats.history_bars,
+            stats.trends,
+            stats.candidates,
+            stats.experimental,
+            stats.shadow,
+            stats.telegram,
+            stats.followups,
+        )
     except Exception as exc:
         stats.errors = 1
         stats.error_messages.append(str(exc))
-        logger.exception("g3 cycle failed: %s", exc)
+        logger.exception("Cycle ERROR: %s", exc)
         from bot.research.market_events.signal_intelligence.health_g3 import update_recorder_health_g3
         update_recorder_health_g3(conn, snapshot_id=None, latency_ms=None, status="error", error=str(exc))
     return stats
@@ -244,6 +269,9 @@ def run_g3_live(
         total.trends += stats.trends
         total.candidates += stats.candidates
         total.signals += stats.signals
+        total.experimental += stats.experimental
+        total.shadow += stats.shadow
+        total.telegram += stats.telegram
         total.followups += stats.followups
         total.replay_updates += stats.replay_updates
         total.errors += stats.errors

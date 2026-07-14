@@ -312,13 +312,19 @@ def maybe_run_shadow_lane_g40(
         run_shadow_pipeline_g401,
     )
 
+    logger.info(
+        "SHADOW START maybe_run_shadow_lane snapshot_id=%s candidates=%s enabled=%s",
+        snapshot_id, len(candidates), G40_SHADOW_ENABLED,
+    )
     results = run_shadow_pipeline_g401(
         conn,
         snapshot_id=snapshot_id,
         candidates=candidates,
         event_id=event_id,
     )
-    return [r.signal for r in results if r.signal is not None]
+    created = [r.signal for r in results if r.signal is not None]
+    logger.info("SHADOW LANE DONE created=%s traced=%s", len(created), len(results))
+    return created
 
 
 def _current_price(conn: Any, symbol: str) -> float | None:
