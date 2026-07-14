@@ -696,7 +696,7 @@ def estimate_shadow_signals_per_day_g40(conn: Any, *, days: int = 7) -> float:
     count = 0
     for r in rows:
         bucket = int(r["created_at"]) // 300
-        sym = str(r.get("symbol") or "?")
+        sym = str(r["symbol"] or "?")
         conf = float(r["confidence"] or 0)
         ms = float(r["market_score"] or 0)
         liq = float(r["liquidity_score"] or 0) / 100.0
