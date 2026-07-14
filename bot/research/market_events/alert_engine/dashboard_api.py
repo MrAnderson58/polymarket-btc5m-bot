@@ -419,6 +419,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         quant_research_dashboard_g50,
                     )
                     _json_response(self, quant_research_dashboard_g50(conn))
+                elif path == "/market-memory":
+                    from bot.research.market_events.signal_intelligence.market_memory_g36 import (
+                        market_memory_dashboard_g36,
+                    )
+                    _json_response(self, market_memory_dashboard_g36(conn))
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -430,7 +435,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/candidates", "/replay", "/trend-coverage", "/score-diagnostics",
                             "/validation", "/validation/feature-importance",
                             "/validation/false-rejects", "/validation/false-accepts",
-                            "/validation/optimizer", "/quant-research",
+                            "/validation/optimizer", "/quant-research", "/market-memory",
                         ],
                     })
         except Exception as exc:

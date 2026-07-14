@@ -1,4 +1,4 @@
-"""Phase G.3.5.1 — Telegram slash-command router (bypasses parser_v2 entirely)."""
+"""Phase G.3.5.1 / G.3.6 — Telegram slash-command router (bypasses parser_v2 entirely)."""
 
 from __future__ import annotations
 
@@ -21,6 +21,10 @@ SUPPORTED_COMMANDS = frozenset({
     "/research",
     "/research-debug",
     "/dataset",
+    "/vision",
+    "/analyze",
+    "/watch",
+    "/watchlist",
 })
 
 
@@ -38,16 +42,18 @@ def is_slash_command(text: str | None) -> bool:
     stripped = text.strip()
     if not stripped.startswith("/"):
         return False
-    cmd = normalize_command(stripped)
+    cmd, _args = _parse_command_args(stripped)
     return cmd in SUPPORTED_COMMANDS or cmd.startswith("/")
 
 
 def normalize_command(text: str) -> str:
-    """Extract base command, e.g. '/status@MyBot' → '/status'."""
-    token = text.strip().split()[0].lower()
-    if "@" in token:
-        token = token.split("@", 1)[0]
-    return token
+    cmd, _ = _parse_command_args(text)
+    return cmd
+
+
+def _parse_command_args(text: str) -> tuple[str, list[str]]:
+    from bot.research.market_events.signal_intelligence.telegram_commands_g36 import parse_command_args
+    return parse_command_args(text)
 
 
 def _record_command_trace(
@@ -83,13 +89,18 @@ def _record_command_trace(
         logger.debug("command trace skipped: %s", exc)
 
 
-def handle_market_events_command(text: str, *, message_id: int | None = None) -> CommandRouteResultG351:
+def handle_market_events_command(
+    text: str,
+    *,
+    message_id: int | None = None,
+    chat_id: int | None = None,
+) -> CommandRouteResultG351:
     """Route slash command to market_events report builders — no parser/ingest."""
     from bot.research.market_events.db import market_events_connection
     from bot.research.market_events.event_schema import apply_migrations
 
     t0 = time.perf_counter()
-    cmd = normalize_command(text)
+    cmd, args = _parse_command_args(text)
 
     with market_events_connection() as conn:
         apply_migrations(conn)
@@ -98,25 +109,29 @@ def handle_market_events_command(text: str, *, message_id: int | None = None) ->
         try:
             if cmd == "/help":
                 reply = "\n".join([
-                    "G3.5 Commands",
+                    "G3.6 Commands",
                     "",
                     "/status  /health",
-                    "/market",
-                    "/candidates",
-                    "/top",
-                    "/replay",
-                    "/score",
+                    "/market  /analyze BTC",
+                    "/candidates  /top",
+                    "/replay  /score",
+                    "/vision  (send chart photo)",
+                    "/watch SOL  /watchlist",
+                    "/research  /research-debug  /dataset",
                     "/help",
-                    "/research",
-                    "/research-debug",
-                    "/dataset",
                 ])
-            elif cmd in ("/status", "/health"):
+            elif cmd == "/status":
                 from bot.research.market_events.signal_intelligence.health_g3 import format_g3_health_report
                 from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
                     append_heartbeat_to_status,
                 )
                 reply = append_heartbeat_to_status(format_g3_health_report(conn))
+            elif cmd == "/health":
+                from bot.research.market_events.signal_intelligence.health_g36 import format_g36_health_report
+                from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
+                    append_heartbeat_to_status,
+                )
+                reply = append_heartbeat_to_status(format_g36_health_report(conn))
             elif cmd == "/market":
                 from bot.research.market_events.signal_intelligence.telegram_intelligence_g35 import (
                     build_hourly_market_brief_g35,
@@ -126,8 +141,8 @@ def handle_market_events_command(text: str, *, message_id: int | None = None) ->
                 from bot.research.market_events.signal_intelligence.candidate_g31 import format_candidates_report
                 reply = format_candidates_report(conn, limit=20)
             elif cmd == "/top":
-                from bot.research.market_events.signal_intelligence.candidate_g31 import format_candidates_report
-                reply = format_candidates_report(conn, limit=1)
+                from bot.research.market_events.signal_intelligence.telegram_commands_g36 import format_top_g36
+                reply = format_top_g36(conn)
             elif cmd == "/replay":
                 from bot.research.market_events.signal_intelligence.replay_g32 import format_candidate_replay_report
                 reply = format_candidate_replay_report(conn, limit=10)
@@ -151,6 +166,28 @@ def handle_market_events_command(text: str, *, message_id: int | None = None) ->
                     format_dataset_telegram_g51,
                 )
                 reply = format_dataset_telegram_g51(conn)
+            elif cmd == "/vision":
+                reply = "Send a chart screenshot (TradingView, Bybit, Binance, OKX, Hyperliquid, CoinGlass)."
+            elif cmd == "/analyze":
+                from bot.research.market_events.signal_intelligence.analyze_symbol_g36 import (
+                    format_analyze_symbol_g36,
+                )
+                sym = args[0] if args else "BTC"
+                reply = format_analyze_symbol_g36(conn, sym)
+            elif cmd == "/watch":
+                from bot.research.market_events.signal_intelligence.watchlist_g36 import (
+                    add_watchlist_symbol_g36,
+                    format_watchlist_g36,
+                )
+                if not args:
+                    reply = "Usage: /watch SOL"
+                else:
+                    add_watchlist_symbol_g36(conn, symbol=args[0], chat_id=chat_id)
+                    conn.commit()
+                    reply = f"Added {args[0].upper()} to watchlist.\n\n" + format_watchlist_g36(conn)
+            elif cmd == "/watchlist":
+                from bot.research.market_events.signal_intelligence.watchlist_g36 import format_watchlist_g36
+                reply = format_watchlist_g36(conn)
             else:
                 reply = "Unknown command. Use /help."
 
@@ -186,10 +223,15 @@ def handle_market_events_command(text: str, *, message_id: int | None = None) ->
             )
 
 
-def route_telegram_command(text: str, *, message_id: int | None = None) -> CommandRouteResultG351 | None:
+def route_telegram_command(
+    text: str,
+    *,
+    message_id: int | None = None,
+    chat_id: int | None = None,
+) -> CommandRouteResultG351 | None:
     if not is_slash_command(text):
         return None
-    cmd = normalize_command(text)
+    cmd, _ = _parse_command_args(text)
     if cmd not in SUPPORTED_COMMANDS:
         return CommandRouteResultG351(
             command=cmd,
@@ -197,4 +239,4 @@ def route_telegram_command(text: str, *, message_id: int | None = None) -> Comma
             ok=False,
             latency_ms=0,
         )
-    return handle_market_events_command(text, message_id=message_id)
+    return handle_market_events_command(text, message_id=message_id, chat_id=chat_id)

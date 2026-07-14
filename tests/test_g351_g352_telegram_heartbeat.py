@@ -35,7 +35,7 @@ class TelegramCommandRouterG351Tests(unittest.TestCase):
     def test_help_command(self) -> None:
         result = handle_market_events_command("/help")
         self.assertTrue(result.ok)
-        self.assertIn("G3.5 Commands", result.reply_text)
+        self.assertIn("G3.6 Commands", result.reply_text)
 
     def test_status_command_no_parser(self) -> None:
         with patch("bot.research.futures_agent.telegram_inbound.process_input") as mock_proc:

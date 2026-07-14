@@ -39,6 +39,7 @@ from bot.research.market_events.event_schema import (
     G50_DDL,
     G501_ALTER_STATEMENTS,
     G51_DDL,
+    G36_DDL,
     G351_DDL,
     MIGRATIONS_TABLE,
     SCHEMA_VERSION,
@@ -76,6 +77,7 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     37: "Phase G.5.0 Quant Research Analyst",
     38: "Phase G.5.0.1 Claude reliability and research quality",
     39: "Phase G.5.1 Research Data Lake",
+    40: "Phase G.3.6 Telegram Vision and Market Memory",
 }
 
 
@@ -144,6 +146,7 @@ def full_pg_ddl() -> str:
         G4_DDL,
         G50_DDL,
         G51_DDL,
+        G36_DDL,
     ]
     ddl = sqlite_ddl_to_pg("\n".join(blocks))
     alters = [pg_alter_add_column(s) for s in (
@@ -302,4 +305,7 @@ ALL_TABLES: tuple[str, ...] = (
     "market_events_replay_timeline_g51",
     "market_research_dataset_g51",
     "market_research_lake_builds_g51",
+    "market_market_memory",
+    "market_watchlist_g36",
+    "market_telegram_vision_g36",
 )

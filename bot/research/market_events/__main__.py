@@ -123,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
             "quant-debug",
             "research-data-audit",
             "research-lake-build",
+            "market-memory",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -600,6 +601,16 @@ def main(argv: list[str] | None = None) -> int:
             result = build_research_lake_g51(conn, days=max(1, args.days))
             conn.commit()
             print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+        return 0
+
+    if args.command == "market-memory":
+        from bot.research.market_events.signal_intelligence.market_memory_g36 import (
+            format_market_memory_cli_g36,
+        )
+        symbol = (args.symbol or "BTC").upper()
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_market_memory_cli_g36(conn, symbol))
         return 0
 
     if args.command == "threshold-optimizer":

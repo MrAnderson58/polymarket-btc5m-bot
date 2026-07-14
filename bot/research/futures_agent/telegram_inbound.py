@@ -281,7 +281,7 @@ def handle_update(
         from bot.research.market_events.signal_intelligence.telegram_command_router_g351 import (
             route_telegram_command,
         )
-        route = route_telegram_command(text.strip(), message_id=message_id)
+        route = route_telegram_command(text.strip(), message_id=message_id, chat_id=chat_id)
         reply = route.reply_text if route else "Unknown command. Use /help."
         result = InboundResult(
             chat_id, message_id, reply,
@@ -295,6 +295,53 @@ def handle_update(
             stats.record_reply(sent=sent)
         if not sent:
             logger.warning("command reply failed chat_id=%s message_id=%s", chat_id, message_id)
+        _record_last_message(chat_id, message_id)
+        if stats is not None:
+            save_poll_stats(stats)
+        return result
+
+    from bot.research.market_events.signal_intelligence.telegram_photo_g36 import is_image_message
+    if is_image_message(message):
+        t0 = time.perf_counter()
+        chat = message.get("chat") or {}
+        chat_id = int(chat.get("id", 0))
+        message_id = int(message.get("message_id", 0))
+
+        if not is_chat_allowed(chat_id):
+            result = InboundResult(
+                chat_id, message_id, None,
+                unauthorized=True, skipped=True,
+                ignore_reason=IGNORE_CHAT_NOT_ALLOWED,
+                processing_ms=int((time.perf_counter() - t0) * 1000),
+            )
+            _apply_inbound_stats(result, stats)
+            return result
+
+        try:
+            from bot.research.futures_agent.telegram_config import get_telegram_bot_token
+            from bot.research.market_events.signal_intelligence.telegram_vision_g36 import (
+                handle_telegram_photo_message,
+            )
+            reply = handle_telegram_photo_message(message, token=get_telegram_bot_token())
+            result = InboundResult(
+                chat_id, message_id, reply,
+                processed=True,
+                processing_ms=int((time.perf_counter() - t0) * 1000),
+            )
+        except Exception as exc:
+            logger.warning("g36 vision pipeline failed: %s", exc)
+            result = InboundResult(
+                chat_id, message_id, f"Vision failed: {exc}",
+                skipped=True, processing_ms=int((time.perf_counter() - t0) * 1000),
+            )
+
+        _apply_inbound_stats(result, stats)
+        if result.reply_text:
+            sent = send_telegram_reply(result.chat_id, result.reply_text)
+            result.reply_sent = sent
+            result.reply_failed = not sent
+            if stats is not None:
+                stats.record_reply(sent=sent)
         _record_last_message(chat_id, message_id)
         if stats is not None:
             save_poll_stats(stats)

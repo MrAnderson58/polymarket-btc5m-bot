@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 39
+SCHEMA_VERSION = 40
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -683,6 +683,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v39")
             current = 39
+
+        if current < 40:
+            conn.executescript(G36_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (40, now, "Phase G.3.6 Telegram Vision and Market Memory"),
+            )
+            applied.append("v40")
+            current = 40
 
     if not applied:
         conn.commit()
@@ -2458,4 +2471,52 @@ CREATE TABLE IF NOT EXISTS market_research_lake_builds_g51 (
 
 CREATE VIEW IF NOT EXISTS research_dataset AS
 SELECT * FROM market_research_dataset_g51;
+"""
+
+G36_DDL = """
+CREATE TABLE IF NOT EXISTS market_market_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    price REAL,
+    funding REAL,
+    oi REAL,
+    fear REAL,
+    dominance REAL,
+    volume REAL,
+    atr REAL,
+    btc_regime TEXT,
+    trend REAL,
+    liquidity REAL,
+    market_score REAL,
+    confidence REAL,
+    claude_summary TEXT,
+    candidate_state TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_memory_sym_ts ON market_market_memory(symbol, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_market_memory_ts ON market_market_memory(ts DESC);
+
+CREATE TABLE IF NOT EXISTS market_watchlist_g36 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL UNIQUE,
+    chat_id INTEGER,
+    added_at INTEGER NOT NULL,
+    notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS market_telegram_vision_g36 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER,
+    chat_id INTEGER,
+    platform TEXT,
+    image_path TEXT,
+    ocr_text TEXT,
+    analysis_json TEXT,
+    claude_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_g36_vision_ts ON market_telegram_vision_g36(created_at DESC);
 """

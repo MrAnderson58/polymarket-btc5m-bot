@@ -73,8 +73,8 @@ class QuantResearchG50Tests(unittest.TestCase):
     def test_schema_v38(self) -> None:
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v39", applied)
-            self.assertEqual(SCHEMA_VERSION, 39)
+            self.assertIn("v40", applied)
+            self.assertEqual(SCHEMA_VERSION, 40)
 
     def test_dataset_builder(self) -> None:
         with market_events_connection() as conn:

@@ -112,6 +112,9 @@ G51_BUILD_INTERVAL_SEC = int(os.getenv("ME_G51_BUILD_INTERVAL_SEC", "1800"))
 G51_WINDOW_DAYS = int(os.getenv("ME_G51_WINDOW_DAYS", "30"))
 G51_MAX_CANDIDATES = int(os.getenv("ME_G51_MAX_CANDIDATES", "500"))
 
+G36_ENABLED = os.getenv("ME_G36_VISION_MEMORY", "true").lower() in ("1", "true", "yes")
+G36_MEMORY_INTERVAL_SEC = int(os.getenv("ME_G36_MEMORY_INTERVAL_SEC", "60"))
+
 MTF_DETECTORS = {
     "SHOCK_M5": {"window_minutes": 5, "min_return_pct": 1.2, "min_atr_multiple": 1.5},
     "SHOCK_M10": {"window_minutes": 10, "min_return_pct": 1.5, "min_atr_multiple": 1.6},
