@@ -90,7 +90,7 @@ class G3ProductionSmokeTests(unittest.TestCase):
         with self._conn() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v37", applied)
-            self.assertEqual(SCHEMA_VERSION, 42)
+            self.assertEqual(SCHEMA_VERSION, 43)
 
             for sym in ("SOL", "ETH", "BNB", "BTC", "TOTAL3", "SUI"):
                 _seed_candles(conn, symbol=sym, n=100, down=True)

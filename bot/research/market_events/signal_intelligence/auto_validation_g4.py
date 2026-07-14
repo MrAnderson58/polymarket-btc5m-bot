@@ -976,6 +976,24 @@ def format_validation_report_g4(conn: Any, *, days: int = 30) -> str:
             f"  {f['factor']}: WR {f['win_rate']:.0%} PF {f['profit_factor']:.2f} "
             f"n={f['sample_size']} ({f['predictor_type']})"
         )
+    try:
+        from bot.research.market_events.signal_intelligence.shadow_g40 import lane_comparison_stats_g40
+        cmp = lane_comparison_stats_g40(conn, days=days)
+        lines.extend([
+            "",
+            "Lane Comparison",
+            "",
+            "Production",
+            str(cmp["production"]),
+            "",
+            "Shadow",
+            str(cmp["shadow"]),
+            "",
+            "Combined",
+            str(cmp["combined"]),
+        ])
+    except Exception:
+        pass
     return "\n".join(lines)
 
 

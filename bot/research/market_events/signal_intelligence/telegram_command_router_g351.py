@@ -31,6 +31,7 @@ SUPPORTED_COMMANDS = frozenset({
     "/trend-status",
     "/history-backfill",
     "/experimental",
+    "/shadow",
 })
 
 
@@ -126,6 +127,7 @@ def handle_market_events_command(
                     "/why-not BTC  /top-blockers  /pipeline",
                     "/trend-status BTC  /history-backfill",
                     "/experimental",
+                    "/shadow",
                     "/research  /research-debug  /dataset",
                     "/help",
                 ])
@@ -242,6 +244,12 @@ def handle_market_events_command(
                     format_experimental_today_g39,
                 )
                 reply = format_experimental_today_g39(conn)
+            elif cmd == "/shadow":
+                from bot.research.market_events.signal_intelligence.shadow_g40 import (
+                    format_shadow_open_g40,
+                    format_shadow_report_g40,
+                )
+                reply = format_shadow_open_g40(conn) + "\n\n---\n\n" + format_shadow_report_g40(conn, days=1)
             else:
                 reply = "Unknown command. Use /help."
 

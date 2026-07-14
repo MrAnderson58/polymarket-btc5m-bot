@@ -70,7 +70,7 @@ class MarketMemoryG36Tests(unittest.TestCase):
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v41", applied)
-            self.assertEqual(SCHEMA_VERSION, 42)
+            self.assertEqual(SCHEMA_VERSION, 43)
             cols = {r[1] for r in conn.execute("PRAGMA table_info(market_market_memory)").fetchall()}
             self.assertIn("funding", cols)
             self.assertIn("claude_summary", cols)

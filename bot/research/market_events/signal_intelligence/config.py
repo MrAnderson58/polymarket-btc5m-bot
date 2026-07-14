@@ -120,6 +120,14 @@ G39_MIN_CONFIDENCE = float(os.getenv("ME_G39_MIN_CONFIDENCE", "6.0"))
 G39_MIN_MARKET_SCORE = float(os.getenv("ME_G39_MIN_MARKET_SCORE", "45"))
 G39_MIN_LIQUIDITY_PROB = float(os.getenv("ME_G39_MIN_LIQUIDITY_PROB", "0.50"))
 G39_MIN_RISK_REWARD = float(os.getenv("ME_G39_MIN_RISK_REWARD", "1.8"))
+G40_SHADOW_ENABLED = os.getenv("ME_SHADOW_ENABLED", "false").lower() in ("1", "true", "yes")
+G40_SHADOW_MIN_CONFIDENCE = float(os.getenv("ME_SHADOW_MIN_CONFIDENCE", "5.0"))
+G40_SHADOW_MIN_MARKET_SCORE = float(os.getenv("ME_SHADOW_MIN_MARKET_SCORE", "25"))
+G40_SHADOW_MIN_LIQUIDITY_PROB = float(os.getenv("ME_SHADOW_MIN_LIQUIDITY_PROB", "0.20"))
+G40_SHADOW_MIN_RR = float(os.getenv("ME_SHADOW_MIN_RR", "1.3"))
+G40_SHADOW_MIN_VOLUME = float(os.getenv("ME_SHADOW_MIN_VOLUME", "15"))
+G40_SHADOW_MAX_PER_DAY = int(os.getenv("ME_SHADOW_MAX_PER_DAY", "20"))
+G40_SHADOW_MAX_PER_CYCLE = int(os.getenv("ME_SHADOW_MAX_PER_CYCLE", "5"))
 
 MTF_DETECTORS = {
     "SHOCK_M5": {"window_minutes": 5, "min_return_pct": 1.2, "min_atr_multiple": 1.5},

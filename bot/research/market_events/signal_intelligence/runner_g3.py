@@ -111,6 +111,20 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
         except Exception as exc:
             logger.debug("g39 experimental lane skipped: %s", exc)
 
+        try:
+            from bot.research.market_events.signal_intelligence.shadow_g40 import (
+                check_shadow_followups_g40,
+                maybe_run_shadow_lane_g40,
+            )
+            maybe_run_shadow_lane_g40(
+                conn,
+                snapshot_id=snapshot_id,
+                candidates=candidates,
+            )
+            check_shadow_followups_g40(conn)
+        except Exception as exc:
+            logger.debug("g40 shadow lane skipped: %s", exc)
+
         stats.followups = check_signal_followups_g3(conn)
         maybe_send_daily_report_g3(conn)
 

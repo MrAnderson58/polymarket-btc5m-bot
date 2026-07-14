@@ -615,7 +615,7 @@ def quant_research_dashboard_g50(conn: Any) -> dict[str, Any]:
     ).fetchall()
     latest = fetch_latest_quant_report_g50(conn)
     report = (latest or {}).get("report") or {}
-    return {
+    out: dict[str, Any] = {
         "tab": "Quant Research",
         "latest": latest,
         "recent_reports": [dict(r) for r in reports],
@@ -628,3 +628,9 @@ def quant_research_dashboard_g50(conn: Any) -> dict[str, Any]:
         "research_score": latest.get("research_score") if latest else None,
         "claude_cost_total": sum(float(r["cost"] or 0) for r in reports),
     }
+    try:
+        from bot.research.market_events.signal_intelligence.shadow_g40 import lane_comparison_stats_g40
+        out["lane_comparison"] = lane_comparison_stats_g40(conn, days=7)
+    except Exception:
+        pass
+    return out

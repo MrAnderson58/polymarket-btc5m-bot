@@ -215,7 +215,7 @@ class TrendHistoryG38Tests(unittest.TestCase):
             self.assertGreater(pipe["avg_coverage_pct"], 80.0)
 
     def test_schema_version_unchanged(self) -> None:
-        self.assertEqual(SCHEMA_VERSION, 42)
+        self.assertEqual(SCHEMA_VERSION, 43)
 
 
 if __name__ == "__main__":

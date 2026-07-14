@@ -436,6 +436,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     )
                     limit = _query_int(qs, "limit", 50)
                     _json_response(self, experimental_dashboard_g39(conn, limit=limit))
+                elif path == "/shadow-signals":
+                    from bot.research.market_events.signal_intelligence.shadow_g40 import (
+                        shadow_dashboard_g40,
+                    )
+                    status = qs.get("status", [None])[0]
+                    symbol = qs.get("symbol", [None])[0]
+                    grade = qs.get("grade", [None])[0]
+                    data = shadow_dashboard_g40(conn, status=status, symbol=symbol)
+                    if grade:
+                        data["signals"] = [s for s in data["signals"] if s.get("grade") == grade]
+                    _json_response(self, data)
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -448,7 +459,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/validation", "/validation/feature-importance",
                             "/validation/false-rejects", "/validation/false-accepts",
                             "/validation/optimizer",                             "/quant-research", "/market-memory",
-                            "/signal-discovery", "/experimental-signals",
+                            "/signal-discovery", "/experimental-signals", "/shadow-signals",
                         ],
                     })
         except Exception as exc:

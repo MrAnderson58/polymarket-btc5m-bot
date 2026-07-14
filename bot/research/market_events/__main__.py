@@ -131,6 +131,8 @@ def main(argv: list[str] | None = None) -> int:
             "trend-history-report",
             "experimental",
             "threshold-simulator",
+            "shadow-report",
+            "shadow-open",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -715,6 +717,29 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_threshold_simulator_g39(conn, days=max(1, args.days)))
+        return 0
+
+    if args.command == "shadow-report":
+        from bot.research.market_events.signal_intelligence.shadow_g40 import (
+            format_shadow_report_g40,
+            lane_comparison_stats_g40,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_shadow_report_g40(conn, days=max(1, args.days)))
+            cmp = lane_comparison_stats_g40(conn, days=max(1, args.days))
+            print("")
+            print("Lane Comparison")
+            print(f"Production: {cmp['production']}")
+            print(f"Shadow: {cmp['shadow']}")
+            print(f"Combined: {cmp['combined']}")
+        return 0
+
+    if args.command == "shadow-open":
+        from bot.research.market_events.signal_intelligence.shadow_g40 import format_shadow_open_g40
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_shadow_open_g40(conn))
         return 0
 
     if args.command == "threshold-optimizer":

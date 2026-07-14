@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 42
+SCHEMA_VERSION = 43
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -726,6 +726,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v42")
             current = 42
+
+        if current < 43:
+            conn.executescript(G40_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (43, now, "Phase G.4.0 Shadow Signal Lane"),
+            )
+            applied.append("v43")
+            current = 43
 
     if not applied:
         conn.commit()
@@ -2601,4 +2614,87 @@ CREATE TABLE IF NOT EXISTS market_experimental_followup_g39 (
 );
 
 CREATE INDEX IF NOT EXISTS idx_g39_followup_signal ON market_experimental_followup_g39(signal_id);
+"""
+
+G40_DDL = """
+CREATE TABLE IF NOT EXISTS market_shadow_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_uuid TEXT NOT NULL UNIQUE,
+    snapshot_id INTEGER,
+    event_id INTEGER,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entry REAL,
+    tp1 REAL,
+    tp2 REAL,
+    tp3 REAL,
+    sl REAL,
+    confidence REAL NOT NULL,
+    market_score REAL NOT NULL,
+    liquidity REAL NOT NULL,
+    rr REAL NOT NULL,
+    volume REAL,
+    btc_regime TEXT,
+    claude_summary TEXT,
+    production_rejection_json TEXT,
+    market_snapshot_json TEXT,
+    telegram_rendered TEXT,
+    telegram_sent INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    grade TEXT,
+    result_label TEXT,
+    pnl_pct REAL,
+    max_profit REAL DEFAULT 0,
+    max_drawdown REAL DEFAULT 0,
+    holding_time_sec INTEGER DEFAULT 0,
+    tp1_hit INTEGER NOT NULL DEFAULT 0,
+    tp2_hit INTEGER NOT NULL DEFAULT 0,
+    tp3_hit INTEGER NOT NULL DEFAULT 0,
+    sl_hit INTEGER NOT NULL DEFAULT 0,
+    claude_review_json TEXT,
+    closed_at INTEGER,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_shadow_signals_ts ON market_shadow_signals(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_shadow_signals_status ON market_shadow_signals(status);
+CREATE INDEX IF NOT EXISTS idx_shadow_signals_symbol ON market_shadow_signals(symbol);
+CREATE INDEX IF NOT EXISTS idx_shadow_signals_grade ON market_shadow_signals(grade);
+
+CREATE TABLE IF NOT EXISTS market_shadow_horizons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_id INTEGER NOT NULL,
+    horizon_label TEXT NOT NULL,
+    horizon_sec INTEGER NOT NULL,
+    checked_at INTEGER NOT NULL,
+    current_price REAL,
+    pnl REAL,
+    max_profit REAL,
+    max_drawdown REAL,
+    tp1_hit INTEGER NOT NULL DEFAULT 0,
+    tp2_hit INTEGER NOT NULL DEFAULT 0,
+    tp3_hit INTEGER NOT NULL DEFAULT 0,
+    sl_hit INTEGER NOT NULL DEFAULT 0,
+    holding_time_sec INTEGER,
+    FOREIGN KEY (signal_id) REFERENCES market_shadow_signals(id),
+    UNIQUE(signal_id, horizon_label)
+);
+
+CREATE INDEX IF NOT EXISTS idx_shadow_horizons_signal ON market_shadow_horizons(signal_id);
+
+CREATE TABLE IF NOT EXISTS market_learning_dataset (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lane TEXT NOT NULL DEFAULT 'shadow',
+    signal_id INTEGER,
+    symbol TEXT NOT NULL,
+    direction TEXT,
+    grade TEXT,
+    result_label TEXT,
+    pnl_pct REAL,
+    market_snapshot_json TEXT,
+    claude_review_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_learning_lane_ts ON market_learning_dataset(lane, created_at DESC);
 """
