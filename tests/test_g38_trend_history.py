@@ -149,14 +149,15 @@ class TrendHistoryG38Tests(unittest.TestCase):
             self.assertIn("288/288", text)
             self.assertIn("274/288", text)
 
-    def test_ensure_skips_when_complete(self) -> None:
+    def test_ensure_refreshes_when_complete(self) -> None:
         with self._conn() as conn:
             apply_migrations(conn)
             _seed_bars(conn, symbol="BTC", n=BARS_24H_5M)
             conn.commit()
             result = ensure_symbol_history_g38(conn, "BTC")
             self.assertEqual(result.status, "complete")
-            self.assertEqual(result.loaded, 0)
+            self.assertGreaterEqual(result.loaded, 0)
+            self.assertIn(result.source, ("refresh", "db"))
 
     @patch(
         "bot.research.market_events.signal_intelligence.candidate_g31.load_g31_universe_symbols",

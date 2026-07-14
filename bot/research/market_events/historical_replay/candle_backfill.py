@@ -130,6 +130,7 @@ def run_candle_backfill(
                     conn, venue=venue, symbol=sym.upper(), timeframe=timeframe,
                     open_ts=c.open_ts, o=c.open, h=c.high, l=c.low, c=c.close,
                     source=locked_source,
+                    volume=getattr(c, "volume", None),
                 ):
                     inserted += 1
             gaps = count_gaps(candles)
@@ -159,12 +160,12 @@ def run_candle_backfill(
 
 def insert_candle_ignore(conn: Any, *, venue: str, symbol: str, timeframe: str,
                          open_ts: int, o: float, h: float, l: float, c: float,
-                         source: str) -> bool:
+                         source: str, volume: float | None = None) -> bool:
     """Backend-neutral candle insert for tests."""
     from bot.research.market_events.db import connection_is_postgres
 
     now = int(time.time())
-    params = (venue, symbol, timeframe, open_ts, o, h, l, c, None, source, now)
+    params = (venue, symbol, timeframe, open_ts, o, h, l, c, volume, source, now)
     if connection_is_postgres(conn):
         row = conn.execute(
             """

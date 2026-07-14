@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from bot.research.futures_agent.market_provider import BinanceMarketProvider, symbol_pair
-from bot.research.market_events.historical_replay.candle_backfill import insert_candle_ignore
 from bot.research.market_events.signal_intelligence.candles import CandleBar, load_recent_candles
 from bot.research.market_events.signal_intelligence.trend_coverage_g33 import (
     BARS_FOR_FULL_COVERAGE,
@@ -237,9 +236,17 @@ def fetch_5m_from_binance(
     *,
     hours: int = 24,
     end_ts: int | None = None,
+    conn: Any | None = None,
 ) -> tuple[list[CandleBar], str]:
     limit = min(1000, max(MIN_BARS_FOR_TREND, hours * 12))
     end = end_ts or int(time.time())
+    if conn is not None:
+        from bot.research.market_events.signal_intelligence.market_data_source_g01 import (
+            fetch_symbol_market_data_g01,
+        )
+        data = fetch_symbol_market_data_g01(conn, symbol, end_ts=end, limit=limit, provider=provider)
+        if data.bars:
+            return data.bars, data.source
     pair = symbol_pair(symbol)
     klines = provider.fetch_futures_klines(pair, TIMEFRAME_5M, end, limit=limit) or []
     return _klines_to_bars(klines), "binance_futures"
@@ -297,22 +304,16 @@ def persist_bars_g38(
     bars: list[CandleBar],
     source: str,
 ) -> int:
-    inserted = 0
-    for b in bars:
-        if insert_candle_ignore(
-            conn,
-            venue=VENUE,
-            symbol=symbol.upper(),
-            timeframe=TIMEFRAME_5M,
-            open_ts=b.open_ts,
-            o=b.open,
-            h=b.high,
-            l=b.low,
-            c=b.close,
-            source=source,
-        ):
-            inserted += 1
-    return inserted
+    from bot.research.market_events.signal_intelligence.market_data_source_g01 import upsert_candles_g01
+
+    return upsert_candles_g01(
+        conn,
+        symbol=symbol,
+        bars=bars,
+        source=source,
+        venue=VENUE,
+        timeframe=TIMEFRAME_5M,
+    )
 
 
 def ensure_symbol_history_g38(
@@ -327,15 +328,20 @@ def ensure_symbol_history_g38(
     target = target_bars or (BARS_24H_5M if hours >= 24 else max(MIN_BARS_FOR_TREND, hours * 12))
     before = count_5m_bars(conn, symbol=sym, hours=hours)
     if before >= target:
-        logger.info("%s history complete (%s bars)", sym, before)
+        from bot.research.market_events.signal_intelligence.market_data_source_g01 import (
+            refresh_symbol_candles_g01,
+        )
+        loaded = refresh_symbol_candles_g01(conn, sym, provider=provider, limit=12)
+        after = count_5m_bars(conn, symbol=sym, hours=hours)
+        logger.info("%s history complete (%s bars), refreshed %s recent", sym, before, loaded)
         return SymbolHistoryResultG38(
             symbol=sym,
             bars_before=before,
-            bars_after=before,
-            loaded=0,
-            source="db",
+            bars_after=after,
+            loaded=loaded,
+            source="refresh",
             status="complete",
-            message=f"{sym}\nhistory complete",
+            message=f"{sym}\nhistory complete\nrefreshed {loaded} candles",
         )
 
     missing = target - before
@@ -345,7 +351,7 @@ def ensure_symbol_history_g38(
     logger.info("%s missing %s candles\nloading...", sym, missing)
 
     try:
-        bars, source = fetch_5m_from_binance(provider, sym, hours=hours)
+        bars, source = fetch_5m_from_binance(provider, sym, hours=hours, conn=conn)
         if bars:
             loaded = persist_bars_g38(conn, symbol=sym, bars=bars, source=source)
         elif before == 0:

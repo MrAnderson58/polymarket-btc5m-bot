@@ -139,6 +139,8 @@ def main(argv: list[str] | None = None) -> int:
             "recorder-debug",
             "telegram-debug",
             "emit-test-signal",
+            "data-source-debug",
+            "volume-debug",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -806,6 +808,27 @@ def main(argv: list[str] | None = None) -> int:
             n = count_emit_test_shadow_signals_g0(conn)
             print("")
             print(f"emit-test shadow signals total: {n}")
+        return 0
+
+    if args.command == "data-source-debug":
+        from bot.research.market_events.signal_intelligence.market_data_source_g01 import (
+            format_data_source_debug_g01,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            syms = _parse_symbols(args.symbols) if args.symbols else None
+            print(format_data_source_debug_g01(conn, symbols=syms))
+        return 0
+
+    if args.command == "volume-debug":
+        from bot.research.market_events.signal_intelligence.market_data_source_g01 import (
+            format_volume_debug_g01,
+        )
+        syms = tuple(_parse_symbols(args.symbols)) if args.symbols else ("BTC", "ETH", "SOL", "XRP")
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_volume_debug_g01(conn, symbols=syms))  # type: ignore[arg-type]
+            conn.commit()
         return 0
 
     if args.command == "threshold-optimizer":

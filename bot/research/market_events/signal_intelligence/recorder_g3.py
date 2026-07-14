@@ -47,6 +47,7 @@ class SnapshotPayloadG3:
     exchange_ts: int | None = None
     collector_latency_ms: float | None = None
     recorder_status: str = "ok"
+    data_source: str = "binance_futures"
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -56,38 +57,11 @@ def _last_close(klines: list[list]) -> float | None:
     return float(klines[-1][4])
 
 
-def _sum_volume(klines: list[list], n: int = 12) -> float:
-    if not klines:
+def _sum_volume(bars: list[CandleBar], n: int = 12) -> float:
+    if not bars:
         return 0.0
-    tail = klines[-n:]
-    return sum(float(k[5]) for k in tail)
-
-
-def _klines_to_bars(klines: list[list]) -> list[CandleBar]:
-    return [
-        CandleBar(
-            open_ts=int(k[0] // 1000),
-            open=float(k[1]),
-            high=float(k[2]),
-            low=float(k[3]),
-            close=float(k[4]),
-            volume=float(k[5]),
-        )
-        for k in klines
-    ]
-
-
-def _fetch_open_interest(provider: BinanceMarketProvider, pair: str) -> float | None:
-    data = provider._get(  # noqa: SLF001 — reuse session/retry
-        f"{provider.futures_api}/fapi/v1/openInterest",
-        {"symbol": pair},
-    )
-    if not data:
-        return None
-    try:
-        return float(data["openInterest"])
-    except (KeyError, TypeError, ValueError):
-        return None
+    tail = bars[-n:]
+    return sum(b.volume for b in tail)
 
 
 def _fetch_fear_greed() -> float | None:
@@ -131,13 +105,33 @@ def _load_macro_from_observations(conn: Any, ts: int) -> dict[str, float | None]
     return out
 
 
+def _last_snapshot_metrics(conn: Any) -> tuple[float | None, float | None]:
+    row = conn.execute(
+        """
+        SELECT funding, open_interest FROM market_snapshots_g3
+        WHERE funding IS NOT NULL OR open_interest IS NOT NULL
+        ORDER BY snapshot_ts DESC LIMIT 1
+        """,
+    ).fetchone()
+    if not row:
+        return None, None
+    funding = float(row["funding"]) if row["funding"] is not None else None
+    oi = float(row["open_interest"]) if row["open_interest"] is not None else None
+    return funding, oi
+
+
 def collect_snapshot_g3(
     conn: Any,
     *,
     provider: BinanceMarketProvider | None = None,
     now_ts: int | None = None,
 ) -> SnapshotPayloadG3:
-    """Collect one market snapshot from live APIs."""
+    """Collect one market snapshot from live APIs with multi-venue fallback."""
+    from bot.research.market_events.signal_intelligence.market_data_source_g01 import (
+        fetch_btc_global_metrics_g01,
+        fetch_symbol_market_data_g01,
+    )
+
     started = time.time()
     ts = now_ts or int(time.time())
     provider = provider or BinanceMarketProvider()
@@ -145,14 +139,15 @@ def collect_snapshot_g3(
 
     prices: dict[str, float | None] = {}
     volumes: dict[str, float] = {}
-    kline_map: dict[str, list[list]] = {}
+    sym_sources: dict[str, str] = {}
+    sym_data: dict[str, Any] = {}
 
     for sym in _CRYPTO_SYMBOLS:
-        pair = symbol_pair(sym)
-        kl = provider.fetch_futures_klines(pair, "5m", ts, limit=60)
-        kline_map[sym] = kl
-        prices[sym] = _last_close(kl)
-        volumes[sym] = _sum_volume(kl)
+        data = fetch_symbol_market_data_g01(conn, sym, end_ts=ts, limit=60, provider=provider)
+        sym_data[sym] = data
+        prices[sym] = data.price
+        volumes[sym] = _sum_volume(data.bars)
+        sym_sources[sym] = data.source
 
     payload.btc_price = prices.get("BTC")
     payload.eth_price = prices.get("ETH")
@@ -160,12 +155,15 @@ def collect_snapshot_g3(
     payload.bnb_price = prices.get("BNB")
 
     eth_ret = sol_ret = bnb_ret = 0.0
-    btc_kl = kline_map.get("BTC") or []
-    if len(btc_kl) >= 13 and btc_kl[-13][4]:
-        btc_prev = float(btc_kl[-13][4])
-        eth_prev = float((kline_map.get("ETH") or btc_kl)[-13][4]) if kline_map.get("ETH") else btc_prev
-        sol_prev = float((kline_map.get("SOL") or btc_kl)[-13][4]) if kline_map.get("SOL") else btc_prev
-        bnb_prev = float((kline_map.get("BNB") or btc_kl)[-13][4]) if kline_map.get("BNB") else btc_prev
+    btc_bars = sym_data.get("BTC").bars if sym_data.get("BTC") else []
+    if len(btc_bars) >= 13:
+        btc_prev = btc_bars[-13].close
+        eth_bars = sym_data.get("ETH").bars if sym_data.get("ETH") else []
+        sol_bars = sym_data.get("SOL").bars if sym_data.get("SOL") else []
+        bnb_bars = sym_data.get("BNB").bars if sym_data.get("BNB") else []
+        eth_prev = eth_bars[-13].close if len(eth_bars) >= 13 else btc_prev
+        sol_prev = sol_bars[-13].close if len(sol_bars) >= 13 else btc_prev
+        bnb_prev = bnb_bars[-13].close if len(bnb_bars) >= 13 else btc_prev
         eth_ret = (prices["ETH"] / eth_prev - 1.0) * 100.0 if prices.get("ETH") and eth_prev else 0.0
         sol_ret = (prices["SOL"] / sol_prev - 1.0) * 100.0 if prices.get("SOL") and sol_prev else 0.0
         bnb_ret = (prices["BNB"] / bnb_prev - 1.0) * 100.0 if prices.get("BNB") and bnb_prev else 0.0
@@ -177,16 +175,26 @@ def collect_snapshot_g3(
     payload.total3 = round(alt_avg, 3)
     payload.btc_dominance = round(50.0 + (eth_ret - alt_avg) * -2.5, 2)
 
-    pair_btc = symbol_pair("BTC")
-    funding, _ = provider.fetch_funding_rate(pair_btc, ts)
-    payload.funding = funding
-    payload.open_interest = _fetch_open_interest(provider, pair_btc)
+    btc_metrics = fetch_btc_global_metrics_g01(conn, end_ts=ts, provider=provider)
+    payload.funding = btc_metrics.funding
+    payload.open_interest = btc_metrics.open_interest
+    payload.data_source = btc_metrics.source
+
+    if payload.funding is None or payload.open_interest is None:
+        last_funding, last_oi = _last_snapshot_metrics(conn)
+        if payload.funding is None and last_funding is not None:
+            payload.funding = last_funding
+            logger.info("recorder funding fallback last snapshot=%s", last_funding)
+        if payload.open_interest is None and last_oi is not None:
+            payload.open_interest = last_oi
+            logger.info("recorder OI fallback last snapshot=%s", last_oi)
+
     payload.volume = round(volumes.get("BTC", 0.0), 2)
     payload.liquidations = round(abs(payload.funding or 0) * 1e6, 2) if payload.funding else None
 
-    bars = _klines_to_bars(btc_kl)
-    if bars:
-        payload.atr = round(compute_atr(bars), 6)
+    if btc_bars:
+        payload.atr = round(compute_atr(btc_bars), 6)
+        payload.exchange_ts = btc_bars[-1].open_ts
 
     payload.fear_greed = _fetch_fear_greed()
     macro = _load_macro_from_observations(conn, ts)
@@ -198,10 +206,20 @@ def collect_snapshot_g3(
     payload.oil = macro.get("oil")
     payload.usdt_dominance = round(100.0 - (payload.btc_dominance or 50.0) * 0.35, 2) if payload.btc_dominance else None
 
-    if btc_kl:
-        payload.exchange_ts = int(btc_kl[-1][0] // 1000)
+    if payload.funding is None or payload.open_interest is None:
+        payload.recorder_status = "partial"
+        logger.warning(
+            "recorder partial metrics funding=%s oi=%s source=%s",
+            payload.funding, payload.open_interest, payload.data_source,
+        )
+
     payload.collector_latency_ms = round((time.time() - started) * 1000.0, 1)
-    payload.raw = {"prices": prices, "volumes": volumes}
+    payload.raw = {
+        "prices": prices,
+        "volumes": volumes,
+        "sources": sym_sources,
+        "btc_source": payload.data_source,
+    }
     return payload
 
 
@@ -242,7 +260,7 @@ def persist_snapshot_g3(conn: Any, payload: SnapshotPayloadG3) -> int:
             payload.exchange_ts,
             payload.collector_latency_ms,
             payload.recorder_status,
-            json.dumps(payload.raw, default=str),
+            json.dumps({**payload.raw, "data_source": payload.data_source}, default=str),
             payload.snapshot_ts,
         ),
     )
@@ -264,7 +282,20 @@ def record_market_snapshot_g3(
     provider: BinanceMarketProvider | None = None,
     now_ts: int | None = None,
 ) -> tuple[int, SnapshotPayloadG3]:
-    """Collect and persist one snapshot; returns (snapshot_id, payload)."""
+    """Collect and persist one snapshot; refresh recent candles for universe."""
+    from bot.research.market_events.signal_intelligence.candidate_g31 import load_g31_universe_symbols
+    from bot.research.market_events.signal_intelligence.market_data_source_g01 import (
+        refresh_universe_candles_g01,
+    )
+
+    provider = provider or BinanceMarketProvider()
     payload = collect_snapshot_g3(conn, provider=provider, now_ts=now_ts)
     sid = persist_snapshot_g3(conn, payload)
+    try:
+        n = refresh_universe_candles_g01(
+            conn, load_g31_universe_symbols(conn), provider=provider, limit=12,
+        )
+        logger.info("recorder candle refresh rows=%s", n)
+    except Exception as exc:
+        logger.warning("recorder candle refresh failed: %s", exc)
     return sid, payload
