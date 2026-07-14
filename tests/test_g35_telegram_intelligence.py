@@ -34,8 +34,8 @@ class TelegramIntelligenceG35Tests(unittest.TestCase):
     def test_schema_v35(self) -> None:
         with self._conn() as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v36", applied)
-            self.assertEqual(SCHEMA_VERSION, 36)
+            self.assertIn("v37", applied)
+            self.assertEqual(SCHEMA_VERSION, 37)
 
     def test_hourly_brief_renders(self) -> None:
         with self._conn() as conn:

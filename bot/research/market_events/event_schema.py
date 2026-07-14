@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 36
+SCHEMA_VERSION = 37
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -640,6 +640,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v36")
             current = 36
+
+        if current < 37:
+            conn.executescript(G50_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (37, now, "Phase G.5.0 Quant Research Analyst"),
+            )
+            applied.append("v37")
+            current = 37
 
     if not applied:
         conn.commit()
@@ -2273,4 +2286,21 @@ CREATE TABLE IF NOT EXISTS market_validation_recommendations_g4 (
 );
 
 CREATE INDEX IF NOT EXISTS idx_g4_recommendations_date ON market_validation_recommendations_g4(report_date);
+"""
+
+G50_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_quant_reports_g50 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    dataset_hash TEXT NOT NULL,
+    claude_model TEXT,
+    tokens INTEGER DEFAULT 0,
+    cost REAL DEFAULT 0,
+    json TEXT NOT NULL,
+    summary TEXT,
+    sample_size INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_g50_quant_created ON market_events_quant_reports_g50(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_g50_quant_hash ON market_events_quant_reports_g50(dataset_hash);
 """

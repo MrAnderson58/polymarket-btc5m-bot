@@ -108,7 +108,7 @@ class TelegramDedupeF41Tests(unittest.TestCase):
         with self._conn() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v18", applied)
-            self.assertEqual(SCHEMA_VERSION, 34)
+            self.assertEqual(SCHEMA_VERSION, 37)
             cols = {
                 r[1] for r in conn.execute("PRAGMA table_info(market_event_alert_log)").fetchall()
             }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -117,6 +118,8 @@ def main(argv: list[str] | None = None) -> int:
             "false-rejects",
             "false-accepts",
             "optimizer-report",
+            "quant-research",
+            "quant-report",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -551,6 +554,22 @@ def main(argv: list[str] | None = None) -> int:
             run_validation_cycle_g4(conn, days=max(1, args.days))
             conn.commit()
             print(format_optimizer_report_g42(conn, days=max(1, args.days)))
+        return 0
+
+    if args.command == "quant-research":
+        from bot.research.market_events.signal_intelligence.quant_research_g50 import run_quant_research_g50
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            result = run_quant_research_g50(conn, force=True, days=max(1, args.days))
+            conn.commit()
+            print(json.dumps(result.get("report") or result, indent=2, ensure_ascii=False, default=str))
+        return 0
+
+    if args.command == "quant-report":
+        from bot.research.market_events.signal_intelligence.quant_research_g50 import format_quant_report_cli_g50
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_quant_report_cli_g50(conn))
         return 0
 
     if args.command == "threshold-optimizer":

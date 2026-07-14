@@ -414,6 +414,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "tab": "Optimizer",
                         "scenarios": [s.__dict__ for s in scenarios],
                     })
+                elif path == "/quant-research":
+                    from bot.research.market_events.signal_intelligence.quant_research_g50 import (
+                        quant_research_dashboard_g50,
+                    )
+                    _json_response(self, quant_research_dashboard_g50(conn))
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -425,7 +430,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/candidates", "/replay", "/trend-coverage", "/score-diagnostics",
                             "/validation", "/validation/feature-importance",
                             "/validation/false-rejects", "/validation/false-accepts",
-                            "/validation/optimizer",
+                            "/validation/optimizer", "/quant-research",
                         ],
                     })
         except Exception as exc:
