@@ -178,7 +178,7 @@ def process_telegram_message(
 
     if not passes_gate:
         return InboundResult(
-            chat_id, message_id, format_telegram_rejected(proc),
+            chat_id, message_id, format_telegram_rejected(proc, raw_text=text),
             skipped=True, ignore_reason=IGNORE_PARSER_REJECTED,
             parser_failed=parser_failed or True,
             processing_ms=_elapsed(),
@@ -262,10 +262,27 @@ def handle_update(
         chat_id = int(chat.get("id", 0))
         message_id = int(message.get("message_id", 0))
 
+        from bot.research.market_events.signal_intelligence.telegram_inbound_g04 import (
+            InboundTraceG04,
+            persist_inbound_trace_g04,
+        )
+        trace = InboundTraceG04(
+            message_id=message_id,
+            chat_id=chat_id,
+            preview=text.strip().replace("\n", " ")[:80],
+            received="OK",
+            router="COMMAND",
+        )
+        trace.set_stage("Telegram Update", "OK")
+        trace.set_stage("Router", "COMMAND")
+
         def _cmd_elapsed() -> int:
             return int((time.perf_counter() - t0) * 1000)
 
         if not is_chat_allowed(chat_id):
+            trace.error = IGNORE_CHAT_NOT_ALLOWED
+            trace.set_stage("Reply", "UNAUTHORIZED")
+            persist_inbound_trace_g04(trace)
             result = InboundResult(
                 chat_id, message_id, None,
                 unauthorized=True, skipped=True,
@@ -281,20 +298,41 @@ def handle_update(
         from bot.research.market_events.signal_intelligence.telegram_command_router_g351 import (
             route_telegram_command,
         )
-        route = route_telegram_command(text.strip(), message_id=message_id, chat_id=chat_id)
-        reply = route.reply_text if route else "Unknown command. Use /help."
-        result = InboundResult(
-            chat_id, message_id, reply,
-            processed=True, processing_ms=_cmd_elapsed(),
-        )
-        _apply_inbound_stats(result, stats)
-        sent = send_telegram_reply(result.chat_id, result.reply_text)
-        result.reply_sent = sent
-        result.reply_failed = not sent
+        try:
+            route = route_telegram_command(text.strip(), message_id=message_id, chat_id=chat_id)
+            reply = route.reply_text if route else "Unknown command. Use /help."
+            trace.command = route.command if route else "—"
+            trace.parser = "SKIPPED"
+            trace.taxonomy = "N/A"
+            trace.signal_label = "N/A"
+            trace.set_stage("Command", trace.command)
+            trace.set_stage("Parser", "SKIPPED")
+            trace.set_stage("Taxonomy", "N/A")
+            trace.set_stage("Signal", "N/A")
+            result = InboundResult(
+                chat_id, message_id, reply,
+                processed=True, processing_ms=_cmd_elapsed(),
+            )
+            _apply_inbound_stats(result, stats)
+            sent = send_telegram_reply(result.chat_id, result.reply_text)
+            result.reply_sent = sent
+            result.reply_failed = not sent
+            trace.reply = "OK" if sent else "FAIL"
+            trace.set_stage("Reply", "OK" if sent else "FAIL")
+            if not sent:
+                trace.error = "reply_send_failed"
+                logger.warning("command reply failed chat_id=%s message_id=%s", chat_id, message_id)
+        except Exception as exc:
+            trace.error = str(exc)
+            trace.set_stage("Reply", f"ERROR: {exc}")
+            result = InboundResult(
+                chat_id, message_id, f"Command failed: {exc}",
+                processed=True, processing_ms=_cmd_elapsed(),
+            )
+            _apply_inbound_stats(result, stats)
+        persist_inbound_trace_g04(trace)
         if stats is not None:
-            stats.record_reply(sent=sent)
-        if not sent:
-            logger.warning("command reply failed chat_id=%s message_id=%s", chat_id, message_id)
+            stats.record_reply(sent=bool(getattr(result, "reply_sent", False)))
         _record_last_message(chat_id, message_id)
         if stats is not None:
             save_poll_stats(stats)
@@ -347,6 +385,40 @@ def handle_update(
             save_poll_stats(stats)
         return result
 
+    from bot.research.market_events.signal_intelligence.telegram_inbound_g04 import (
+        InboundTraceG04,
+        diagnose_signal_g04,
+        persist_inbound_trace_g04,
+    )
+    chat = message.get("chat") or {}
+    chat_id_pre = int(chat.get("id", 0))
+    message_id_pre = int(message.get("message_id", 0))
+    raw_preview = (text or "").strip().replace("\n", " ")[:80]
+    trace = InboundTraceG04(
+        message_id=message_id_pre,
+        chat_id=chat_id_pre,
+        preview=raw_preview,
+        received="OK",
+        router="SIGNAL",
+    )
+    trace.set_stage("Telegram Update", "OK")
+    trace.set_stage("Router", "SIGNAL")
+    trace.set_stage("Command", "—")
+    try:
+        diag = diagnose_signal_g04(text or "")
+        trace.parser = "OK" if (diag.symbol or diag.side) else "FAIL"
+        trace.taxonomy = diag.taxonomy
+        trace.signal_label = diag.label
+        trace.set_stage("Parser", trace.parser)
+        trace.set_stage("Taxonomy", diag.taxonomy)
+        trace.set_stage("Signal", diag.label)
+        if diag.missing and diag.label != "SIGNAL":
+            trace.error = ", ".join(diag.missing)
+    except Exception as exc:
+        trace.parser = "ERROR"
+        trace.error = str(exc)
+        trace.set_stage("Parser", f"ERROR: {exc}")
+
     result = process_telegram_message(message, db_url=db_url)
     _apply_inbound_stats(result, stats)
 
@@ -361,6 +433,16 @@ def handle_update(
             stats.record_reply(sent=sent)
         if not sent:
             logger.warning("reply failed chat_id=%s message_id=%s", result.chat_id, result.message_id)
+            trace.error = (trace.error + "; " if trace.error else "") + "reply_send_failed"
+        trace.reply = "OK" if sent else "FAIL"
+        trace.set_stage("Reply", trace.reply)
+    else:
+        trace.reply = result.ignore_reason or "SKIPPED"
+        trace.set_stage("Reply", trace.reply)
+        if result.ignore_reason and not trace.error:
+            trace.error = result.ignore_reason
+
+    persist_inbound_trace_g04(trace)
 
     if result.processed or result.reply_text:
         _record_last_message(result.chat_id, result.message_id)

@@ -72,9 +72,13 @@ _RE_UPDATE = re.compile(
     r"breakeven|безубыт|добавил|add(?:ed)? to|partial|частич)",
 )
 _RE_EXPLICIT = re.compile(
-    rf"(?i)(?:^|\n)\s*(?:#?\$?[A-Z]{{2,10}}\s+({SIDE_TOKEN})|"
-    rf"({SIDE_TOKEN})\s+#?\$?[A-Z]{{2,10}})",
+    rf"(?i)(?:^|\n)\s*(?:#?\$?\s*[A-Za-z]{{2,10}}\s+({SIDE_TOKEN})|"
+    rf"({SIDE_TOKEN})\s+#?\$?\s*[A-Za-z]{{2,10}})",
     re.MULTILINE,
+)
+_RE_DOLLAR_SIDE = re.compile(
+    rf"(?im)^\s*\$\s*[A-Za-z]{{2,10}}\s*$\n\s*({SIDE_TOKEN})\b|"
+    rf"^\s*\$\s*[A-Za-z]{{2,10}}\s+({SIDE_TOKEN})\b",
 )
 _RE_HAS_ENTRY = ENTRY_RE
 _RE_HAS_SL = SL_RE
@@ -113,7 +117,7 @@ def classify_message(text: str) -> TaxonomyResult:
     commentary_hit = _RE_COMMENTARY.search(t)
     has_side = bool(_RE_HAS_SIDE.search(t))
     has_levels = bool(_RE_HAS_ENTRY.search(t) or _RE_HAS_SL.search(t) or _RE_HAS_TP.search(t))
-    explicit_header = bool(_RE_EXPLICIT.search(t[:400]))
+    explicit_header = bool(_RE_EXPLICIT.search(t[:400]) or _RE_DOLLAR_SIDE.search(t[:400]))
 
     if review_hit and not (explicit_header and has_levels):
         reasons.append("review_pattern")
@@ -137,6 +141,14 @@ def classify_message(text: str) -> TaxonomyResult:
             MessageType.EXPLICIT_SIGNAL,
             ["side_and_levels"],
             0.8,
+        )
+
+    # Dollar ticker + direction + levels (e.g. "$SXT шорт" + Entry/TP/SL) — never OTHER.
+    if has_side and has_levels and ("$" in t[:200] or "#" in t[:200]):
+        return TaxonomyResult(
+            MessageType.EXPLICIT_SIGNAL,
+            ["dollar_ticker_side_levels"],
+            0.85,
         )
 
     if has_side and not has_levels:

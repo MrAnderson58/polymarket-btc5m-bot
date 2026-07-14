@@ -232,18 +232,23 @@ def _connect_sqlite(path: Path) -> sqlite3.Connection:
     return conn
 
 
-@contextmanager
-def market_events_connection(
+def _connect_sqlite_readonly(path: Path) -> sqlite3.Connection:
+    """Open existing SQLite DB in read-only mode (WAL-safe concurrent readers)."""
+    if not path.exists():
+        raise MarketEventsDbError(f"SQLite DB not found for readonly open: {path}")
+    uri = f"file:{path.resolve().as_posix()}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True, timeout=BUSY_TIMEOUT_MS / 1000.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+    return conn
+
+
+def _resolve_dsn(
     db_path: Path | None = None,
     *,
     url: str | None = None,
-) -> Iterator[Any]:
-    """Yield MarketEvents connection (PostgreSQL or SQLite).
-
-    Precedence: explicit url > explicit db_path (sqlite) > env config.
-    """
+) -> tuple[str, MarketEventsDbConfig]:
     cfg = resolve_market_events_db_config()
-
     if url is not None:
         dsn = url
     elif db_path is not None:
@@ -256,6 +261,20 @@ def market_events_connection(
             raise MarketEventsDbError(
                 "MARKET_EVENTS_DB_URL is PostgreSQL but resolved to non-PG URL",
             )
+    return dsn, cfg
+
+
+@contextmanager
+def market_events_connection(
+    db_path: Path | None = None,
+    *,
+    url: str | None = None,
+) -> Iterator[Any]:
+    """Yield MarketEvents connection (PostgreSQL or SQLite).
+
+    Precedence: explicit url > explicit db_path (sqlite) > env config.
+    """
+    dsn, _cfg = _resolve_dsn(db_path, url=url)
 
     if _is_postgres_url(dsn):
         wrapper = _connect_postgres(dsn)
@@ -276,6 +295,38 @@ def market_events_connection(
         except Exception:
             conn.rollback()
             raise
+        finally:
+            conn.close()
+
+
+@contextmanager
+def market_events_readonly_connection(
+    db_path: Path | None = None,
+    *,
+    url: str | None = None,
+) -> Iterator[Any]:
+    """Read-only connection for Telegram slash-commands and report builders.
+
+    SQLite: URI mode=ro so readers never take write locks against WAL writers.
+    PostgreSQL: default session used for SELECTs only (no commit required).
+    """
+    dsn, _cfg = _resolve_dsn(db_path, url=url)
+
+    if _is_postgres_url(dsn):
+        wrapper = _connect_postgres(dsn)
+        try:
+            yield wrapper
+        finally:
+            try:
+                wrapper.rollback()
+            except Exception:
+                pass
+            wrapper._conn.close()
+    else:
+        path = Path(dsn.replace("sqlite:///", ""))
+        conn = _connect_sqlite_readonly(path)
+        try:
+            yield conn
         finally:
             conn.close()
 

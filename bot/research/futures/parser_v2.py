@@ -42,11 +42,11 @@ _PAIR_RE = re.compile(
     r"\b([A-Z]{2,10})(?:USDT|/USDT|-PERP)\b",
     re.IGNORECASE,
 )
-_DOLLAR_TICKER_RE = re.compile(r"\$([A-Z]{2,10})\b")
-_HASH_TICKER_RE = re.compile(r"#([A-Z]{2,10})\b")
+_DOLLAR_TICKER_RE = re.compile(r"\$\s*([A-Za-z]{2,10})\b")
+_HASH_TICKER_RE = re.compile(r"#\s*([A-Za-z]{2,10})\b")
 _HEADER_SIGNAL_RE = re.compile(
-    rf"(?im)^[^\n]{{0,40}}?(?:#?\$?([A-Z]{{2,10}})\s+({SIDE_TOKEN})|"
-    rf"({SIDE_TOKEN})\s+#?\$?([A-Z]{{2,10}}))",
+    rf"(?im)^[^\n]{{0,40}}?(?:#?\$?\s*([A-Za-z]{{2,10}})\s+({SIDE_TOKEN})|"
+    rf"({SIDE_TOKEN})\s+#?\$?\s*([A-Za-z]{{2,10}}))",
 )
 _SIDE_NEAR_RE = re.compile(rf"(?i)\b({SIDE_TOKEN})\b")
 _NEGATIVE_URL = re.compile(r"https?://|t\.me/|bit\.ly/", re.I)

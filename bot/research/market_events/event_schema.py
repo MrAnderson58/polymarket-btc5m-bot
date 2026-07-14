@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 44
+SCHEMA_VERSION = 45
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -752,6 +752,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v44")
             current = 44
+
+        if current < 45:
+            conn.executescript(G04_INBOUND_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (45, now, "Phase G.0.4 Telegram Inbound Trace"),
+            )
+            applied.append("v45")
+            current = 45
 
     if not applied:
         conn.commit()
@@ -2726,4 +2739,28 @@ CREATE TABLE IF NOT EXISTS market_shadow_pipeline_trace (
 
 CREATE INDEX IF NOT EXISTS idx_shadow_trace_ts ON market_shadow_pipeline_trace(candidate_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_shadow_trace_symbol ON market_shadow_pipeline_trace(symbol);
+"""
+
+G04_INBOUND_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_inbound_trace_g04 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER,
+    chat_id INTEGER,
+    preview TEXT,
+    received TEXT,
+    router TEXT,
+    command TEXT,
+    parser TEXT,
+    taxonomy TEXT,
+    signal_label TEXT,
+    reply TEXT,
+    error TEXT,
+    stages_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_inbound_trace_g04_ts
+  ON market_events_inbound_trace_g04(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_me_inbound_trace_g04_msg
+  ON market_events_inbound_trace_g04(message_id, created_at DESC);
 """

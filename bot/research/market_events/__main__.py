@@ -138,6 +138,9 @@ def main(argv: list[str] | None = None) -> int:
             "pipeline-audit",
             "recorder-debug",
             "telegram-debug",
+            "telegram-inbound-debug",
+            "telegram-self-test",
+            "simulate-telegram-message",
             "emit-test-signal",
             "data-source-debug",
             "volume-debug",
@@ -218,6 +221,17 @@ def main(argv: list[str] | None = None) -> int:
         "--channel",
         default=None,
         help="trader-performance-report: filter by Telegram channel name",
+    )
+    parser.add_argument(
+        "--message",
+        default=None,
+        help="simulate-telegram-message: inbound text body",
+    )
+    parser.add_argument(
+        "message_text",
+        nargs="?",
+        default=None,
+        help="simulate-telegram-message: inbound text (positional)",
     )
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
@@ -797,6 +811,36 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_telegram_debug_g0(conn))
+        return 0
+
+    if args.command == "telegram-inbound-debug":
+        from bot.research.market_events.signal_intelligence.telegram_inbound_g04 import (
+            format_inbound_debug_g04,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_inbound_debug_g04(conn, limit=20))
+        return 0
+
+    if args.command == "telegram-self-test":
+        from bot.research.market_events.signal_intelligence.telegram_inbound_g04 import (
+            format_telegram_self_test_g04,
+        )
+        print(format_telegram_self_test_g04())
+        return 0
+
+    if args.command == "simulate-telegram-message":
+        from bot.research.market_events.signal_intelligence.telegram_inbound_g04 import (
+            simulate_telegram_message_g04,
+        )
+        body = args.message or args.message_text
+        if not body:
+            print("Usage: simulate-telegram-message --message '...text...'")
+            return 2
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            conn.commit()
+        print(simulate_telegram_message_g04(body))
         return 0
 
     if args.command == "emit-test-signal":

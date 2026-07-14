@@ -10,15 +10,32 @@ from bot.research.futures_agent.pipeline import ProcessResult
 from bot.research.futures_agent.snapshot import SnapshotResult
 
 
-def format_telegram_rejected(proc: ProcessResult) -> str:
+def format_telegram_rejected(proc: ProcessResult, *, raw_text: str | None = None) -> str:
+    reason = proc.gate_reason or "did not pass gate"
+    missing: list[str] = []
+    if raw_text:
+        try:
+            from bot.research.market_events.signal_intelligence.telegram_inbound_g04 import (
+                diagnose_signal_g04,
+            )
+            diag = diagnose_signal_g04(raw_text)
+            missing = list(diag.missing)
+            if diag.missing:
+                reason = ", ".join(diag.missing)
+        except Exception:
+            pass
     lines = [
         "MESSAGE RECEIVED",
         f"Taxonomy: {proc.taxonomy or 'UNKNOWN'}",
         "Signal gate: rejected",
-        f"Reason: {proc.gate_reason or 'did not pass gate'}",
+        f"Reason: {reason}",
+    ]
+    if missing:
+        lines.append(f"Missing: {', '.join(missing)}")
+    lines.extend([
         "",
         "Research mode. No order placed.",
-    ]
+    ])
     return "\n".join(lines)
 
 
