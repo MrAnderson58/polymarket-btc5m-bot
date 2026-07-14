@@ -28,6 +28,13 @@ from bot.research.market_events.signal_intelligence.research_dataset_g50 import 
     build_research_dataset_g50,
     dataset_hash_g50,
 )
+from bot.research.market_events.signal_intelligence.research_dataset_g51 import (
+    filter_missing_info_g51,
+)
+from bot.research.market_events.signal_intelligence.research_lake_g51 import (
+    enrich_dataset_with_lake_g51,
+    maybe_run_research_lake_g51,
+)
 from bot.research.market_events.signal_intelligence.research_prompt_g50 import (
     SYSTEM_PROMPT_G50,
     build_research_prompt_g50,
@@ -239,6 +246,11 @@ def run_quant_research_g50(
             }
 
     dataset = build_research_dataset_g50(conn, max_records=max_records, days=days)
+    try:
+        maybe_run_research_lake_g51(conn)
+    except Exception as exc:
+        logger.debug("g51 lake build skipped: %s", exc)
+    dataset = enrich_dataset_with_lake_g51(conn, dataset)
     dhash = dataset_hash_g50(dataset)
     sample_size = int(dataset.get("sample_size") or 0)
 
@@ -318,6 +330,8 @@ def run_quant_research_g50(
     )
     report["research_score"] = research_score
     missing_info = report.get("missing_info") or []
+    missing_info = filter_missing_info_g51(missing_info, conn=conn)
+    report["missing_info"] = missing_info
 
     summary = _build_summary_text(report, research_score=research_score, status=status)
     _save_debug(conn, debug)

@@ -84,6 +84,31 @@ def build_compact_dataset_payload(conn: Any | None, dataset: dict[str, Any]) -> 
         "losses": [_compact_row(r) for r in losses],
     }
 
+    lake_rows = dataset.get("lake_rows") or []
+    if lake_rows:
+        evo_sample = []
+        for row in lake_rows[:5]:
+            evo_sample.append({
+                "s": row.get("symbol"),
+                "mkt": (row.get("market_evolution") or "")[:80],
+                "fund": (row.get("funding_evolution") or "")[:80],
+                "oi": (row.get("oi_evolution") or "")[:80],
+                "replay": (row.get("replay_evolution") or "")[:80],
+            })
+        payload["market_evolution"] = evo_sample
+        payload["funding_evolution"] = [r.get("fund") for r in evo_sample if r.get("fund")]
+        payload["oi_evolution"] = [r.get("oi") for r in evo_sample if r.get("oi")]
+        payload["replay_evolution"] = [r.get("replay") for r in evo_sample if r.get("replay")]
+
+    for rec in records[:8]:
+        if rec.get("funding_evolution"):
+            payload.setdefault("record_evolution", []).append({
+                "s": rec.get("symbol"),
+                "fund": str(rec.get("funding_evolution"))[:60],
+                "oi": str(rec.get("oi_evolution") or "")[:60],
+                "replay": str(rec.get("replay_evolution") or "")[:60],
+            })
+
     if conn is not None:
         try:
             payload["false_rejects"] = [

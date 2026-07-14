@@ -101,6 +101,7 @@ def _row_to_record(conn: Any, row: Any) -> dict[str, Any]:
         final_pnl = d["signal_pnl_pct"]
 
     return {
+        "candidate_id": d.get("candidate_id"),
         "symbol": str(d.get("symbol") or ""),
         "date": _iso_date(created),
         "trend": d.get("trend_score"),

@@ -53,7 +53,7 @@ class ScoreBreakdownG34Tests(unittest.TestCase):
         with self._conn() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v37", applied)
-            self.assertEqual(SCHEMA_VERSION, 38)
+            self.assertEqual(SCHEMA_VERSION, 39)
             tables = {
                 r[0] for r in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'",

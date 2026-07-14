@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 38
+SCHEMA_VERSION = 39
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -670,6 +670,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v38")
             current = 38
+
+        if current < 39:
+            conn.executescript(G51_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (39, now, "Phase G.5.1 Research Data Lake"),
+            )
+            applied.append("v39")
+            current = 39
 
     if not applied:
         conn.commit()
@@ -2332,3 +2345,117 @@ G501_ALTER_STATEMENTS = (
     "ALTER TABLE market_events_quant_reports_g50 ADD COLUMN missing_info_json TEXT",
     "ALTER TABLE market_events_quant_reports_g50 ADD COLUMN debug_json TEXT",
 )
+
+G51_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_snapshot_history_g51 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    anchor_ts INTEGER NOT NULL,
+    window_key TEXT NOT NULL,
+    price REAL,
+    return_pct REAL,
+    volume REAL,
+    atr REAL,
+    funding REAL,
+    oi REAL,
+    liquidations REAL,
+    btc_price REAL,
+    eth_price REAL,
+    dominance REAL,
+    fear_greed REAL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(candidate_id, window_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g51_snap_hist_cand ON market_events_snapshot_history_g51(candidate_id);
+
+CREATE TABLE IF NOT EXISTS market_events_candle_patterns_g51 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    anchor_ts INTEGER NOT NULL,
+    window_key TEXT NOT NULL,
+    pattern TEXT,
+    green_pct REAL,
+    red_pct REAL,
+    avg_body REAL,
+    avg_wick REAL,
+    largest_candle REAL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(candidate_id, window_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g51_candle_cand ON market_events_candle_patterns_g51(candidate_id);
+
+CREATE TABLE IF NOT EXISTS market_events_liquidity_history_g51 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    points_json TEXT NOT NULL,
+    evolution_text TEXT,
+    created_at INTEGER NOT NULL,
+    UNIQUE(candidate_id, metric)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g51_liq_cand ON market_events_liquidity_history_g51(candidate_id);
+
+CREATE TABLE IF NOT EXISTS market_events_replay_timeline_g51 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT,
+    window_key TEXT NOT NULL,
+    price REAL,
+    pnl_pct REAL,
+    max_profit_so_far REAL,
+    drawdown_so_far REAL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(candidate_id, window_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g51_replay_cand ON market_events_replay_timeline_g51(candidate_id);
+
+CREATE TABLE IF NOT EXISTS market_research_dataset_g51 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id INTEGER NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    anchor_ts INTEGER NOT NULL,
+    direction TEXT,
+    market_score REAL,
+    confidence REAL,
+    funding REAL,
+    oi REAL,
+    volume REAL,
+    atr REAL,
+    final_pnl REAL,
+    snapshot_history_json TEXT,
+    candle_patterns_json TEXT,
+    liquidity_history_json TEXT,
+    replay_timeline_json TEXT,
+    market_evolution TEXT,
+    funding_evolution TEXT,
+    oi_evolution TEXT,
+    replay_evolution TEXT,
+    dataset_completeness REAL DEFAULT 0,
+    row_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_g51_dataset_symbol ON market_research_dataset_g51(symbol, anchor_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_g51_dataset_ts ON market_research_dataset_g51(anchor_ts DESC);
+
+CREATE TABLE IF NOT EXISTS market_research_lake_builds_g51 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    build_ts INTEGER NOT NULL,
+    candidates_processed INTEGER DEFAULT 0,
+    rows_written INTEGER DEFAULT 0,
+    completeness_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE VIEW IF NOT EXISTS research_dataset AS
+SELECT * FROM market_research_dataset_g51;
+"""

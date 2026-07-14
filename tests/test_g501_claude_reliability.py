@@ -82,8 +82,8 @@ class ClaudeReliabilityG501Tests(unittest.TestCase):
     def test_schema_v38(self) -> None:
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v38", applied)
-            self.assertEqual(SCHEMA_VERSION, 38)
+            self.assertIn("v39", applied)
+            self.assertEqual(SCHEMA_VERSION, 39)
             cols = {r[1] for r in conn.execute("PRAGMA table_info(market_events_quant_reports_g50)").fetchall()}
             self.assertIn("raw_response", cols)
             self.assertIn("research_score", cols)

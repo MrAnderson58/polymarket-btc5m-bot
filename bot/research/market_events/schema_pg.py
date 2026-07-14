@@ -38,6 +38,7 @@ from bot.research.market_events.event_schema import (
     G4_DDL,
     G50_DDL,
     G501_ALTER_STATEMENTS,
+    G51_DDL,
     G351_DDL,
     MIGRATIONS_TABLE,
     SCHEMA_VERSION,
@@ -74,6 +75,7 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     36: "Phase G.4 auto validation engine",
     37: "Phase G.5.0 Quant Research Analyst",
     38: "Phase G.5.0.1 Claude reliability and research quality",
+    39: "Phase G.5.1 Research Data Lake",
 }
 
 
@@ -141,6 +143,7 @@ def full_pg_ddl() -> str:
         G351_DDL,
         G4_DDL,
         G50_DDL,
+        G51_DDL,
     ]
     ddl = sqlite_ddl_to_pg("\n".join(blocks))
     alters = [pg_alter_add_column(s) for s in (
@@ -293,4 +296,10 @@ ALL_TABLES: tuple[str, ...] = (
     "market_validation_daily_g4",
     "market_validation_recommendations_g4",
     "market_events_quant_reports_g50",
+    "market_events_snapshot_history_g51",
+    "market_events_candle_patterns_g51",
+    "market_events_liquidity_history_g51",
+    "market_events_replay_timeline_g51",
+    "market_research_dataset_g51",
+    "market_research_lake_builds_g51",
 )

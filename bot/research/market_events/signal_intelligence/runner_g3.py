@@ -136,6 +136,14 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
             logger.debug("g4 validation skipped: %s", exc)
 
         try:
+            from bot.research.market_events.signal_intelligence.research_lake_g51 import (
+                maybe_run_research_lake_g51,
+            )
+            maybe_run_research_lake_g51(conn)
+        except Exception as exc:
+            logger.debug("g51 research lake skipped: %s", exc)
+
+        try:
             from bot.research.market_events.signal_intelligence.quant_research_g50 import (
                 maybe_run_quant_research_nightly_g50,
             )

@@ -121,6 +121,8 @@ def main(argv: list[str] | None = None) -> int:
             "quant-research",
             "quant-report",
             "quant-debug",
+            "research-data-audit",
+            "research-lake-build",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -578,6 +580,26 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_quant_debug_g50(conn))
+        return 0
+
+    if args.command == "research-data-audit":
+        from bot.research.market_events.signal_intelligence.research_dataset_g51 import (
+            format_research_data_audit_g51,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_research_data_audit_g51(conn))
+        return 0
+
+    if args.command == "research-lake-build":
+        from bot.research.market_events.signal_intelligence.research_dataset_g51 import (
+            build_research_lake_g51,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            result = build_research_lake_g51(conn, days=max(1, args.days))
+            conn.commit()
+            print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
         return 0
 
     if args.command == "threshold-optimizer":

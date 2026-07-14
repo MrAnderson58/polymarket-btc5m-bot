@@ -107,6 +107,11 @@ G50_NIGHTLY_HOUR = int(os.getenv("ME_G50_NIGHTLY_HOUR", "2"))
 G50_MAX_RECORDS = int(os.getenv("ME_G50_MAX_RECORDS", "1000"))
 G50_WINDOW_DAYS = int(os.getenv("ME_G50_WINDOW_DAYS", "30"))
 
+G51_ENABLED = os.getenv("ME_G51_DATA_LAKE", "true").lower() in ("1", "true", "yes")
+G51_BUILD_INTERVAL_SEC = int(os.getenv("ME_G51_BUILD_INTERVAL_SEC", "1800"))
+G51_WINDOW_DAYS = int(os.getenv("ME_G51_WINDOW_DAYS", "30"))
+G51_MAX_CANDIDATES = int(os.getenv("ME_G51_MAX_CANDIDATES", "500"))
+
 MTF_DETECTORS = {
     "SHOCK_M5": {"window_minutes": 5, "min_return_pct": 1.2, "min_atr_multiple": 1.5},
     "SHOCK_M10": {"window_minutes": 10, "min_return_pct": 1.5, "min_atr_multiple": 1.6},

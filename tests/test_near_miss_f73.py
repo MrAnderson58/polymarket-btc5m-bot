@@ -93,7 +93,7 @@ class NearMissF73Tests(unittest.TestCase):
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v23", applied)
-            self.assertEqual(SCHEMA_VERSION, 38)
+            self.assertEqual(SCHEMA_VERSION, 39)
 
     def test_rejection_reason_not_generic(self) -> None:
         with conn_ctx(self.db) as conn:
