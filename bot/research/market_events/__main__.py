@@ -147,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
             "env-debug",
             "api-test",
             "provider-status",
+            "sqlite-lock-debug",
+            "sqlite-lock-smoke",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -232,6 +234,12 @@ def main(argv: list[str] | None = None) -> int:
         nargs="?",
         default=None,
         help="simulate-telegram-message: inbound text (positional)",
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=100,
+        help="sqlite-lock-smoke: commands per type (default 100)",
     )
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
@@ -905,6 +913,25 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_provider_status_g03(conn, symbol=sym))
+        return 0
+
+    if args.command == "sqlite-lock-debug":
+        from bot.research.market_events.sqlite_manager_g05 import format_sqlite_lock_debug_g05
+        # Touch a readonly + write briefly so registry has something when idle
+        try:
+            from bot.research.market_events.db import market_events_readonly_connection
+            with market_events_readonly_connection() as conn:
+                conn.execute("SELECT 1")
+                print(format_sqlite_lock_debug_g05())
+        except Exception:
+            print(format_sqlite_lock_debug_g05())
+        return 0
+
+    if args.command == "sqlite-lock-smoke":
+        from bot.research.market_events.signal_intelligence.sqlite_lock_smoke_g05 import (
+            format_sqlite_lock_smoke_g05,
+        )
+        print(format_sqlite_lock_smoke_g05(per_command=max(1, args.iterations)))
         return 0
 
     if args.command == "threshold-optimizer":

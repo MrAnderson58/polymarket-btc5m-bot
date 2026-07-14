@@ -266,12 +266,22 @@ def handle_update(
             InboundTraceG04,
             persist_inbound_trace_g04,
         )
+        from bot.research.market_events.sqlite_manager_g05 import PURE_READONLY_COMMANDS
+        from bot.research.market_events.signal_intelligence.telegram_command_router_g351 import (
+            normalize_command,
+            route_telegram_command,
+        )
+
+        cmd_name = normalize_command(text.strip())
+        pure_ro = cmd_name in PURE_READONLY_COMMANDS
+        # G0.5: pure RO commands never open write DB (no inbound trace INSERT).
         trace = InboundTraceG04(
             message_id=message_id,
             chat_id=chat_id,
             preview=text.strip().replace("\n", " ")[:80],
             received="OK",
             router="COMMAND",
+            command=cmd_name,
         )
         trace.set_stage("Telegram Update", "OK")
         trace.set_stage("Router", "COMMAND")
@@ -282,7 +292,8 @@ def handle_update(
         if not is_chat_allowed(chat_id):
             trace.error = IGNORE_CHAT_NOT_ALLOWED
             trace.set_stage("Reply", "UNAUTHORIZED")
-            persist_inbound_trace_g04(trace)
+            if not pure_ro:
+                persist_inbound_trace_g04(trace)
             result = InboundResult(
                 chat_id, message_id, None,
                 unauthorized=True, skipped=True,
@@ -295,9 +306,6 @@ def handle_update(
                 save_poll_stats(stats)
             return result
 
-        from bot.research.market_events.signal_intelligence.telegram_command_router_g351 import (
-            route_telegram_command,
-        )
         try:
             route = route_telegram_command(text.strip(), message_id=message_id, chat_id=chat_id)
             reply = route.reply_text if route else "Unknown command. Use /help."
@@ -330,7 +338,8 @@ def handle_update(
                 processed=True, processing_ms=_cmd_elapsed(),
             )
             _apply_inbound_stats(result, stats)
-        persist_inbound_trace_g04(trace)
+        if not pure_ro:
+            persist_inbound_trace_g04(trace)
         if stats is not None:
             stats.record_reply(sent=bool(getattr(result, "reply_sent", False)))
         _record_last_message(chat_id, message_id)

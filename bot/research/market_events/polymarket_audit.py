@@ -67,8 +67,8 @@ def render_polymarket_paper_audit() -> str:
 
     if Path(DATABASE_PATH).exists():
         try:
-            conn = sqlite3.connect(str(DATABASE_PATH))
-            conn.row_factory = sqlite3.Row
+            from bot.research.market_events.sqlite_manager_g05 import connect_sqlite
+            conn = connect_sqlite(DATABASE_PATH, readonly=True, create_dirs=False)
             for table, label in (
                 ("virtual_trades", "virtual_trades"),
                 ("early_reversion_v2_trades", "er_v2_trades"),

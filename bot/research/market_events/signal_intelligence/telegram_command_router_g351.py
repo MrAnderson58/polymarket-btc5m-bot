@@ -88,6 +88,11 @@ def _record_command_trace(
     reason: str | None = None,
     latency_ms: int | None = None,
 ) -> None:
+    from bot.research.market_events.sqlite_manager_g05 import PURE_READONLY_COMMANDS
+
+    # G0.5: pure RO commands must never open a write connection — not even for traces.
+    if command in PURE_READONLY_COMMANDS:
+        return
     from bot.research.market_events.signal_intelligence.telegram_inbound_g04 import (
         record_command_trace_write_g04,
     )
@@ -124,13 +129,18 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
         from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
             append_heartbeat_to_status,
         )
-        return append_heartbeat_to_status(format_g3_health_report(conn))
+        # Pure RO: reuse the readonly conn; never open a writer / touch reader ts.
+        return append_heartbeat_to_status(
+            format_g3_health_report(conn), conn, touch_reader=False,
+        )
     if cmd == "/health":
         from bot.research.market_events.signal_intelligence.health_g36 import format_g36_health_report
         from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
             append_heartbeat_to_status,
         )
-        return append_heartbeat_to_status(format_g36_health_report(conn))
+        return append_heartbeat_to_status(
+            format_g36_health_report(conn), conn, touch_reader=False,
+        )
     if cmd == "/market":
         from bot.research.market_events.signal_intelligence.telegram_intelligence_g35 import (
             build_hourly_market_brief_g35,
@@ -249,12 +259,16 @@ def handle_market_events_command(
         market_events_readonly_connection,
     )
 
+    from bot.research.market_events.sqlite_manager_g05 import PURE_READONLY_COMMANDS
+
     t0 = time.perf_counter()
     cmd, args = _parse_command_args(text)
+    pure_ro = cmd in PURE_READONLY_COMMANDS
 
-    _record_command_trace(
-        message_id=message_id, command=cmd, stage="COMMAND_RECEIVED", status="PASS",
-    )
+    if not pure_ro:
+        _record_command_trace(
+            message_id=message_id, command=cmd, stage="COMMAND_RECEIVED", status="PASS",
+        )
 
     try:
         if cmd in _NO_DB_COMMANDS:
@@ -263,29 +277,31 @@ def handle_market_events_command(
             with market_events_connection() as conn:
                 reply = _build_command_reply(conn, cmd, args, chat_id=chat_id)
         else:
-            # Read-only path: never apply_migrations / INSERT on report connection.
+            # Read-only path: SELECT only — never apply_migrations / INSERT / trace writes.
             with market_events_readonly_connection() as conn:
                 reply = _build_command_reply(conn, cmd, args, chat_id=chat_id)
 
         latency = int((time.perf_counter() - t0) * 1000)
-        _record_command_trace(
-            message_id=message_id,
-            command=cmd,
-            stage="COMMAND_EXECUTED",
-            status="PASS",
-            latency_ms=latency,
-        )
+        if not pure_ro:
+            _record_command_trace(
+                message_id=message_id,
+                command=cmd,
+                stage="COMMAND_EXECUTED",
+                status="PASS",
+                latency_ms=latency,
+            )
         return CommandRouteResultG351(command=cmd, reply_text=reply, ok=True, latency_ms=latency)
     except Exception as exc:
         latency = int((time.perf_counter() - t0) * 1000)
-        _record_command_trace(
-            message_id=message_id,
-            command=cmd,
-            stage="COMMAND_FAILED",
-            status="FAILED",
-            reason=str(exc),
-            latency_ms=latency,
-        )
+        if not pure_ro:
+            _record_command_trace(
+                message_id=message_id,
+                command=cmd,
+                stage="COMMAND_FAILED",
+                status="FAILED",
+                reason=str(exc),
+                latency_ms=latency,
+            )
         logger.warning("command %s failed: %s", cmd, exc)
         return CommandRouteResultG351(
             command=cmd,

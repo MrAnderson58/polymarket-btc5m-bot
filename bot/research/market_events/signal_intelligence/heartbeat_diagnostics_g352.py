@@ -38,9 +38,13 @@ def touch_heartbeat_reader(conn: Any) -> int:
     return now
 
 
-def read_heartbeat_diagnostics(conn: Any) -> dict[str, Any]:
-    """Unified heartbeat view: telegram send + system writer + g3 cycle."""
-    touch_heartbeat_reader(conn)
+def read_heartbeat_diagnostics(conn: Any, *, touch_reader: bool = True) -> dict[str, Any]:
+    """Unified heartbeat view: telegram send + system writer + g3 cycle.
+
+    touch_reader=False for pure RO telegram commands (/status,/health) — never write.
+    """
+    if touch_reader:
+        touch_heartbeat_reader(conn)
     now = int(time.time())
 
     sched = conn.execute(
@@ -129,13 +133,20 @@ def format_heartbeat_trace(conn: Any) -> str:
     return "\n".join(lines)
 
 
-def append_heartbeat_to_status(base_report: str) -> str:
-    from bot.research.market_events.db import market_events_connection
-    from bot.research.market_events.event_schema import apply_migrations
+def append_heartbeat_to_status(
+    base_report: str,
+    conn: Any | None = None,
+    *,
+    touch_reader: bool = False,
+) -> str:
+    """Append heartbeat block. Default: no writes (G0.5 pure RO /status,/health)."""
+    if conn is not None:
+        d = read_heartbeat_diagnostics(conn, touch_reader=touch_reader)
+    else:
+        from bot.research.market_events.db import market_events_readonly_connection
 
-    with market_events_connection() as conn:
-        apply_migrations(conn)
-        d = read_heartbeat_diagnostics(conn)
+        with market_events_readonly_connection() as ro:
+            d = read_heartbeat_diagnostics(ro, touch_reader=False)
     extra = "\n".join([
         "",
         "Heartbeat",

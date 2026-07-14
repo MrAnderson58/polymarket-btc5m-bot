@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -20,12 +19,12 @@ def _agent_conn():
 
 
 def _trades_conn():
+    """Read trades.db via unified SQLite manager (never raw sqlite3.connect)."""
     db_path = Path(__file__).resolve().parent.parent.parent.parent / "data" / "trades.db"
     if not db_path.exists():
         return None
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    return conn
+    from bot.research.market_events.sqlite_manager_g05 import connect_sqlite
+    return connect_sqlite(db_path, readonly=True, create_dirs=False)
 
 
 def link_event_context(conn: Any, *, event_id: int, event_ts: int, symbol: str) -> int:
