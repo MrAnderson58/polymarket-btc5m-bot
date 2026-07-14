@@ -14,7 +14,11 @@ from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence.candles import CandleBar
 from bot.research.market_events.signal_intelligence.candidate_g31 import _volume_score
 from bot.research.market_events.signal_intelligence.market_data_source_g01 import (
+    PROVIDER_CHAIN_ORDER,
     SymbolMarketDataG01,
+    disable_provider,
+    fetch_symbol_market_data_g01,
+    is_provider_disabled,
     upsert_candles_g01,
     _volume_score_preview,
 )
@@ -95,6 +99,68 @@ class DataSourceG01Tests(unittest.TestCase):
                     payload = collect_snapshot_g3(conn)
                     self.assertIsNotNone(payload.funding)
                     self.assertIsNotNone(payload.open_interest)
+
+    def test_classify_http_errors(self) -> None:
+        from bot.research.market_events.signal_intelligence.market_data_source_g01 import _classify_http_error
+
+        cls, _ = _classify_http_error(451)
+        self.assertIn("451", cls)
+        cls, _ = _classify_http_error(403)
+        self.assertIn("403", cls)
+
+    def test_probe_endpoint_has_curl(self) -> None:
+        from bot.research.market_events.signal_intelligence.market_data_source_g01 import (
+            probe_endpoint_g02,
+        )
+        probe = probe_endpoint_g02(
+            name="test",
+            url="https://api.alternative.me/fng/",
+            params={"limit": 1},
+        )
+        self.assertTrue(probe.curl.startswith("curl "))
+        self.assertIn("alternative.me", probe.curl)
+
+    def test_provider_chain_order_bybit_first(self) -> None:
+        self.assertEqual(PROVIDER_CHAIN_ORDER[0], "bybit")
+        self.assertIn("binance_futures", PROVIDER_CHAIN_ORDER)
+        self.assertLess(
+            PROVIDER_CHAIN_ORDER.index("binance_futures"),
+            PROVIDER_CHAIN_ORDER.index("binance_spot"),
+        )
+
+    def test_provider_disable_cooldown(self) -> None:
+        from bot.research.market_events.signal_intelligence import market_data_source_g01 as mds
+
+        mds._provider_cooldown_until.clear()
+        mds._provider_disable_code.clear()
+        disable_provider("binance_futures", 451)
+        disabled, reason = is_provider_disabled("binance_futures")
+        self.assertTrue(disabled)
+        self.assertIsNotNone(reason)
+        self.assertIn("451", reason or "")
+
+    def test_fetch_prefers_bybit_over_binance(self) -> None:
+        bybit_data = SymbolMarketDataG01(
+            symbol="BTC",
+            price=65000.0,
+            funding=0.0001,
+            open_interest=100000.0,
+            bars=[CandleBar(open_ts=int(time.time()), open=1, high=1, low=1, close=65000, volume=50)] * 5,
+            source="bybit",
+        )
+        with patch(
+            "bot.research.market_events.signal_intelligence.market_data_source_g01._fetch_bybit",
+            return_value=bybit_data,
+        ):
+            with patch(
+                "bot.research.market_events.signal_intelligence.market_data_source_g01._fetch_binance_futures",
+                return_value=None,
+            ):
+                with self._conn() as conn:
+                    apply_migrations(conn)
+                    data = fetch_symbol_market_data_g01(conn, "BTC", limit=12)
+                    self.assertEqual(data.source, "bybit")
+                    self.assertTrue(data.bars)
 
 
 if __name__ == "__main__":

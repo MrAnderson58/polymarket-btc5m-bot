@@ -141,6 +141,9 @@ def main(argv: list[str] | None = None) -> int:
             "emit-test-signal",
             "data-source-debug",
             "volume-debug",
+            "env-debug",
+            "api-test",
+            "provider-status",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -829,6 +832,35 @@ def main(argv: list[str] | None = None) -> int:
             apply_migrations(conn)
             print(format_volume_debug_g01(conn, symbols=syms))  # type: ignore[arg-type]
             conn.commit()
+        return 0
+
+    if args.command == "env-debug":
+        from bot.research.market_events.signal_intelligence.market_data_source_g01 import (
+            format_env_debug_g02,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_env_debug_g02(conn))
+        return 0
+
+    if args.command == "api-test":
+        from bot.research.market_events.signal_intelligence.market_data_source_g01 import (
+            format_api_test_g02,
+        )
+        sym = (args.symbol or "BTC").upper()
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_api_test_g02(conn, symbol=sym))
+        return 0
+
+    if args.command == "provider-status":
+        from bot.research.market_events.signal_intelligence.market_data_source_g01 import (
+            format_provider_status_g03,
+        )
+        sym = (args.symbol or "BTC").upper()
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_provider_status_g03(conn, symbol=sym))
         return 0
 
     if args.command == "threshold-optimizer":

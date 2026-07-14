@@ -47,7 +47,7 @@ class SnapshotPayloadG3:
     exchange_ts: int | None = None
     collector_latency_ms: float | None = None
     recorder_status: str = "ok"
-    data_source: str = "binance_futures"
+    data_source: str = "bybit"
     raw: dict[str, Any] = field(default_factory=dict)
 
 

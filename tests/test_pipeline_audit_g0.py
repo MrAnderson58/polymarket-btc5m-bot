@@ -63,6 +63,7 @@ class PipelineAuditG0Tests(unittest.TestCase):
             text = format_pipeline_audit_g0(conn)
             self.assertIn("Recorder", text)
             self.assertIn("Shadow", text)
+            self.assertIn("Current provider", format_recorder_debug_g0(conn))
             self.assertIn("API", format_recorder_debug_g0(conn))
             self.assertIn("Token OK", format_telegram_debug_g0(conn))
 

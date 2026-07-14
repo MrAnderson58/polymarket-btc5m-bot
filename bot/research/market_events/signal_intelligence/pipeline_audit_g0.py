@@ -355,15 +355,19 @@ def format_recorder_debug_g0(conn: Any) -> str:
             health = {}
 
     try:
-        from bot.research.futures_agent.market_provider import BinanceMarketProvider
-        provider = BinanceMarketProvider()
-        api_ok = provider.fetch_futures_klines("BTCUSDT", "5m", int(time.time()), limit=2)
-        api_status = "OK" if api_ok else "FAIL"
+        from bot.research.market_events.signal_intelligence.market_data_source_g01 import (
+            get_active_provider_display,
+            probe_active_provider_quick_g03,
+        )
+        api_status = probe_active_provider_quick_g03(conn)
     except Exception as exc:
-        api_status = f"FAIL ({exc})"
+        api_status = f"FAIL: {exc}"
 
     lines = [
         "Recorder Debug",
+        "",
+        "Current provider",
+        get_active_provider_display(conn),
         "",
         "API",
         api_status,
