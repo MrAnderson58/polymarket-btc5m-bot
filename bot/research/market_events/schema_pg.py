@@ -37,6 +37,7 @@ from bot.research.market_events.event_schema import (
     G35_DDL,
     G4_DDL,
     G50_DDL,
+    G501_ALTER_STATEMENTS,
     G351_DDL,
     MIGRATIONS_TABLE,
     SCHEMA_VERSION,
@@ -72,6 +73,7 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     35: "Phase G.3.5.1 Telegram command trace",
     36: "Phase G.4 auto validation engine",
     37: "Phase G.5.0 Quant Research Analyst",
+    38: "Phase G.5.0.1 Claude reliability and research quality",
 }
 
 
@@ -151,6 +153,7 @@ def full_pg_ddl() -> str:
             "ALTER TABLE market_candidate_g31 ADD COLUMN trend_coverage_pct REAL",
             "ALTER TABLE market_candidate_g31 ADD COLUMN trend_windows_json TEXT",
         ]
+        + list(G501_ALTER_STATEMENTS)
     )]
     return ddl + "\n" + ";\n".join(alters) + ";"
 

@@ -10,11 +10,19 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from bot.research.market_events.db import insert_returning_id
+from bot.research.market_events.signal_intelligence.claude_json_parser_g501 import (
+    extract_json_from_claude_text,
+    repair_json,
+)
 from bot.research.market_events.signal_intelligence.config import (
     G50_ENABLED,
     G50_MAX_RECORDS,
     G50_NIGHTLY_HOUR,
     G50_WINDOW_DAYS,
+)
+from bot.research.market_events.signal_intelligence.deterministic_research_g501 import (
+    build_deterministic_research_g501,
+    compute_research_score_g501,
 )
 from bot.research.market_events.signal_intelligence.research_dataset_g50 import (
     build_research_dataset_g50,
@@ -23,13 +31,15 @@ from bot.research.market_events.signal_intelligence.research_dataset_g50 import 
 from bot.research.market_events.signal_intelligence.research_prompt_g50 import (
     SYSTEM_PROMPT_G50,
     build_research_prompt_g50,
+    estimate_prompt_tokens,
     validate_research_json_g50,
 )
 
 logger = logging.getLogger(__name__)
 
 _TABLE = "market_events_quant_reports_g50"
-_DEFAULT_TZ = "Europe/Moscow"
+_DEBUG_OPS_KEY = "g50_last_debug"
+_MAX_JSON_RETRIES = 2
 
 
 def _local_tz() -> ZoneInfo:
@@ -39,6 +49,9 @@ def _local_tz() -> ZoneInfo:
         return ZoneInfo(name)
     except Exception:
         return ZoneInfo("UTC")
+
+
+_DEFAULT_TZ = "Europe/Moscow"
 
 
 def _today_key() -> str:
@@ -65,54 +78,143 @@ def _already_ran_today(conn: Any, *, force: bool) -> bool:
     return bool(get_g3_ops_state(conn, f"g50_run_{_today_key()}"))
 
 
-def _deterministic_report_g50(dataset: dict[str, Any]) -> dict[str, Any]:
-    stats = dataset.get("aggregate_stats") or {}
-    g4 = dataset.get("g4_factor_stats") or []
-    top = [
-        {"label": r.get("factor"), "evidence": f"importance {r.get('importance')}", "sample_size": r.get("sample_size")}
-        for r in g4 if str(r.get("predictor_type")) == "useful"
-    ][:10]
-    weak = [
-        {"label": r.get("factor"), "evidence": f"importance {r.get('importance')}", "sample_size": r.get("sample_size")}
-        for r in g4 if str(r.get("predictor_type")) in ("weak", "negative")
-    ]
-    sample = int(stats.get("sample_size") or dataset.get("sample_size") or 0)
-    return validate_research_json_g50({
-        "top_factors": top or [{"label": "Funding", "evidence": "insufficient G4 stats", "sample_size": sample}],
-        "weak_factors": weak or [{"label": "FearGreed", "evidence": "insufficient G4 stats", "sample_size": sample}],
-        "overestimated_factors": [],
-        "profitable_combinations": [],
-        "loss_combinations": [],
-        "btc_vs_alt": [],
-        "symbol_specific": [],
-        "new_patterns": [],
-        "bad_patterns": [],
-        "tomorrow_hypotheses": [{"label": "Re-run after more replay data", "sample_size": sample}],
-        "research_improvements": [{"label": "Enable Claude API for deeper analysis", "sample_size": sample}],
-        "confidence": 0.35 if sample < 50 else 0.55,
-        "sample_size": sample,
-    })
+def _save_debug(conn: Any, debug: dict[str, Any]) -> None:
+    from bot.research.market_events.signal_intelligence.health_g3 import set_g3_ops_state
+    set_g3_ops_state(conn, _DEBUG_OPS_KEY, json.dumps(debug, ensure_ascii=False, default=str))
 
 
-def _call_claude_research_g50(prompt: str) -> tuple[dict[str, Any], str, int, float]:
+def _load_debug(conn: Any) -> dict[str, Any]:
+    from bot.research.market_events.signal_intelligence.health_g3 import get_g3_ops_state
+    raw = get_g3_ops_state(conn, _DEBUG_OPS_KEY)
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _call_claude_research_g50(
+    conn: Any,
+    prompt: str,
+    *,
+    sample_size: int,
+) -> tuple[dict[str, Any] | None, str, int, float, dict[str, Any]]:
     from bot.research.market_events.signal_intelligence.claude_client_g2 import (
         ClaudeClientError,
-        call_claude_json_g2,
+        call_claude_g2,
         default_model,
         is_claude_configured,
     )
 
+    debug: dict[str, Any] = {
+        "prompt": prompt,
+        "prompt_tokens_est": estimate_prompt_tokens(prompt),
+        "system": SYSTEM_PROMPT_G50,
+        "errors": [],
+        "retries": 0,
+        "responses": [],
+        "extracted_json": None,
+        "latency_ms": 0,
+        "tokens": 0,
+    }
+
     if not is_claude_configured():
+        debug["errors"].append("ANTHROPIC_API_KEY not set")
         raise ClaudeClientError("not_configured", "ANTHROPIC_API_KEY not set")
 
-    parsed, resp = call_claude_json_g2(
-        system=SYSTEM_PROMPT_G50,
-        prompt=prompt,
-        model=default_model(),
-        label="g50_quant_research",
+    model = default_model()
+    total_tokens = 0
+    total_cost = 0.0
+    last_raw = ""
+    user_prompt = prompt
+
+    for attempt in range(_MAX_JSON_RETRIES + 1):
+        if attempt > 0:
+            debug["retries"] = attempt
+            user_prompt = prompt + "\n\nReturn ONLY valid JSON. No markdown. No prose."
+
+        try:
+            resp = call_claude_g2(
+                system=SYSTEM_PROMPT_G50 + "\nOutput ONLY valid JSON.",
+                user_content=user_prompt,
+                model=model,
+                label="g50_quant_research",
+            )
+        except ClaudeClientError as exc:
+            debug["errors"].append(str(exc))
+            _save_debug(conn, debug)
+            raise
+
+        last_raw = resp.text
+        total_tokens += resp.usage.input_tokens + resp.usage.output_tokens
+        total_cost += resp.usage.cost_usd
+        debug["latency_ms"] = int(resp.usage.latency_ms)
+        debug["tokens"] = total_tokens
+        debug["responses"].append(last_raw[:4000])
+
+        parsed, err = extract_json_from_claude_text(last_raw)
+        if not parsed:
+            repaired = repair_json(last_raw)
+            if repaired:
+                parsed = repaired
+                err = None
+
+        if parsed:
+            parsed = validate_research_json_g50(parsed)
+            if not parsed.get("sample_size"):
+                parsed["sample_size"] = sample_size
+            parsed["research_score"] = compute_research_score_g501(
+                "claude", parsed.get("confidence", 0.5), parsed.get("sample_size", sample_size),
+                retries=attempt,
+            )
+            debug["extracted_json"] = parsed
+            _save_debug(conn, debug)
+            return parsed, model, total_tokens, total_cost, debug
+
+        debug["errors"].append(err or f"parse failed attempt {attempt + 1}")
+
+    debug["raw_response"] = last_raw[:12000]
+    _save_debug(conn, debug)
+    return None, model, total_tokens, total_cost, debug
+
+
+def _persist_report(
+    conn: Any,
+    *,
+    report: dict[str, Any],
+    dhash: str,
+    model: str,
+    tokens: int,
+    cost: float,
+    summary: str,
+    raw_response: str | None,
+    research_score: float,
+    missing_info: list[Any],
+    debug: dict[str, Any],
+) -> int:
+    now = int(time.time())
+    missing_json = json.dumps(missing_info, ensure_ascii=False)
+    debug_json = json.dumps(debug, ensure_ascii=False, default=str)
+    return insert_returning_id(
+        conn,
+        f"""
+        INSERT INTO {_TABLE} (
+          created_at, dataset_hash, claude_model, tokens, cost, json, summary, sample_size,
+          raw_response, research_score, missing_info_json, debug_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            now, dhash, model, tokens, cost,
+            json.dumps(report, ensure_ascii=False),
+            summary,
+            int(report.get("sample_size") or 0),
+            raw_response,
+            research_score,
+            missing_json,
+            debug_json,
+        ),
     )
-    tokens = resp.usage.input_tokens + resp.usage.output_tokens
-    return validate_research_json_g50(parsed), resp.model, tokens, resp.usage.cost_usd
 
 
 def run_quant_research_g50(
@@ -132,20 +234,26 @@ def run_quant_research_g50(
                 "status": "cached_daily",
                 "report": latest.get("report") or {},
                 "summary": latest.get("summary"),
+                "research_score": latest.get("research_score"),
                 "created_at": latest.get("created_at"),
             }
 
     dataset = build_research_dataset_g50(conn, max_records=max_records, days=days)
     dhash = dataset_hash_g50(dataset)
+    sample_size = int(dataset.get("sample_size") or 0)
+
     cached = _fetch_cached_report(conn, dhash)
     if cached and not force:
         return {"status": "cached_hash", "report": cached, "dataset_hash": dhash}
 
-    prompt = build_research_prompt_g50(dataset)
+    prompt = build_research_prompt_g50(dataset, conn=conn)
     model = "deterministic"
     tokens = 0
     cost = 0.0
     status = "deterministic_fallback"
+    raw_response: str | None = None
+    debug: dict[str, Any] = {"prompt": prompt, "prompt_tokens_est": estimate_prompt_tokens(prompt)}
+
     try:
         from bot.research.market_events.signal_intelligence.claude_ops_g2 import (
             record_claude_failure,
@@ -154,51 +262,81 @@ def run_quant_research_g50(
         )
         ok, reason = try_consume_claude_quota(conn, count=True)
         if not ok:
-            report = _deterministic_report_g50(dataset)
+            report = build_deterministic_research_g501(conn, dataset=dataset)
             status = f"quota_blocked:{reason}"
         else:
             try:
-                report, model, tokens, cost = _call_claude_research_g50(prompt)
-                from bot.research.market_events.signal_intelligence.claude_client_g2 import ClaudeUsageG2
-                record_claude_success(
-                    conn,
-                    usage=ClaudeUsageG2(
-                        input_tokens=tokens // 2,
-                        output_tokens=tokens // 2,
-                        cost_usd=cost,
-                        latency_ms=0,
-                    ),
-                    model=model,
+                parsed, model, tokens, cost, debug = _call_claude_research_g50(
+                    conn, prompt, sample_size=sample_size,
                 )
-                status = "claude"
+                if parsed:
+                    report = parsed
+                    status = "claude"
+                    from bot.research.market_events.signal_intelligence.claude_client_g2 import ClaudeUsageG2
+                    record_claude_success(
+                        conn,
+                        usage=ClaudeUsageG2(
+                            input_tokens=tokens // 2,
+                            output_tokens=tokens // 2,
+                            cost_usd=cost,
+                            latency_ms=debug.get("latency_ms", 0),
+                        ),
+                        model=model,
+                    )
+                else:
+                    raw_response = debug.get("raw_response")
+                    report = build_deterministic_research_g501(conn, dataset=dataset)
+                    report["parse_fallback"] = True
+                    if raw_response:
+                        report["research_score"] = compute_research_score_g501(
+                            "claude", report.get("confidence", 0.5), sample_size,
+                            retries=debug.get("retries", 0), raw_only=True,
+                        )
+                    status = "claude_raw_fallback"
+                    record_claude_failure(conn, error="invalid_json_after_retries", model=model)
             except Exception as exc:
                 record_claude_failure(conn, error=str(exc), model=model)
                 logger.warning("g50 claude failed: %s", exc)
-                report = _deterministic_report_g50(dataset)
+                report = build_deterministic_research_g501(conn, dataset=dataset)
                 status = "deterministic_fallback"
+                debug["errors"] = debug.get("errors", []) + [str(exc)]
     except Exception as exc:
         logger.debug("g50 quota path skipped: %s", exc)
-        report = _deterministic_report_g50(dataset)
+        report = build_deterministic_research_g501(conn, dataset=dataset)
+        debug["errors"] = [str(exc)]
 
     if not report.get("sample_size"):
-        report["sample_size"] = int(dataset.get("sample_size") or 0)
+        report["sample_size"] = sample_size
 
-    summary = _build_summary_text(report)
-    now = int(time.time())
-    insert_returning_id(
-        conn,
-        f"""
-        INSERT INTO {_TABLE} (
-          created_at, dataset_hash, claude_model, tokens, cost, json, summary, sample_size
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            now, dhash, model, tokens, cost,
-            json.dumps(report, ensure_ascii=False),
-            summary,
-            int(report.get("sample_size") or 0),
-        ),
+    research_score = float(
+        report.get("research_score")
+        or compute_research_score_g501(
+            status, float(report.get("confidence") or 0.5), sample_size,
+            retries=int(debug.get("retries") or 0),
+            raw_only=bool(raw_response),
+        )
     )
+    report["research_score"] = research_score
+    missing_info = report.get("missing_info") or []
+
+    summary = _build_summary_text(report, research_score=research_score, status=status)
+    _save_debug(conn, debug)
+
+    now = int(time.time())
+    _persist_report(
+        conn,
+        report=report,
+        dhash=dhash,
+        model=model,
+        tokens=tokens,
+        cost=cost,
+        summary=summary,
+        raw_response=raw_response,
+        research_score=research_score,
+        missing_info=missing_info,
+        debug=debug,
+    )
+
     from bot.research.market_events.signal_intelligence.health_g3 import set_g3_ops_state
     set_g3_ops_state(conn, "last_g50_quant_ts", str(now))
     set_g3_ops_state(conn, f"g50_run_{_today_key()}", "1")
@@ -211,7 +349,9 @@ def run_quant_research_g50(
         "model": model,
         "tokens": tokens,
         "cost": cost,
+        "research_score": research_score,
         "created_at": now,
+        "debug": debug,
     }
 
 
@@ -224,13 +364,14 @@ def maybe_run_quant_research_nightly_g50(conn: Any) -> bool:
     if get_g3_ops_state(conn, f"g50_run_{_today_key()}"):
         return False
     result = run_quant_research_g50(conn, force=False)
-    return result.get("status") in ("claude", "deterministic_fallback", "cached_hash", "cached_daily")
+    return result.get("status") in ("claude", "deterministic_fallback", "claude_raw_fallback", "cached_hash", "cached_daily")
 
 
 def fetch_latest_quant_report_g50(conn: Any) -> dict[str, Any] | None:
     row = conn.execute(
         f"""
-        SELECT id, created_at, dataset_hash, claude_model, tokens, cost, json, summary, sample_size
+        SELECT id, created_at, dataset_hash, claude_model, tokens, cost, json, summary,
+               sample_size, raw_response, research_score, missing_info_json, debug_json
         FROM {_TABLE} ORDER BY created_at DESC LIMIT 1
         """,
     ).fetchone()
@@ -240,6 +381,12 @@ def fetch_latest_quant_report_g50(conn: Any) -> dict[str, Any] | None:
         report = json.loads(row["json"])
     except (json.JSONDecodeError, TypeError):
         report = {}
+    missing_info: list[Any] = []
+    if row["missing_info_json"]:
+        try:
+            missing_info = json.loads(row["missing_info_json"])
+        except (json.JSONDecodeError, TypeError):
+            pass
     return {
         "id": int(row["id"]),
         "created_at": int(row["created_at"]),
@@ -249,8 +396,92 @@ def fetch_latest_quant_report_g50(conn: Any) -> dict[str, Any] | None:
         "cost": float(row["cost"] or 0),
         "summary": row["summary"],
         "sample_size": int(row["sample_size"] or 0),
+        "raw_response": row["raw_response"],
+        "research_score": float(row["research_score"] or 0) if row["research_score"] is not None else None,
+        "missing_info": missing_info,
+        "debug_json": row["debug_json"],
         "report": report,
     }
+
+
+def format_quant_debug_g50(conn: Any) -> str:
+    debug = _load_debug(conn)
+    latest = fetch_latest_quant_report_g50(conn)
+    if latest and not debug:
+        if latest.get("debug_json"):
+            try:
+                debug = json.loads(latest["debug_json"]) if isinstance(latest.get("debug_json"), str) else {}
+            except (json.JSONDecodeError, TypeError):
+                debug = {}
+        elif latest.get("raw_response"):
+            debug = {"raw_response": latest["raw_response"]}
+
+    lines = ["G5.0 Quant Research Debug", ""]
+    if not debug and not latest:
+        return "G5.0 Quant Debug — no runs yet. Try: quant-research"
+
+    lines.extend([
+        "Prompt tokens (est)",
+        str(debug.get("prompt_tokens_est", "—")),
+        "",
+        "Prompt",
+        (debug.get("prompt") or "—")[:2000],
+        "",
+        "Response",
+        (debug.get("raw_response") or (debug.get("responses") or ["—"])[-1] if debug.get("responses") else "—")[:2000],
+        "",
+        "Extracted JSON",
+        json.dumps(debug.get("extracted_json") or (latest or {}).get("report"), indent=2, ensure_ascii=False)[:2000],
+        "",
+        "Errors",
+        "\n".join(debug.get("errors") or []) or "—",
+        "",
+        "Retries",
+        str(debug.get("retries", 0)),
+        "",
+        "Tokens",
+        str(debug.get("tokens") or (latest or {}).get("tokens", "—")),
+        "",
+        "Latency ms",
+        str(debug.get("latency_ms", "—")),
+        "",
+        "Research score",
+        str((latest or {}).get("research_score") or debug.get("extracted_json", {}).get("research_score", "—")),
+    ])
+    return "\n".join(lines)
+
+
+def format_quant_debug_telegram_g50(conn: Any) -> str:
+    latest = fetch_latest_quant_report_g50(conn)
+    debug = _load_debug(conn)
+    score = (latest or {}).get("research_score")
+    source = (latest or {}).get("claude_model") or "—"
+    label = "Claude" if source not in ("deterministic", "—") else "Fallback"
+    lines = [
+        "Quant Research Debug",
+        "",
+        "Research score",
+        f"{label} {score}/10" if score else "—",
+        "",
+        "Tokens",
+        str(debug.get("tokens") or (latest or {}).get("tokens", "—")),
+        "",
+        "Retries",
+        str(debug.get("retries", 0)),
+        "",
+        "Errors",
+        "\n".join(debug.get("errors") or [])[:500] or "—",
+        "",
+        "Missing info",
+    ]
+    missing = (latest or {}).get("missing_info") or []
+    if missing:
+        for item in missing[:5]:
+            lines.append(f"- {item if isinstance(item, str) else item.get('label', item)}")
+    else:
+        lines.append("—")
+    lines.extend(["", "Full debug: quant-debug CLI"])
+    return "\n".join(lines)
 
 
 def _label_list(items: list[Any], *, key: str = "label") -> str:
@@ -280,15 +511,22 @@ def format_quant_telegram_g50(conn: Any) -> str:
         latest = {
             "sample_size": (result.get("report") or {}).get("sample_size", 0),
             "report": result.get("report") or {},
+            "research_score": result.get("research_score"),
         }
 
     report = latest.get("report") or {}
     sample = int(report.get("sample_size") or latest.get("sample_size") or 0)
+    score = latest.get("research_score") or report.get("research_score")
+    score_line = f"{score}/10" if score else "—"
+
     lines = [
         "📊 Quant Research",
         "",
         "Обработано:",
         f"{sample} сигналов",
+        "",
+        "Research score",
+        score_line,
         "",
         "Самый полезный фактор",
         _label_list(report.get("top_factors") or []),
@@ -325,6 +563,7 @@ def format_quant_report_cli_g50(conn: Any) -> str:
         f"Tokens: {latest.get('tokens')}  Cost: ${float(latest.get('cost') or 0):.4f}",
         f"Sample: {latest.get('sample_size')}",
         f"Confidence: {float(report.get('confidence') or 0):.2f}",
+        f"Research score: {latest.get('research_score') or report.get('research_score')}/10",
         "",
         "Top factors:",
     ]
@@ -333,6 +572,9 @@ def format_quant_report_cli_g50(conn: Any) -> str:
     lines.extend(["", "Weak factors:"])
     for item in (report.get("weak_factors") or [])[:5]:
         lines.append(f"  - {item.get('label', item)}")
+    lines.extend(["", "Missing info:"])
+    for item in (report.get("missing_info") or latest.get("missing_info") or [])[:5]:
+        lines.append(f"  - {item if isinstance(item, str) else item.get('label', item)}")
     lines.extend(["", "Tomorrow hypotheses:"])
     for item in (report.get("tomorrow_hypotheses") or [])[:5]:
         lines.append(f"  - {item.get('label', item)}")
@@ -341,20 +583,19 @@ def format_quant_report_cli_g50(conn: Any) -> str:
     return "\n".join(lines)
 
 
-def _build_summary_text(report: dict[str, Any]) -> str:
+def _build_summary_text(report: dict[str, Any], *, research_score: float, status: str) -> str:
     conf = float(report.get("confidence") or 0)
     return (
-        f"sample={report.get('sample_size')} conf={conf:.2f} "
-        f"top={_label_list(report.get('top_factors') or [])} "
-        f"weak={_label_list(report.get('weak_factors') or [])} "
-        f"hypothesis={_label_list(report.get('tomorrow_hypotheses') or [])}"
+        f"sample={report.get('sample_size')} conf={conf:.2f} score={research_score:.1f} "
+        f"status={status} top={_label_list(report.get('top_factors') or [])} "
+        f"weak={_label_list(report.get('weak_factors') or [])}"
     )
 
 
 def quant_research_dashboard_g50(conn: Any) -> dict[str, Any]:
     reports = conn.execute(
         f"""
-        SELECT id, created_at, claude_model, tokens, cost, summary, sample_size
+        SELECT id, created_at, claude_model, tokens, cost, summary, sample_size, research_score
         FROM {_TABLE} ORDER BY created_at DESC LIMIT 10
         """,
     ).fetchall()
@@ -369,5 +610,7 @@ def quant_research_dashboard_g50(conn: Any) -> dict[str, Any]:
         "new_hypotheses": report.get("tomorrow_hypotheses") or [],
         "recommendations": report.get("research_improvements") or [],
         "new_patterns": report.get("new_patterns") or [],
+        "missing_info": report.get("missing_info") or latest.get("missing_info") if latest else [],
+        "research_score": latest.get("research_score") if latest else None,
         "claude_cost_total": sum(float(r["cost"] or 0) for r in reports),
     }

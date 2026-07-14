@@ -120,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
             "optimizer-report",
             "quant-research",
             "quant-report",
+            "quant-debug",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -572,6 +573,13 @@ def main(argv: list[str] | None = None) -> int:
             print(format_quant_report_cli_g50(conn))
         return 0
 
+    if args.command == "quant-debug":
+        from bot.research.market_events.signal_intelligence.quant_research_g50 import format_quant_debug_g50
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_quant_debug_g50(conn))
+        return 0
+
     if args.command == "threshold-optimizer":
         from bot.research.market_events.signal_intelligence.threshold_optimizer_g32 import (
             format_threshold_optimizer_report,
@@ -652,7 +660,6 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             if args.event_id:
-                import json
                 print(json.dumps(compute_opportunity_score(conn, event_id=args.event_id), indent=2))
             else:
                 rows = conn.execute(
@@ -775,7 +782,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "index-discovery-audit":
         from bot.research.market_events.index_discovery_audit import audit_bybit_index_discovery
-        import json
         audit = audit_bybit_index_discovery()
         print(json.dumps({
             "bybit_index_legacy_count": audit.bybit_index_count,

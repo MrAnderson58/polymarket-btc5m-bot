@@ -70,11 +70,11 @@ class QuantResearchG50Tests(unittest.TestCase):
         )
         persist_candidates_g31(conn, snapshot_id=sid, candidates=[cand], candidate_ts=now)
 
-    def test_schema_v37(self) -> None:
+    def test_schema_v38(self) -> None:
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v37", applied)
-            self.assertEqual(SCHEMA_VERSION, 37)
+            self.assertIn("v38", applied)
+            self.assertEqual(SCHEMA_VERSION, 38)
 
     def test_dataset_builder(self) -> None:
         with market_events_connection() as conn:
@@ -92,7 +92,8 @@ class QuantResearchG50Tests(unittest.TestCase):
         prompt = build_research_prompt_g50(dataset)
         self.assertIn("quantitative", SYSTEM_PROMPT_G50.lower())
         self.assertIn("Questions:", prompt)
-        self.assertIn("Dataset JSON:", prompt)
+        self.assertIn("DATA:", prompt)
+        self.assertLessEqual(len(prompt) // 4, 1200)
 
     def test_run_quant_research_deterministic(self) -> None:
         with market_events_connection() as conn:

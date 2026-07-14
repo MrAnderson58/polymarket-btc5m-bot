@@ -19,6 +19,7 @@ SUPPORTED_COMMANDS = frozenset({
     "/health",
     "/help",
     "/research",
+    "/research-debug",
 })
 
 
@@ -106,6 +107,7 @@ def handle_market_events_command(text: str, *, message_id: int | None = None) ->
                     "/score",
                     "/help",
                     "/research",
+                    "/research-debug",
                 ])
             elif cmd in ("/status", "/health"):
                 from bot.research.market_events.signal_intelligence.health_g3 import format_g3_health_report
@@ -137,6 +139,11 @@ def handle_market_events_command(text: str, *, message_id: int | None = None) ->
                     format_quant_telegram_g50,
                 )
                 reply = format_quant_telegram_g50(conn)
+            elif cmd == "/research-debug":
+                from bot.research.market_events.signal_intelligence.quant_research_g50 import (
+                    format_quant_debug_telegram_g50,
+                )
+                reply = format_quant_debug_telegram_g50(conn)
             else:
                 reply = "Unknown command. Use /help."
 

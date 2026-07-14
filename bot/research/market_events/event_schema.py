@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 37
+SCHEMA_VERSION = 38
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -653,6 +653,23 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v37")
             current = 37
+
+        if current < 38:
+            for stmt in G501_ALTER_STATEMENTS:
+                try:
+                    conn.execute(stmt)
+                except sqlite3.OperationalError:
+                    pass
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (38, now, "Phase G.5.0.1 Claude reliability and research quality"),
+            )
+            applied.append("v38")
+            current = 38
 
     if not applied:
         conn.commit()
@@ -2298,9 +2315,20 @@ CREATE TABLE IF NOT EXISTS market_events_quant_reports_g50 (
     cost REAL DEFAULT 0,
     json TEXT NOT NULL,
     summary TEXT,
-    sample_size INTEGER DEFAULT 0
+    sample_size INTEGER DEFAULT 0,
+    raw_response TEXT,
+    research_score REAL,
+    missing_info_json TEXT,
+    debug_json TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_g50_quant_created ON market_events_quant_reports_g50(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_g50_quant_hash ON market_events_quant_reports_g50(dataset_hash);
 """
+
+G501_ALTER_STATEMENTS = (
+    "ALTER TABLE market_events_quant_reports_g50 ADD COLUMN raw_response TEXT",
+    "ALTER TABLE market_events_quant_reports_g50 ADD COLUMN research_score REAL",
+    "ALTER TABLE market_events_quant_reports_g50 ADD COLUMN missing_info_json TEXT",
+    "ALTER TABLE market_events_quant_reports_g50 ADD COLUMN debug_json TEXT",
+)

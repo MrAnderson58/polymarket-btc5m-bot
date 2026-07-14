@@ -72,7 +72,7 @@ class SignalOutcomeF72Tests(unittest.TestCase):
             applied = apply_migrations(conn)
             self.assertIn("v22", applied)
             self.assertIn("v23", applied)
-            self.assertEqual(SCHEMA_VERSION, 37)
+            self.assertEqual(SCHEMA_VERSION, 38)
 
     def test_create_and_tp1_hit(self) -> None:
         with conn_ctx(self.db) as conn:
