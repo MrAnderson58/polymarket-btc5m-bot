@@ -30,6 +30,7 @@ SUPPORTED_COMMANDS = frozenset({
     "/pipeline",
     "/trend-status",
     "/history-backfill",
+    "/experimental",
 })
 
 
@@ -124,6 +125,7 @@ def handle_market_events_command(
                     "/watch SOL  /watchlist",
                     "/why-not BTC  /top-blockers  /pipeline",
                     "/trend-status BTC  /history-backfill",
+                    "/experimental",
                     "/research  /research-debug  /dataset",
                     "/help",
                 ])
@@ -235,6 +237,11 @@ def handle_market_events_command(
                 stats = run_history_backfill_g38(conn, hours=24, run_pipeline=True)
                 conn.commit()
                 reply = format_history_backfill_summary_g38(stats)
+            elif cmd == "/experimental":
+                from bot.research.market_events.signal_intelligence.experimental_g39 import (
+                    format_experimental_today_g39,
+                )
+                reply = format_experimental_today_g39(conn)
             else:
                 reply = "Unknown command. Use /help."
 

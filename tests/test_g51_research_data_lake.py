@@ -119,7 +119,7 @@ class ResearchDataLakeG51Tests(unittest.TestCase):
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v41", applied)
-            self.assertEqual(SCHEMA_VERSION, 41)
+            self.assertEqual(SCHEMA_VERSION, 42)
             tables = {
                 r[0] for r in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'",

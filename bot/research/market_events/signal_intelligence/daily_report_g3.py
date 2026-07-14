@@ -145,6 +145,17 @@ def build_daily_report_g3(conn: Any) -> tuple[str, dict[str, Any]]:
     return msg, report
 
 
+def build_daily_report_with_experimental_g3(conn: Any) -> tuple[str, dict[str, Any]]:
+    msg, report = build_daily_report_g3(conn)
+    try:
+        from bot.research.market_events.signal_intelligence.experimental_g39 import (
+            append_experimental_daily_report_g39,
+        )
+        return append_experimental_daily_report_g39(conn, msg, report)
+    except Exception:
+        return msg, report
+
+
 def maybe_send_daily_report_g3(conn: Any) -> bool:
     """Send once per day after configured local hour."""
     tz = _local_tz()
@@ -160,7 +171,7 @@ def maybe_send_daily_report_g3(conn: Any) -> bool:
     if existing:
         return False
 
-    msg, report = build_daily_report_g3(conn)
+    msg, report = build_daily_report_with_experimental_g3(conn)
     from bot.research.market_events.alert_config import alert_shock_enabled
     from bot.research.market_events.market_event_alerts import ALERT_SHOCK, _safe_alert
 

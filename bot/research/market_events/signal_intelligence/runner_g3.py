@@ -96,6 +96,21 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
             if not signal.dashboard_only:
                 send_live_signal_telegram_g3(conn, signal)
 
+        try:
+            from bot.research.market_events.signal_intelligence.experimental_g39 import (
+                check_experimental_followups_g39,
+                maybe_run_experimental_g39,
+            )
+            maybe_run_experimental_g39(
+                conn,
+                snapshot_id=snapshot_id,
+                candidates=candidates,
+                liquidity=liquidity,
+            )
+            check_experimental_followups_g39(conn)
+        except Exception as exc:
+            logger.debug("g39 experimental lane skipped: %s", exc)
+
         stats.followups = check_signal_followups_g3(conn)
         maybe_send_daily_report_g3(conn)
 

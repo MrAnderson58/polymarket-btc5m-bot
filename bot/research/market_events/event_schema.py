@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 41
+SCHEMA_VERSION = 42
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -713,6 +713,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v41")
             current = 41
+
+        if current < 42:
+            conn.executescript(G39_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (42, now, "Phase G.3.9 Experimental Signal Calibration"),
+            )
+            applied.append("v42")
+            current = 42
 
     if not applied:
         conn.commit()
@@ -2542,3 +2555,50 @@ G37_ALTER_STATEMENTS = (
     "ALTER TABLE market_candidate_g31 ADD COLUMN pipeline_trace_json TEXT",
     "ALTER TABLE market_candidate_g31 ADD COLUMN score_source TEXT",
 )
+
+G39_DDL = """
+CREATE TABLE IF NOT EXISTS market_experimental_signals_g39 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_uuid TEXT NOT NULL UNIQUE,
+    snapshot_id INTEGER,
+    event_id INTEGER,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    market_score REAL NOT NULL,
+    liquidity_probability REAL NOT NULL,
+    risk_reward REAL NOT NULL,
+    reason TEXT,
+    production_rejection_json TEXT,
+    telegram_rendered TEXT,
+    telegram_sent INTEGER NOT NULL DEFAULT 0,
+    result TEXT,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    entry REAL,
+    tp1 REAL,
+    tp2 REAL,
+    tp3 REAL,
+    sl REAL,
+    pnl_pct REAL,
+    max_profit_pct REAL,
+    max_drawdown_pct REAL,
+    closed_at INTEGER,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_g39_exp_ts ON market_experimental_signals_g39(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_g39_exp_symbol ON market_experimental_signals_g39(symbol);
+CREATE INDEX IF NOT EXISTS idx_g39_exp_status ON market_experimental_signals_g39(status);
+
+CREATE TABLE IF NOT EXISTS market_experimental_followup_g39 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_id INTEGER NOT NULL,
+    followup_type TEXT NOT NULL,
+    telegram_sent INTEGER NOT NULL DEFAULT 0,
+    message_text TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (signal_id) REFERENCES market_experimental_signals_g39(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g39_followup_signal ON market_experimental_followup_g39(signal_id);
+"""

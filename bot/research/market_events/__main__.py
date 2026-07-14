@@ -129,6 +129,8 @@ def main(argv: list[str] | None = None) -> int:
             "trend-status",
             "history-backfill",
             "trend-history-report",
+            "experimental",
+            "threshold-simulator",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -690,6 +692,29 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_trend_history_report_g38(conn, hours=hours))
+        return 0
+
+    if args.command == "experimental":
+        from bot.research.market_events.signal_intelligence.experimental_g39 import (
+            format_experimental_report_g39,
+            format_replay_wr_comparison_g39,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_experimental_report_g39(conn))
+            print("")
+            print("---")
+            print("")
+            print(format_replay_wr_comparison_g39(conn, days=max(1, args.days)))
+        return 0
+
+    if args.command == "threshold-simulator":
+        from bot.research.market_events.signal_intelligence.experimental_g39 import (
+            format_threshold_simulator_g39,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_threshold_simulator_g39(conn, days=max(1, args.days)))
         return 0
 
     if args.command == "threshold-optimizer":

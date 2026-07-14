@@ -54,7 +54,7 @@ class AutoValidationG4Tests(unittest.TestCase):
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v37", applied)
-            self.assertEqual(SCHEMA_VERSION, 41)
+            self.assertEqual(SCHEMA_VERSION, 42)
 
     def _seed_rejected_with_outcome(self, conn) -> None:
         now = int(time.time())

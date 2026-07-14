@@ -430,6 +430,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     )
                     hours = _query_int(qs, "hours", 24)
                     _json_response(self, signal_discovery_dashboard_g37(conn, hours=hours))
+                elif path == "/experimental-signals":
+                    from bot.research.market_events.signal_intelligence.experimental_g39 import (
+                        experimental_dashboard_g39,
+                    )
+                    limit = _query_int(qs, "limit", 50)
+                    _json_response(self, experimental_dashboard_g39(conn, limit=limit))
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -441,8 +447,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/candidates", "/replay", "/trend-coverage", "/score-diagnostics",
                             "/validation", "/validation/feature-importance",
                             "/validation/false-rejects", "/validation/false-accepts",
-                            "/validation/optimizer", "/quant-research", "/market-memory",
-                            "/signal-discovery",
+                            "/validation/optimizer",                             "/quant-research", "/market-memory",
+                            "/signal-discovery", "/experimental-signals",
                         ],
                     })
         except Exception as exc:

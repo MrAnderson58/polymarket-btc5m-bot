@@ -80,6 +80,7 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     39: "Phase G.5.1 Research Data Lake",
     40: "Phase G.3.6 Telegram Vision and Market Memory",
     41: "Phase G.3.7 Signal Discovery Diagnostics",
+    42: "Phase G.3.9 Experimental Signal Calibration",
 }
 
 

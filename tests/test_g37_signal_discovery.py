@@ -85,7 +85,7 @@ class SignalDiscoveryG37Tests(unittest.TestCase):
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v41", applied)
-            self.assertEqual(SCHEMA_VERSION, 41)
+            self.assertEqual(SCHEMA_VERSION, 42)
             cols = {r[1] for r in conn.execute("PRAGMA table_info(market_candidate_g31)").fetchall()}
             self.assertIn("pipeline_trace_json", cols)
             self.assertIn("score_source", cols)
