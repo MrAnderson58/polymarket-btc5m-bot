@@ -99,6 +99,9 @@ G35_HOURLY_BRIEF_ENABLED = os.getenv("ME_G35_HOURLY_BRIEF", "true").lower() in (
 G35_CANDIDATE_ALERTS_ENABLED = os.getenv("ME_G35_CANDIDATE_ALERTS", "true").lower() in ("1", "true", "yes")
 G35_CLAUDE_INSIGHT_ENABLED = os.getenv("ME_G35_CLAUDE_INSIGHT", "true").lower() in ("1", "true", "yes")
 
+G4_ENABLED = os.getenv("ME_G4_AUTO_VALIDATION", "true").lower() in ("1", "true", "yes")
+G4_VALIDATION_INTERVAL_SEC = int(os.getenv("ME_G4_VALIDATION_INTERVAL_SEC", "1800"))
+
 MTF_DETECTORS = {
     "SHOCK_M5": {"window_minutes": 5, "min_return_pct": 1.2, "min_atr_multiple": 1.5},
     "SHOCK_M10": {"window_minutes": 10, "min_return_pct": 1.5, "min_atr_multiple": 1.6},

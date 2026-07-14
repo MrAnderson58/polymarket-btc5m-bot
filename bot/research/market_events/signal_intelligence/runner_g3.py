@@ -125,6 +125,16 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
         except Exception as exc:
             logger.debug("g32 replay skipped: %s", exc)
 
+        try:
+            from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
+                maybe_run_validation_g4,
+                maybe_send_validation_daily_g4,
+            )
+            maybe_run_validation_g4(conn)
+            maybe_send_validation_daily_g4(conn)
+        except Exception as exc:
+            logger.debug("g4 validation skipped: %s", exc)
+
         from bot.research.market_events.signal_intelligence.health_g3 import set_g3_ops_state
         from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
             write_system_heartbeat,

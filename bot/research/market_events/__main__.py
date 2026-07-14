@@ -112,6 +112,11 @@ def main(argv: list[str] | None = None) -> int:
             "score-recommendations",
             "market-heatmap",
             "heartbeat-trace",
+            "validation-report",
+            "feature-importance",
+            "false-rejects",
+            "false-accepts",
+            "optimizer-report",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -484,6 +489,68 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_heartbeat_trace(conn))
+        return 0
+
+    if args.command == "validation-report":
+        from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
+            format_validation_report_g4,
+            run_validation_cycle_g4,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            run_validation_cycle_g4(conn, days=max(1, args.days))
+            conn.commit()
+            print(format_validation_report_g4(conn, days=max(1, args.days)))
+        return 0
+
+    if args.command == "feature-importance":
+        from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
+            format_feature_importance_report_g4,
+            run_validation_cycle_g4,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            run_validation_cycle_g4(conn, days=max(1, args.days))
+            conn.commit()
+            print(format_feature_importance_report_g4(conn))
+        return 0
+
+    if args.command == "false-rejects":
+        from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
+            format_false_rejects_report_g4,
+            run_validation_cycle_g4,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            run_validation_cycle_g4(conn, days=max(1, args.days))
+            conn.commit()
+            print(format_false_rejects_report_g4(conn))
+        return 0
+
+    if args.command == "false-accepts":
+        from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
+            format_false_accepts_report_g4,
+            run_validation_cycle_g4,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            run_validation_cycle_g4(conn, days=max(1, args.days))
+            conn.commit()
+            print(format_false_accepts_report_g4(conn))
+        return 0
+
+    if args.command == "optimizer-report":
+        from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
+            run_validation_cycle_g4,
+        )
+        from bot.research.market_events.signal_intelligence.threshold_optimizer_g42 import (
+            format_optimizer_report_g42,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            run_validation_cycle_g4(conn, days=max(1, args.days))
+            conn.commit()
+            print(format_optimizer_report_g42(conn, days=max(1, args.days)))
         return 0
 
     if args.command == "threshold-optimizer":

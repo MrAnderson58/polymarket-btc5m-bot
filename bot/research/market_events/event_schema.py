@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 35
+SCHEMA_VERSION = 36
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -627,6 +627,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v35")
             current = 35
+
+        if current < 36:
+            conn.executescript(G4_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (36, now, "Phase G.4 auto validation engine"),
+            )
+            applied.append("v36")
+            current = 36
 
     if not applied:
         conn.commit()
@@ -2156,4 +2169,108 @@ CREATE TABLE IF NOT EXISTS market_events_command_trace_g351 (
 
 CREATE INDEX IF NOT EXISTS idx_me_cmd_trace_g351_msg ON market_events_command_trace_g351(message_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_me_cmd_trace_g351_stage ON market_events_command_trace_g351(stage);
+"""
+
+G4_DDL = """
+CREATE TABLE IF NOT EXISTS market_validation_records_g4 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_type TEXT NOT NULL,
+    source_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT,
+    is_win INTEGER NOT NULL DEFAULT 0,
+    pnl_pct REAL,
+    rr REAL,
+    confidence REAL,
+    market_score REAL,
+    liquidity_score REAL,
+    rejection_reason TEXT,
+    blocking_filter TEXT,
+    factors_json TEXT NOT NULL DEFAULT '{}',
+    outcome_ts INTEGER,
+    created_at INTEGER NOT NULL,
+    UNIQUE(source_type, source_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_g4_validation_symbol ON market_validation_records_g4(symbol, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_g4_validation_source ON market_validation_records_g4(source_type, outcome_ts DESC);
+
+CREATE TABLE IF NOT EXISTS market_validation_factor_stats_g4 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_date TEXT NOT NULL,
+    factor TEXT NOT NULL,
+    win_rate REAL,
+    avg_rr REAL,
+    profit_factor REAL,
+    sample_size INTEGER,
+    ci_low REAL,
+    ci_high REAL,
+    importance REAL,
+    rank_order INTEGER,
+    predictor_type TEXT,
+    created_at INTEGER NOT NULL,
+    UNIQUE(report_date, factor)
+);
+
+CREATE TABLE IF NOT EXISTS market_validation_symbol_stats_g4 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_date TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    setup_label TEXT NOT NULL,
+    win_rate REAL,
+    avg_rr REAL,
+    profit_factor REAL,
+    sample_size INTEGER,
+    best_detector TEXT,
+    created_at INTEGER NOT NULL,
+    UNIQUE(report_date, symbol, setup_label)
+);
+
+CREATE TABLE IF NOT EXISTS market_validation_optimizer_g4 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_date TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    min_confidence REAL,
+    min_market_score REAL,
+    min_liquidity REAL,
+    min_rr REAL,
+    win_rate REAL,
+    profit_factor REAL,
+    sample_size INTEGER,
+    created_at INTEGER NOT NULL,
+    UNIQUE(report_date, symbol)
+);
+
+CREATE TABLE IF NOT EXISTS market_validation_analysis_g4 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_date TEXT NOT NULL,
+    analysis_type TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    pnl_pct REAL,
+    blocking_filter TEXT,
+    misleading_factors_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_g4_analysis_type ON market_validation_analysis_g4(report_date, analysis_type);
+
+CREATE TABLE IF NOT EXISTS market_validation_daily_g4 (
+    report_date TEXT PRIMARY KEY,
+    report_json TEXT NOT NULL,
+    telegram_sent INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_validation_recommendations_g4 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_date TEXT NOT NULL,
+    symbol TEXT,
+    recommendation TEXT NOT NULL,
+    rationale TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_g4_recommendations_date ON market_validation_recommendations_g4(report_date);
 """

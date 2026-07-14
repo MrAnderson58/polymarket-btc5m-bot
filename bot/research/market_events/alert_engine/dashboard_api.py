@@ -374,6 +374,46 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     )
                     hours = _query_int(qs, "hours", 24)
                     _json_response(self, score_diagnostics_dashboard(conn, hours=hours))
+                elif path == "/validation":
+                    from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
+                        validation_dashboard_g4,
+                    )
+                    days = _query_int(qs, "days", 30)
+                    _json_response(self, validation_dashboard_g4(conn, days=days))
+                elif path == "/validation/feature-importance":
+                    from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
+                        compute_feature_importance_g4,
+                    )
+                    _json_response(self, {
+                        "tab": "Feature Importance",
+                        "factors": compute_feature_importance_g4(conn),
+                    })
+                elif path == "/validation/false-rejects":
+                    from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
+                        format_false_rejects_report_g4,
+                    )
+                    _json_response(self, {
+                        "tab": "False Rejects",
+                        "report": format_false_rejects_report_g4(conn),
+                    })
+                elif path == "/validation/false-accepts":
+                    from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
+                        format_false_accepts_report_g4,
+                    )
+                    _json_response(self, {
+                        "tab": "False Accepts",
+                        "report": format_false_accepts_report_g4(conn),
+                    })
+                elif path == "/validation/optimizer":
+                    from bot.research.market_events.signal_intelligence.threshold_optimizer_g42 import (
+                        run_threshold_optimizer_g42,
+                    )
+                    days = _query_int(qs, "days", 30)
+                    scenarios = run_threshold_optimizer_g42(conn, days=days)
+                    _json_response(self, {
+                        "tab": "Optimizer",
+                        "scenarios": [s.__dict__ for s in scenarios],
+                    })
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -383,6 +423,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/market-score", "/liquidations", "/dominance", "/whales",
                             "/signal-outcomes", "/near-miss", "/liquidity-trend", "/ai-research",
                             "/candidates", "/replay", "/trend-coverage", "/score-diagnostics",
+                            "/validation", "/validation/feature-importance",
+                            "/validation/false-rejects", "/validation/false-accepts",
+                            "/validation/optimizer",
                         ],
                     })
         except Exception as exc:
