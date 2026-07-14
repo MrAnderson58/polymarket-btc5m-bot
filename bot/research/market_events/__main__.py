@@ -133,6 +133,8 @@ def main(argv: list[str] | None = None) -> int:
             "threshold-simulator",
             "shadow-report",
             "shadow-open",
+            "shadow-trace",
+            "shadow-self-test",
             "threshold-optimizer",
             "db-info",
             "market-db-info",
@@ -740,6 +742,25 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_shadow_open_g40(conn))
+        return 0
+
+    if args.command == "shadow-trace":
+        from bot.research.market_events.signal_intelligence.shadow_pipeline_g401 import (
+            format_shadow_trace_g401,
+        )
+        symbol = args.symbols.split(",")[0].strip().upper() if args.symbols else None
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_shadow_trace_g401(conn, symbol=symbol))
+        return 0
+
+    if args.command == "shadow-self-test":
+        from bot.research.market_events.signal_intelligence.shadow_pipeline_g401 import (
+            format_shadow_self_test_g401,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_shadow_self_test_g401(conn))
         return 0
 
     if args.command == "threshold-optimizer":

@@ -204,7 +204,7 @@ def pick_shadow_candidates_g40(candidates: list[CandidateG31], *, limit: int) ->
     return eligible[:limit]
 
 
-def create_shadow_signal_g40(
+def persist_shadow_signal_g40(
     conn: Any,
     *,
     snapshot_id: int,
@@ -276,6 +276,9 @@ def create_shadow_signal_g40(
     )
 
 
+create_shadow_signal_g40 = persist_shadow_signal_g40
+
+
 def send_shadow_telegram_g40(conn: Any, signal: ShadowSignalG40) -> bool:
     from bot.research.market_events.alert_config import alert_shock_enabled
     from bot.research.market_events.market_event_alerts import ALERT_SHOCK, _safe_alert
@@ -305,40 +308,17 @@ def maybe_run_shadow_lane_g40(
     candidates: list[CandidateG31],
     event_id: int | None = None,
 ) -> list[ShadowSignalG40]:
-    if not G40_SHADOW_ENABLED:
-        return []
+    from bot.research.market_events.signal_intelligence.shadow_pipeline_g401 import (
+        run_shadow_pipeline_g401,
+    )
 
-    sent_today = _shadow_sent_today(conn)
-    if sent_today >= G40_SHADOW_MAX_PER_DAY:
-        return []
-
-    remaining = G40_SHADOW_MAX_PER_DAY - sent_today
-    per_cycle = min(G40_SHADOW_MAX_PER_CYCLE, remaining)
-    open_syms = _open_shadow_symbols(conn)
-
-    picked = [
-        c for c in pick_shadow_candidates_g40(candidates, limit=per_cycle)
-        if c.symbol not in open_syms
-    ]
-
-    created: list[ShadowSignalG40] = []
-    for cand in picked:
-        recent = conn.execute(
-            f"""
-            SELECT id FROM {_SIGNALS}
-            WHERE symbol = ? AND created_at >= ?
-            """,
-            (cand.symbol, int(time.time()) - 7200),
-        ).fetchone()
-        if recent:
-            continue
-        sig = create_shadow_signal_g40(
-            conn, snapshot_id=snapshot_id, candidate=cand, event_id=event_id,
-        )
-        if sig:
-            send_shadow_telegram_g40(conn, sig)
-            created.append(sig)
-    return created
+    results = run_shadow_pipeline_g401(
+        conn,
+        snapshot_id=snapshot_id,
+        candidates=candidates,
+        event_id=event_id,
+    )
+    return [r.signal for r in results if r.signal is not None]
 
 
 def _current_price(conn: Any, symbol: str) -> float | None:

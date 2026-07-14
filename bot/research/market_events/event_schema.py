@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 43
+SCHEMA_VERSION = 44
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -739,6 +739,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v43")
             current = 43
+
+        if current < 44:
+            conn.executescript(G401_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (44, now, "Phase G.4.0.1 Shadow Pipeline Diagnostics"),
+            )
+            applied.append("v44")
+            current = 44
 
     if not applied:
         conn.commit()
@@ -2697,4 +2710,20 @@ CREATE TABLE IF NOT EXISTS market_learning_dataset (
 );
 
 CREATE INDEX IF NOT EXISTS idx_learning_lane_ts ON market_learning_dataset(lane, created_at DESC);
+"""
+
+G401_DDL = """
+CREATE TABLE IF NOT EXISTS market_shadow_pipeline_trace (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_ts INTEGER NOT NULL,
+    snapshot_id INTEGER,
+    symbol TEXT NOT NULL,
+    trace_json TEXT NOT NULL,
+    signal_id INTEGER,
+    outcome TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_shadow_trace_ts ON market_shadow_pipeline_trace(candidate_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_shadow_trace_symbol ON market_shadow_pipeline_trace(symbol);
 """

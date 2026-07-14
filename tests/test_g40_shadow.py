@@ -88,11 +88,11 @@ class ShadowG40Tests(unittest.TestCase):
     def _conn(self):
         return market_events_connection(db_path=self.db_path)
 
-    def test_schema_v43(self) -> None:
+    def test_schema_v44(self) -> None:
         with self._conn() as conn:
             applied = apply_migrations(conn)
-            self.assertIn("v43", applied)
-            self.assertEqual(SCHEMA_VERSION, 43)
+            self.assertIn("v44", applied)
+            self.assertEqual(SCHEMA_VERSION, 44)
             for table in ("market_shadow_signals", "market_shadow_horizons", "market_learning_dataset"):
                 row = conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name=?",

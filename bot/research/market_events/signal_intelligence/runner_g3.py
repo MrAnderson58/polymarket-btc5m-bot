@@ -116,12 +116,17 @@ def run_g3_cycle(conn, *, provider=None) -> G3CycleStats:
                 check_shadow_followups_g40,
                 maybe_run_shadow_lane_g40,
             )
+            from bot.research.market_events.signal_intelligence.shadow_pipeline_g401 import (
+                ShadowPipelineError,
+            )
             maybe_run_shadow_lane_g40(
                 conn,
                 snapshot_id=snapshot_id,
                 candidates=candidates,
             )
             check_shadow_followups_g40(conn)
+        except ShadowPipelineError as exc:
+            logger.error("g40 shadow pipeline error: %s", exc)
         except Exception as exc:
             logger.debug("g40 shadow lane skipped: %s", exc)
 
