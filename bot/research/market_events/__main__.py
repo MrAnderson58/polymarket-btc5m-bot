@@ -139,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
             "validation-report",
             "validation-force",
             "decision",
+            "reversal-diagnostics",
             "pipeline-audit",
             "recorder-debug",
             "telegram-debug",
@@ -185,6 +186,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seconds", type=int, default=30, help="Duration for collector-path-audit")
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--hours", type=int, default=24, help="Hours of candle history (G3.8)")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=500,
+        help="reversal-diagnostics: last N candidates (default 500)",
+    )
     parser.add_argument(
         "--skip-pipeline",
         action="store_true",
@@ -848,6 +855,16 @@ def main(argv: list[str] | None = None) -> int:
             if result.get("run_id"):
                 print("")
                 print(f"persisted run_id={result['run_id']}")
+        return 0
+
+    if args.command == "reversal-diagnostics":
+        from bot.research.market_events.signal_intelligence.reversal_diagnostics_s21 import (
+            format_reversal_diagnostics_s21,
+        )
+        limit = max(50, int(getattr(args, "limit", 500) or 500))
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_reversal_diagnostics_s21(conn, limit=limit))
         return 0
 
     if args.command == "pipeline-audit":

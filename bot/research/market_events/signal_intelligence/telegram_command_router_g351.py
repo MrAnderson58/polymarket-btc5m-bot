@@ -38,6 +38,7 @@ SUPPORTED_COMMANDS = frozenset({
     "/shadow",
     "/validation",
     "/decision",
+    "/reversal-diagnostics",
 })
 
 # Commands that INSERT/UPDATE — never open on readonly connection.
@@ -126,6 +127,7 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
                     "/shadow",
                     "/validation",
                     "/decision BTC",
+                    "/reversal-diagnostics",
                     "/research  /research-debug  /dataset",
                     "/help",
                 ])
@@ -262,6 +264,17 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
         result = run_decision_engine_s20(conn, symbol, persist=True)
         conn.commit()
         return result["telegram"]
+    if cmd == "/reversal-diagnostics":
+        from bot.research.market_events.signal_intelligence.reversal_diagnostics_s21 import (
+            format_reversal_diagnostics_s21,
+        )
+        limit = 500
+        if args:
+            try:
+                limit = max(50, int(args[0]))
+            except ValueError:
+                limit = 500
+        return format_reversal_diagnostics_s21(conn, limit=limit)
     return "Unknown command. Use /help."
 
 
