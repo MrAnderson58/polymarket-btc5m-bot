@@ -139,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
             "validation-report",
             "validation-force",
             "decision",
+            "explain-decision",
             "reversal-diagnostics",
             "pipeline-audit",
             "recorder-debug",
@@ -846,15 +847,22 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.signal_intelligence.decision_engine_s20 import (
             run_decision_engine_s20,
         )
+        from bot.research.market_events.db import market_events_readonly_connection
         symbol = (args.symbol or "BTC").upper().replace("USDT", "")
-        with market_events_connection() as conn:
-            apply_migrations(conn)
-            result = run_decision_engine_s20(conn, symbol, persist=True)
-            conn.commit()
+        # S2.2: READ ONLY — use readonly connection, never persist.
+        with market_events_readonly_connection() as conn:
+            result = run_decision_engine_s20(conn, symbol, persist=False)
             print(result["telegram"])
-            if result.get("run_id"):
-                print("")
-                print(f"persisted run_id={result['run_id']}")
+        return 0
+
+    if args.command == "explain-decision":
+        from bot.research.market_events.db import market_events_readonly_connection
+        from bot.research.market_events.signal_intelligence.explain_decision_s22 import (
+            format_explain_decision_s22,
+        )
+        symbol = (args.symbol or "BTC").upper().replace("USDT", "")
+        with market_events_readonly_connection() as conn:
+            print(format_explain_decision_s22(conn, symbol))
         return 0
 
     if args.command == "reversal-diagnostics":

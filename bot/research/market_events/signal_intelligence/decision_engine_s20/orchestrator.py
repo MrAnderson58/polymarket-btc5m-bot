@@ -80,14 +80,17 @@ def run_decision_engine_s20(
     conn: Any,
     symbol: str,
     *,
-    persist: bool = True,
+    persist: bool = False,
     allow_claude: bool = True,
     force_fallback: bool = False,
     headlines: list[dict[str, str]] | None = None,
     market_data: Any | None = None,
     x_client: XClientInterface | None = None,
 ) -> dict[str, Any]:
-    """Full MVP cycle. Research-only — does not touch production scoring."""
+    """Full MVP cycle. Default persist=False — pure READ ONLY (S2.2).
+
+    Research-only; does not touch production scoring. Opt-in persist for offline analysis.
+    """
     sym = symbol.upper().replace("USDT", "").strip() or "BTC"
     market = run_market_agent_s20(conn, sym, market_data=market_data)
     news = run_news_agent_s20(sym, headlines=headlines, x_client=x_client)

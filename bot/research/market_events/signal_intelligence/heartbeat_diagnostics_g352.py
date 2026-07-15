@@ -38,10 +38,11 @@ def touch_heartbeat_reader(conn: Any) -> int:
     return now
 
 
-def read_heartbeat_diagnostics(conn: Any, *, touch_reader: bool = True) -> dict[str, Any]:
+def read_heartbeat_diagnostics(conn: Any, *, touch_reader: bool = False) -> dict[str, Any]:
     """Unified heartbeat view: telegram send + system writer + g3 cycle.
 
-    touch_reader=False for pure RO telegram commands (/status,/health) — never write.
+    Default touch_reader=False — /status must never write heartbeat (S2.2).
+    Opt-in writes only when an explicit writer path needs a reader mark.
     """
     if touch_reader:
         touch_heartbeat_reader(conn)

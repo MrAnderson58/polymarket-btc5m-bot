@@ -86,8 +86,12 @@ def _load_provider_state_g03(conn: Any | None) -> None:
         logger.debug("provider state load skipped: %s", exc)
 
 
+# When False, never INSERT/UPDATE provider cooldown / active_provider (read paths).
+_allow_provider_state_persist: bool = True
+
+
 def _save_provider_state_g03(conn: Any | None) -> None:
-    if conn is None:
+    if conn is None or not _allow_provider_state_persist:
         return
     try:
         from bot.research.market_events.signal_intelligence.health_g3 import set_g3_ops_state
@@ -109,20 +113,24 @@ def is_provider_disabled(provider_id: str) -> tuple[bool, str | None]:
     return False, None
 
 
-def disable_provider(provider_id: str, http_code: int) -> None:
+def disable_provider(provider_id: str, http_code: int, *, persist: bool | None = None) -> None:
+    """Mark provider cooldown in-memory; persist only when provider_state writes allowed."""
     _provider_cooldown_until[provider_id] = time.time() + _COOLDOWN_SEC
     _provider_disable_code[provider_id] = http_code
     logger.warning(
         "provider %s disabled for %ds (HTTP %s)",
         provider_id, _COOLDOWN_SEC, http_code,
     )
-    _save_provider_state_g03(_ops_conn)
+    should_persist = _allow_provider_state_persist if persist is None else persist
+    if should_persist:
+        _save_provider_state_g03(_ops_conn)
 
 
 def set_active_provider(provider_id: str, conn: Any | None = None) -> None:
     global _active_provider_id
     _active_provider_id = provider_id
-    _save_provider_state_g03(conn)
+    if _allow_provider_state_persist:
+        _save_provider_state_g03(conn)
 
 
 def get_active_provider_id() -> str:
@@ -140,7 +148,8 @@ def _http_get_provider(provider_id: str, url: str, params: dict | None = None) -
         raise ProviderDisabledError(provider_id, reason or "disabled")
     resp = requests.get(url, params=params or {}, timeout=_TIMEOUT)
     if resp.status_code in _COOLDOWN_HTTP_CODES:
-        disable_provider(provider_id, resp.status_code)
+        # Read paths: do not persist provider_state; still cooldown in-memory for this call chain.
+        disable_provider(provider_id, resp.status_code, persist=_allow_provider_state_persist)
         raise ProviderHttpError(provider_id, resp.status_code, (resp.text or "")[:200])
     resp.raise_for_status()
     return resp.json()
@@ -152,7 +161,7 @@ def _http_post_provider(provider_id: str, url: str, payload: dict) -> Any:
         raise ProviderDisabledError(provider_id, reason or "disabled")
     resp = requests.post(url, json=payload, timeout=_TIMEOUT)
     if resp.status_code in _COOLDOWN_HTTP_CODES:
-        disable_provider(provider_id, resp.status_code)
+        disable_provider(provider_id, resp.status_code, persist=_allow_provider_state_persist)
         raise ProviderHttpError(provider_id, resp.status_code, (resp.text or "")[:200])
     resp.raise_for_status()
     return resp.json()
@@ -515,21 +524,30 @@ def fetch_provider_market_data_g03(
     end_ts: int | None = None,
     limit: int = 12,
     provider: BinanceMarketProvider | None = None,
+    persist_state: bool = False,
 ) -> SymbolMarketDataG01 | None:
-    """Fetch from a single provider (for status probes)."""
-    ts = end_ts or int(time.time())
-    provider = provider or BinanceMarketProvider()
-    _load_provider_state_g03(conn)
-    _bind_ops_conn(conn)
-    fetchers = _provider_fetchers(provider, symbol, end_ts=ts, limit=limit)
-    if provider_id == "snapshot_db":
-        return _snapshot_fallback(conn, symbol)
-    fn = fetchers.get(provider_id)
-    if fn is None:
-        return None
-    if is_provider_disabled(provider_id)[0]:
-        return None
-    return fn()
+    """Fetch from a single provider (for status probes). Default: no provider_state writes."""
+    global _allow_provider_state_persist
+    prev = _allow_provider_state_persist
+    _allow_provider_state_persist = bool(persist_state)
+    try:
+        ts = end_ts or int(time.time())
+        provider = provider or BinanceMarketProvider()
+        _load_provider_state_g03(conn)
+        _bind_ops_conn(conn if persist_state else None)
+        fetchers = _provider_fetchers(provider, symbol, end_ts=ts, limit=limit)
+        if provider_id == "snapshot_db":
+            return _snapshot_fallback(conn, symbol)
+        fn = fetchers.get(provider_id)
+        if fn is None:
+            return None
+        if is_provider_disabled(provider_id)[0]:
+            return None
+        return fn()
+    finally:
+        _allow_provider_state_persist = prev
+        if not persist_state:
+            _bind_ops_conn(None)
 
 
 def fetch_symbol_market_data_g01(
@@ -539,48 +557,61 @@ def fetch_symbol_market_data_g01(
     end_ts: int | None = None,
     limit: int = 60,
     provider: BinanceMarketProvider | None = None,
+    persist_state: bool = True,
 ) -> SymbolMarketDataG01:
-    """Try Bybit → OKX → Hyperliquid → Binance Futures → Binance Spot → snapshot."""
-    ts = end_ts or int(time.time())
-    provider = provider or BinanceMarketProvider()
-    _load_provider_state_g03(conn)
-    _bind_ops_conn(conn)
-    errors: list[str] = []
-    fetchers = _provider_fetchers(provider, symbol, end_ts=ts, limit=limit)
+    """Try Bybit → OKX → Hyperliquid → Binance Futures → Binance Spot → snapshot.
 
-    for pid in PROVIDER_CHAIN_ORDER:
-        disabled, reason = is_provider_disabled(pid)
-        if disabled:
-            errors.append(f"{pid}: {reason}")
-            continue
-        try:
-            result = fetchers[pid]()
-            if result and result.bars:
-                set_active_provider(pid, conn)
-                result.errors = list(errors)
-                if pid != PROVIDER_CHAIN_ORDER[0]:
-                    logger.info("data source fallback %s → %s", symbol, pid)
-                _save_provider_state_g03(conn)
-                return result
-            reason_detail = "no bars returned"
-            if result and (result.funding is not None or result.open_interest is not None):
-                reason_detail = "klines empty but metrics present"
-            errors.append(f"{pid}: {reason_detail}")
-        except (ProviderDisabledError, ProviderHttpError) as exc:
-            errors.append(f"{pid}: {exc}")
-        except Exception as exc:
-            errors.append(f"{pid}: {exc}")
+    persist_state=False: in-memory provider selection only — never write provider_state
+    (required for pure RO telegram/CLI reads such as /decision).
+    """
+    global _allow_provider_state_persist
+    prev_persist = _allow_provider_state_persist
+    _allow_provider_state_persist = bool(persist_state)
+    try:
+        ts = end_ts or int(time.time())
+        provider = provider or BinanceMarketProvider()
+        _load_provider_state_g03(conn)
+        _bind_ops_conn(conn if persist_state else None)
+        errors: list[str] = []
+        fetchers = _provider_fetchers(provider, symbol, end_ts=ts, limit=limit)
 
-    snap = _snapshot_fallback(conn, symbol)
-    if snap:
-        set_active_provider("snapshot_db", conn)
-        snap.errors = errors
-        logger.warning("data source snapshot fallback %s", symbol)
-        _save_provider_state_g03(conn)
-        return snap
+        for pid in PROVIDER_CHAIN_ORDER:
+            disabled, reason = is_provider_disabled(pid)
+            if disabled:
+                errors.append(f"{pid}: {reason}")
+                continue
+            try:
+                result = fetchers[pid]()
+                if result and result.bars:
+                    set_active_provider(pid, conn if persist_state else None)
+                    result.errors = list(errors)
+                    if pid != PROVIDER_CHAIN_ORDER[0]:
+                        logger.info("data source fallback %s → %s", symbol, pid)
+                    _save_provider_state_g03(conn if persist_state else None)
+                    return result
+                reason_detail = "no bars returned"
+                if result and (result.funding is not None or result.open_interest is not None):
+                    reason_detail = "klines empty but metrics present"
+                errors.append(f"{pid}: {reason_detail}")
+            except (ProviderDisabledError, ProviderHttpError) as exc:
+                errors.append(f"{pid}: {exc}")
+            except Exception as exc:
+                errors.append(f"{pid}: {exc}")
 
-    _save_provider_state_g03(conn)
-    return SymbolMarketDataG01(symbol=symbol.upper(), errors=errors)
+        snap = _snapshot_fallback(conn, symbol)
+        if snap:
+            set_active_provider("snapshot_db", conn if persist_state else None)
+            snap.errors = errors
+            logger.warning("data source snapshot fallback %s", symbol)
+            _save_provider_state_g03(conn if persist_state else None)
+            return snap
+
+        _save_provider_state_g03(conn if persist_state else None)
+        return SymbolMarketDataG01(symbol=symbol.upper(), errors=errors)
+    finally:
+        _allow_provider_state_persist = prev_persist
+        if not persist_state:
+            _bind_ops_conn(None)
 
 
 def fetch_btc_global_metrics_g01(

@@ -454,4 +454,6 @@ PURE_READONLY_COMMANDS = frozenset({
     "/market",
     "/health",
     "/top",
+    "/decision",
+    "/explain-decision",
 })

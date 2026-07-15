@@ -101,7 +101,9 @@ def run_market_agent_s20(
 ) -> dict[str, Any]:
     """Produce a market-only trade signal JSON (no Claude)."""
     sym = symbol.upper().replace("USDT", "").strip() or "BTC"
-    data = market_data or fetch_symbol_market_data_g01(conn, sym, limit=60)
+    data = market_data or fetch_symbol_market_data_g01(
+        conn, sym, limit=60, persist_state=False,
+    )
     bars = list(data.bars or [])
     price = float(data.price) if data.price else (float(bars[-1].close) if bars else None)
     funding = data.funding

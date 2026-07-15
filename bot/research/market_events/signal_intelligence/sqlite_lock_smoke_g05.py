@@ -69,8 +69,9 @@ def run_sqlite_lock_smoke_g05(
         w.start()
 
     commands = ["/status", "/market", "/health"] * per_command
-    # also fold /top for TASK 4 coverage
+    # also fold /top and RO decision for lock coverage
     commands.extend(["/top"] * per_command)
+    commands.extend(["/decision BTC"] * max(10, per_command // 10))
 
     locked = 0
     failed = 0

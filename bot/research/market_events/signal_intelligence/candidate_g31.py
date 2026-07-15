@@ -26,7 +26,6 @@ from bot.research.market_events.signal_intelligence.config import (
 )
 from bot.research.market_events.signal_intelligence.dominance_context_f7 import classify_dominance
 from bot.research.market_events.signal_intelligence.liquidity_engine_g3 import LiquidityStateG3
-from bot.research.market_events.signal_intelligence.reversal_learning_g1 import lookup_historical_reversal_rate
 from bot.research.market_events.signal_intelligence.trend_windows_g3 import TrendWindowG3
 
 logger = logging.getLogger(__name__)
@@ -141,15 +140,10 @@ def _btc_alignment_label(conn: Any, *, symbol: str, direction: str) -> tuple[str
 
 
 def _has_reversal_confirmation(conn: Any, *, symbol: str, trend: TrendWindowG3) -> bool:
-    key = f"{symbol}|{trend.pattern_type}|{trend.window_minutes}m"
-    rate = lookup_historical_reversal_rate(conn, key)
-    if rate is not None and rate >= 0.45:
-        return True
-    if trend.consecutive_candles >= 8 and trend.trend_score >= 55:
-        return True
-    if trend.pattern_type in ("slow_bleed", "capitulation", "accumulation", "distribution"):
-        return True
-    return False
+    from bot.research.market_events.signal_intelligence.explain_decision_s22 import (
+        evaluate_reversal_confirmation_s22,
+    )
+    return evaluate_reversal_confirmation_s22(conn, symbol=symbol, trend=trend).passed
 
 
 def _score_candidate(

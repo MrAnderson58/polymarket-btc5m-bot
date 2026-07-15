@@ -58,7 +58,10 @@ class SqliteLockG05Tests(unittest.TestCase):
     def test_pure_ro_commands_no_write_trace(self) -> None:
         self.assertEqual(
             PURE_READONLY_COMMANDS,
-            frozenset({"/status", "/market", "/health", "/top"}),
+            frozenset({
+                "/status", "/market", "/health", "/top",
+                "/decision", "/explain-decision",
+            }),
         )
         with market_events_connection() as conn:
             apply_migrations(conn)

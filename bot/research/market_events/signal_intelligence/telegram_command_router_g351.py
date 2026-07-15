@@ -38,6 +38,7 @@ SUPPORTED_COMMANDS = frozenset({
     "/shadow",
     "/validation",
     "/decision",
+    "/explain-decision",
     "/reversal-diagnostics",
 })
 
@@ -45,7 +46,6 @@ SUPPORTED_COMMANDS = frozenset({
 _WRITE_COMMANDS = frozenset({
     "/watch",
     "/history-backfill",
-    "/decision",
 })
 
 # No DB required (still open RO if file exists; fall back to in-memory reply).
@@ -127,6 +127,7 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
                     "/shadow",
                     "/validation",
                     "/decision BTC",
+                    "/explain-decision BTC",
                     "/reversal-diagnostics",
                     "/research  /research-debug  /dataset",
                     "/help",
@@ -261,9 +262,15 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
             run_decision_engine_s20,
         )
         symbol = (args[0] if args else "BTC").upper().replace("USDT", "")
-        result = run_decision_engine_s20(conn, symbol, persist=True)
-        conn.commit()
+        # S2.2: pure READ ONLY — never INSERT decision runs / provider_state.
+        result = run_decision_engine_s20(conn, symbol, persist=False)
         return result["telegram"]
+    if cmd == "/explain-decision":
+        from bot.research.market_events.signal_intelligence.explain_decision_s22 import (
+            format_explain_decision_s22,
+        )
+        symbol = (args[0] if args else "BTC").upper().replace("USDT", "")
+        return format_explain_decision_s22(conn, symbol)
     if cmd == "/reversal-diagnostics":
         from bot.research.market_events.signal_intelligence.reversal_diagnostics_s21 import (
             format_reversal_diagnostics_s21,
