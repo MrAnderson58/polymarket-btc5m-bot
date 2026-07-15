@@ -397,42 +397,81 @@ def handle_update(
     from bot.research.market_events.signal_intelligence.telegram_inbound_g04 import (
         InboundTraceG04,
         diagnose_signal_g04,
-        persist_inbound_trace_g04,
     )
     chat = message.get("chat") or {}
     chat_id_pre = int(chat.get("id", 0))
     message_id_pre = int(message.get("message_id", 0))
     raw_preview = (text or "").strip().replace("\n", " ")[:80]
-    trace = InboundTraceG04(
-        message_id=message_id_pre,
-        chat_id=chat_id_pre,
-        preview=raw_preview,
-        received="OK",
-        router="SIGNAL",
-    )
-    trace.set_stage("Telegram Update", "OK")
-    trace.set_stage("Router", "SIGNAL")
-    trace.set_stage("Command", "—")
+    t0 = time.perf_counter()
+
+    if not is_chat_allowed(chat_id_pre):
+        result = InboundResult(
+            chat_id_pre, message_id_pre, None,
+            unauthorized=True, skipped=True,
+            ignore_reason=IGNORE_CHAT_NOT_ALLOWED,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+        )
+        _apply_inbound_stats(result, stats)
+        log_ignored(result.ignore_reason, logger=logger)
+        if stats is not None:
+            save_poll_stats(stats)
+        return result
+
+    if not text or not text.strip():
+        result = InboundResult(
+            chat_id_pre, message_id_pre, "Empty message ignored.",
+            skipped=True, ignore_reason=IGNORE_EMPTY_MESSAGE,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+        )
+        _apply_inbound_stats(result, stats)
+        if stats is not None:
+            save_poll_stats(stats)
+        return result
+
+    # S2.3: Signal Inbox — always persist raw_text; Decision Engine READ ONLY.
+    # Avoid heavy futures_agent write path (primary source of database is locked).
     try:
-        diag = diagnose_signal_g04(text or "")
-        trace.parser = "OK" if (diag.symbol or diag.side) else "FAIL"
-        trace.taxonomy = diag.taxonomy
-        trace.signal_label = diag.label
-        trace.set_stage("Parser", trace.parser)
-        trace.set_stage("Taxonomy", diag.taxonomy)
-        trace.set_stage("Signal", diag.label)
-        if diag.missing and diag.label != "SIGNAL":
-            trace.error = ", ".join(diag.missing)
+        from bot.research.market_events.signal_intelligence.signal_inbox_s23 import (
+            process_telegram_signal_inbox_s23,
+        )
+        user = None
+        frm = message.get("from") or {}
+        if frm.get("username"):
+            user = str(frm["username"])
+        elif frm.get("id"):
+            user = str(frm["id"])
+        reply, _inbox_id = process_telegram_signal_inbox_s23(
+            raw_text=text,
+            chat_id=chat_id_pre,
+            message_id=message_id_pre,
+            telegram_user=user,
+        )
+        result = InboundResult(
+            chat_id_pre, message_id_pre, reply,
+            processed=True,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+        )
     except Exception as exc:
-        trace.parser = "ERROR"
-        trace.error = str(exc)
-        trace.set_stage("Parser", f"ERROR: {exc}")
+        logger.error("signal inbox failed message_id=%s: %s", message_id_pre, exc)
+        result = InboundResult(
+            chat_id_pre, message_id_pre, f"Signal inbox error: {exc}",
+            skipped=True, ignore_reason=IGNORE_DATABASE_ERROR,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+        )
 
-    result = process_telegram_message(message, db_url=db_url)
     _apply_inbound_stats(result, stats)
-
     if result.ignore_reason:
         log_ignored(result.ignore_reason, logger=logger)
+
+    # Soft diagnose for logs only — no inbound_trace INSERT (reduces lock vs recorder).
+    try:
+        diag = diagnose_signal_g04(text or "")
+        logger.info(
+            "inbox signal message_id=%s label=%s symbol=%s",
+            message_id_pre, diag.label, diag.symbol,
+        )
+    except Exception:
+        pass
 
     if not result.unauthorized and result.reply_text:
         sent = send_telegram_reply(result.chat_id, result.reply_text)
@@ -442,16 +481,6 @@ def handle_update(
             stats.record_reply(sent=sent)
         if not sent:
             logger.warning("reply failed chat_id=%s message_id=%s", result.chat_id, result.message_id)
-            trace.error = (trace.error + "; " if trace.error else "") + "reply_send_failed"
-        trace.reply = "OK" if sent else "FAIL"
-        trace.set_stage("Reply", trace.reply)
-    else:
-        trace.reply = result.ignore_reason or "SKIPPED"
-        trace.set_stage("Reply", trace.reply)
-        if result.ignore_reason and not trace.error:
-            trace.error = result.ignore_reason
-
-    persist_inbound_trace_g04(trace)
 
     if result.processed or result.reply_text:
         _record_last_message(result.chat_id, result.message_id)

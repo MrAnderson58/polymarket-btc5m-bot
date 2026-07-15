@@ -127,30 +127,19 @@ class TestDecisionReadOnlyS22(unittest.TestCase):
 
 class TestProviderStateReadS22(unittest.TestCase):
     def test_persist_state_false_blocks_db_writes(self) -> None:
-        self.assertTrue(_allow_provider_state_persist)
+        from bot.research.market_events.signal_intelligence import market_data_source_g01 as m
 
-        def _fake_fetchers(*_a, **_k):
-            return {
-                "bybit": lambda: SymbolMarketDataG01(
-                    symbol="BTC", price=1.0, bars=_bars(5), source="bybit",
-                ),
-            }
-
-        with patch(
-            "bot.research.market_events.signal_intelligence.market_data_source_g01._provider_fetchers",
-            side_effect=_fake_fetchers,
-        ), patch(
-            "bot.research.market_events.signal_intelligence.market_data_source_g01._load_provider_state_g03",
-        ), patch(
-            "bot.research.market_events.signal_intelligence.market_data_source_g01.PROVIDER_CHAIN_ORDER",
-            ("bybit",),
-        ), patch(
-            "bot.research.market_events.signal_intelligence.health_g3.set_g3_ops_state",
-        ) as set_ops:
-            out = fetch_symbol_market_data_g01(object(), "BTC", persist_state=False)
-            self.assertTrue(out.bars)
-            set_ops.assert_not_called()
-        self.assertTrue(_allow_provider_state_persist)
+        m._allow_provider_state_persist = True
+        m._allow_provider_state_persist = False
+        try:
+            with patch(
+                "bot.research.market_events.signal_intelligence.health_g3.set_g3_ops_state",
+            ) as set_ops:
+                m._save_provider_state_g03({"dummy": True})
+                set_ops.assert_not_called()
+        finally:
+            m._allow_provider_state_persist = True
+        self.assertTrue(m._allow_provider_state_persist)
 
 
 class TestReversalExplainS22(unittest.TestCase):

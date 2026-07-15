@@ -447,6 +447,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     if grade:
                         data["signals"] = [s for s in data["signals"] if s.get("grade") == grade]
                     _json_response(self, data)
+                elif path == "/signal-inbox":
+                    from bot.research.market_events.signal_intelligence.signal_inbox_s23 import (
+                        signal_inbox_dashboard_s23,
+                    )
+                    parsed = qs.get("parsed", [None])[0]
+                    decision = qs.get("decision", [None])[0]
+                    limit = _query_int(qs, "limit", 100)
+                    _json_response(self, signal_inbox_dashboard_s23(
+                        conn, parsed=parsed, decision=decision, limit=limit,
+                    ))
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -460,6 +470,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/validation/false-rejects", "/validation/false-accepts",
                             "/validation/optimizer",                             "/quant-research", "/market-memory",
                             "/signal-discovery", "/experimental-signals", "/shadow-signals",
+                            "/signal-inbox",
                         ],
                     })
         except Exception as exc:

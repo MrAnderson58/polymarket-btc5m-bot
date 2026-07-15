@@ -84,6 +84,7 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     43: "Phase G.4.0 Shadow Signal Lane",
     46: "Phase S1.1 Validation Signal Pipeline",
     47: "Phase S2.0 Trading Decision Engine MVP",
+    48: "Phase S2.3 Telegram Signal Inbox",
 }
 
 
@@ -317,4 +318,5 @@ ALL_TABLES: tuple[str, ...] = (
     "market_telegram_vision_g36",
     "market_decision_runs_s20",
     "market_decision_agent_outputs_s20",
+    "market_signal_inbox_s23",
 )

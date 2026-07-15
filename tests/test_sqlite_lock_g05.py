@@ -59,7 +59,7 @@ class SqliteLockG05Tests(unittest.TestCase):
         self.assertEqual(
             PURE_READONLY_COMMANDS,
             frozenset({
-                "/status", "/market", "/health", "/top",
+                "/status", "/market", "/health", "/top", "/help",
                 "/decision", "/explain-decision",
             }),
         )

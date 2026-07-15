@@ -141,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
             "decision",
             "explain-decision",
             "reversal-diagnostics",
+            "signal-inbox",
             "pipeline-audit",
             "recorder-debug",
             "telegram-debug",
@@ -191,7 +192,13 @@ def main(argv: list[str] | None = None) -> int:
         "--limit",
         type=int,
         default=500,
-        help="reversal-diagnostics: last N candidates (default 500)",
+        help="reversal-diagnostics / signal-inbox: row limit",
+    )
+    parser.add_argument(
+        "--last",
+        type=int,
+        default=None,
+        help="signal-inbox: last N rows (alias for --limit)",
     )
     parser.add_argument(
         "--skip-pipeline",
@@ -863,6 +870,35 @@ def main(argv: list[str] | None = None) -> int:
         symbol = (args.symbol or "BTC").upper().replace("USDT", "")
         with market_events_readonly_connection() as conn:
             print(format_explain_decision_s22(conn, symbol))
+        return 0
+
+    if args.command == "signal-inbox":
+        from bot.research.market_events.signal_intelligence.signal_inbox_s23 import (
+            format_signal_inbox_cli_s23,
+            process_telegram_signal_inbox_s23,
+        )
+        limit = max(1, int(getattr(args, "limit", 20) or 20))
+        # Allow --last via limit (CLI alias)
+        if getattr(args, "last", None):
+            limit = max(1, int(args.last))
+        symbol = (args.symbol or None)
+        if symbol:
+            symbol = symbol.upper().replace("USDT", "")
+        # Optional: ingest a raw message for testing
+        if getattr(args, "message", None) or getattr(args, "message_text", None):
+            raw = args.message or args.message_text
+            reply, inbox_id = process_telegram_signal_inbox_s23(
+                raw_text=raw,
+                chat_id=0,
+                telegram_user="cli",
+            )
+            print(reply)
+            print("")
+            print(f"inbox_id={inbox_id}")
+            print("")
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(format_signal_inbox_cli_s23(conn, limit=limit, symbol=symbol))
         return 0
 
     if args.command == "reversal-diagnostics":

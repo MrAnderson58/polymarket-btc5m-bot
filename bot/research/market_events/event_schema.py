@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 47
+SCHEMA_VERSION = 48
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -791,6 +791,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v47")
             current = 47
+
+        if current < 48:
+            conn.executescript(S23_SIGNAL_INBOX_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (48, now, "Phase S2.3 Telegram Signal Inbox"),
+            )
+            applied.append("v48")
+            current = 48
 
     if not applied:
         conn.commit()
@@ -2886,4 +2899,35 @@ CREATE TABLE IF NOT EXISTS market_decision_agent_outputs_s20 (
 
 CREATE INDEX IF NOT EXISTS idx_decision_agent_s20_run ON market_decision_agent_outputs_s20(run_id);
 CREATE INDEX IF NOT EXISTS idx_decision_agent_s20_name ON market_decision_agent_outputs_s20(agent_name);
+"""
+
+S23_SIGNAL_INBOX_DDL = """
+CREATE TABLE IF NOT EXISTS market_signal_inbox_s23 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    received_at INTEGER NOT NULL,
+    telegram_user TEXT,
+    chat_id INTEGER,
+    raw_text TEXT NOT NULL,
+    symbol TEXT,
+    direction TEXT,
+    entry REAL,
+    stop REAL,
+    tp1 REAL,
+    tp2 REAL,
+    tp3 REAL,
+    parsed_ok INTEGER NOT NULL DEFAULT 0,
+    parser_reason TEXT,
+    decision_run_id INTEGER,
+    decision_label TEXT,
+    decision_probability INTEGER,
+    decision_summary TEXT,
+    status TEXT NOT NULL DEFAULT 'received',
+    source TEXT NOT NULL DEFAULT 'telegram'
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_ts ON market_signal_inbox_s23(received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_symbol ON market_signal_inbox_s23(symbol, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_parsed ON market_signal_inbox_s23(parsed_ok, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_decision ON market_signal_inbox_s23(decision_label, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_status ON market_signal_inbox_s23(status);
 """
