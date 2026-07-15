@@ -526,7 +526,26 @@ def _commit_update_batch(
 
 def run_poll_loop() -> None:
     """Long-polling loop with file lock (single local consumer)."""
-    require_telegram_inbound_config()
+    from bot.research.futures_agent.telegram_runtime_audit import (
+        print_get_me_probe,
+        print_polling_exit_traceback,
+        print_pre_api_audit,
+        print_telegram_startup_audit,
+        probe_get_me,
+    )
+
+    print_telegram_startup_audit()
+    token_preview = get_telegram_bot_token()
+    print_pre_api_audit(token=token_preview)
+    getme = probe_get_me(token_preview)
+    print_get_me_probe(getme)
+
+    try:
+        require_telegram_inbound_config()
+    except Exception as exc:
+        print_polling_exit_traceback(exc)
+        raise
+
     cfg = resolve_agent_db_config()
     token = get_telegram_bot_token()
 
@@ -535,13 +554,20 @@ def run_poll_loop() -> None:
             with agent_connection():
                 pass
         except AgentDbError as exc:
+            print_polling_exit_traceback(exc)
             raise SystemExit(str(exc)) from exc
 
-    telegram_ok = check_telegram_connected(token)
+    telegram_ok = bool(getme.get("ok")) or check_telegram_connected(token)
     print(format_poll_startup(cfg, telegram_connected=telegram_ok))
+    if telegram_ok:
+        print("Polling started", flush=True)
 
     db_url = cfg.url
-    _check_polling_conflicts(token)
+    try:
+        _check_polling_conflicts(token)
+    except Exception as exc:
+        print_polling_exit_traceback(exc)
+        raise
 
     stats = PollSessionStats()
     save_poll_stats(stats)
@@ -553,11 +579,13 @@ def run_poll_loop() -> None:
         try:
             import fcntl
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise RuntimeError(
+        except BlockingIOError as exc:
+            err = RuntimeError(
                 "Another futures-agent telegram-poll process holds the lock. "
                 "Only one getUpdates consumer per bot token."
-            ) from None
+            )
+            print_polling_exit_traceback(err)
+            raise err from exc
 
         signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
 
@@ -593,6 +621,10 @@ def run_poll_loop() -> None:
         except KeyboardInterrupt:
             logger.info("Telegram poll stopped")
             save_poll_stats(stats)
+            print("Polling stopped (KeyboardInterrupt)", flush=True)
+        except Exception as exc:
+            print_polling_exit_traceback(exc)
+            raise
     finally:
         os.close(lock_fd)
 

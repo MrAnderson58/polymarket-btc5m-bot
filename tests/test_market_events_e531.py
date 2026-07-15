@@ -48,7 +48,7 @@ class MarketEventsE531Tests(unittest.TestCase):
             applied = apply_migrations(conn)
             self.assertIn("v11", applied)
             self.assertIn("v18", applied)
-            self.assertEqual(SCHEMA_VERSION, 44)
+            self.assertEqual(SCHEMA_VERSION, 49)
             cols = {
                 r[1] for r in conn.execute(
                     "PRAGMA table_info(market_event_telegram_delivery_log)",
@@ -123,8 +123,15 @@ class MarketEventsE531Tests(unittest.TestCase):
             ME_ALERT_CHAT_ID="12345",
         )
         with patch(
-            "bot.research.market_events.telegram_ops.config_report.fetch_bot_info",
-            return_value={"id": 1, "username": "testbot"},
+            "bot.research.market_events.telegram_ops.config_report.probe_telegram_get_me",
+            return_value={
+                "ok": True,
+                "http_code": 200,
+                "response": {"ok": True, "result": {"id": 1, "username": "testbot"}},
+                "exception": None,
+                "username": "testbot",
+                "bot_id": 1,
+            },
         ):
             report = format_telegram_config_report()
         self.assertIn("Bot Token:", report)
@@ -132,6 +139,8 @@ class MarketEventsE531Tests(unittest.TestCase):
         self.assertIn("12345", report)
         self.assertIn("ME_ALERT_CHAT_ID", report)
         self.assertIn("reachable yes", report)
+        self.assertIn("(checked via getMe)", report)
+        self.assertIn("getMe OK", report)
 
     def _fake_deliver(self, text, *, conn=None, alert_type="UNKNOWN", event_id=0, **kwargs):
         log_delivery_attempt(

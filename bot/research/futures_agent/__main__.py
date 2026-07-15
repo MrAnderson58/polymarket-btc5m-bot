@@ -815,6 +815,7 @@ def main() -> int:
 
     if args.command == "telegram-poll":
         import logging
+        import traceback
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
         from bot.research.futures_agent.telegram_inbound import run_poll_loop
         try:
@@ -824,6 +825,8 @@ def main() -> int:
             return 0
         except Exception as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
+            print("TELEGRAM POLLING EXIT traceback:", file=sys.stderr)
+            traceback.print_exc()
             return 1
 
     return 1
