@@ -152,10 +152,52 @@ def record_reversal_learning_g1(
 
 
 def lookup_historical_reversal_rate(conn: Any, pattern_key: str) -> float | None:
+    """Lookup WR for a pattern key with S3.1 alias compatibility (read-only)."""
     row = conn.execute(
         "SELECT reversal_rate, samples FROM market_events_g1_pattern_stats WHERE pattern_key = ?",
         (pattern_key,),
     ).fetchone()
-    if not row or int(row["samples"]) < 3:
-        return None
-    return float(row["reversal_rate"])
+    if row and int(row["samples"]) >= 3:
+        return float(row["reversal_rate"])
+
+    # Compatibility: try canonical + legacy aliases without rewriting stored keys.
+    try:
+        from bot.research.market_events.signal_intelligence.pattern_keys_s31 import (
+            expand_pattern_key_aliases_s31,
+            parse_pattern_key_s31,
+            pattern_key_match_s31,
+        )
+        aliases = expand_pattern_key_aliases_s31(pattern_key)
+        for aka in aliases:
+            if aka == pattern_key:
+                continue
+            row = conn.execute(
+                "SELECT reversal_rate, samples FROM market_events_g1_pattern_stats WHERE pattern_key = ?",
+                (aka,),
+            ).fetchone()
+            if row and int(row["samples"]) >= 3:
+                return float(row["reversal_rate"])
+
+        parsed = parse_pattern_key_s31(pattern_key)
+        rows = conn.execute(
+            "SELECT pattern_key, reversal_rate, samples FROM market_events_g1_pattern_stats "
+            "WHERE pattern_key LIKE ?",
+            (f"{parsed['symbol']}|%",),
+        ).fetchall()
+        best = None
+        for r in rows:
+            if int(r["samples"] or 0) < 3:
+                continue
+            if pattern_key_match_s31(
+                str(r["pattern_key"]),
+                want_symbol=parsed["symbol"],
+                want_family=parsed["family"],
+                want_tf=parsed["timeframe"],
+            ):
+                if best is None or int(r["samples"]) > int(best["samples"]):
+                    best = r
+        if best is not None:
+            return float(best["reversal_rate"])
+    except Exception:
+        pass
+    return None

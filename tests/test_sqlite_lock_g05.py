@@ -60,7 +60,7 @@ class SqliteLockG05Tests(unittest.TestCase):
             PURE_READONLY_COMMANDS,
             frozenset({
                 "/status", "/market", "/health", "/top", "/help",
-                "/decision", "/explain-decision",
+                "/decision", "/explain-decision", "/pattern",
             }),
         )
         with market_events_connection() as conn:

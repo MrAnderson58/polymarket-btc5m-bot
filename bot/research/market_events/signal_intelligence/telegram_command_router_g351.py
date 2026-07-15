@@ -39,6 +39,7 @@ SUPPORTED_COMMANDS = frozenset({
     "/validation",
     "/decision",
     "/explain-decision",
+    "/pattern",
     "/reversal-diagnostics",
 })
 
@@ -128,6 +129,7 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
                     "/validation",
                     "/decision BTC",
                     "/explain-decision BTC",
+                    "/pattern BTC",
                     "/reversal-diagnostics",
                     "/research  /research-debug  /dataset",
                     "/help",
@@ -271,6 +273,15 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
         )
         symbol = (args[0] if args else "BTC").upper().replace("USDT", "")
         return format_explain_decision_s22(conn, symbol)
+    if cmd == "/pattern":
+        from bot.research.market_events.signal_intelligence.pattern_agent_s31 import (
+            format_pattern_report_s31,
+            run_pattern_agent_s31,
+        )
+        symbol = (args[0] if args else "BTC").upper().replace("USDT", "")
+        tf = args[1] if len(args) > 1 else "60m"
+        result = run_pattern_agent_s31(conn, symbol=symbol, timeframe=tf)
+        return format_pattern_report_s31(result)
     if cmd == "/reversal-diagnostics":
         from bot.research.market_events.signal_intelligence.reversal_diagnostics_s21 import (
             format_reversal_diagnostics_s21,

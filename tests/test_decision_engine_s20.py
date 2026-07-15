@@ -211,8 +211,10 @@ class TestDecisionEngineIntegrationS20(unittest.TestCase):
             market=result["market"],
             news=result["news"],
             decision=result["decision"],
+            pattern=result.get("pattern"),
         )
         self.assertEqual(formatted, card)
+        self.assertIn("Pattern", card)
 
     def test_telegram_command_decision(self) -> None:
         from bot.research.market_events.signal_intelligence.telegram_command_router_g351 import (

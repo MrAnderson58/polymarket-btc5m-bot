@@ -140,6 +140,8 @@ def main(argv: list[str] | None = None) -> int:
             "validation-force",
             "decision",
             "explain-decision",
+            "pattern",
+            "pattern-build",
             "reversal-diagnostics",
             "signal-inbox",
             "pipeline-audit",
@@ -870,6 +872,34 @@ def main(argv: list[str] | None = None) -> int:
         symbol = (args.symbol or "BTC").upper().replace("USDT", "")
         with market_events_readonly_connection() as conn:
             print(format_explain_decision_s22(conn, symbol))
+        return 0
+
+    if args.command == "pattern":
+        from bot.research.market_events.db import market_events_readonly_connection
+        from bot.research.market_events.signal_intelligence.pattern_agent_s31 import (
+            format_pattern_report_s31,
+            run_pattern_agent_s31,
+        )
+        # `pattern BTC` via --symbol or positional leftovers: prefer --symbol
+        symbol = (args.symbol or "BTC").upper().replace("USDT", "")
+        # Allow: python -m ... pattern BTC  (message_text / leftover)
+        if getattr(args, "message_text", None) and not args.symbol:
+            symbol = str(args.message_text).upper().replace("USDT", "")
+        tf = getattr(args, "timeframe", None) or "60m"
+        with market_events_readonly_connection() as conn:
+            result = run_pattern_agent_s31(conn, symbol=symbol, timeframe=tf)
+            print(format_pattern_report_s31(result))
+        return 0
+
+    if args.command == "pattern-build":
+        from bot.research.market_events.db import market_events_readonly_connection
+        from bot.research.market_events.signal_intelligence.pattern_agent_s31 import (
+            build_pattern_index_s31,
+            format_pattern_build_report_s31,
+        )
+        with market_events_readonly_connection() as conn:
+            index = build_pattern_index_s31(conn)
+            print(format_pattern_build_report_s31(index))
         return 0
 
     if args.command == "signal-inbox":

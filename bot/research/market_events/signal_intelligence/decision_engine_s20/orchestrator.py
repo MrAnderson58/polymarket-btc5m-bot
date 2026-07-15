@@ -1,4 +1,4 @@
-"""S2.0 orchestrator — run Market → News → Decision and format Telegram card."""
+"""S2.0/S3.1 orchestrator — Market → News → Pattern → Decision (RO by default)."""
 
 from __future__ import annotations
 
@@ -19,6 +19,10 @@ from bot.research.market_events.signal_intelligence.decision_engine_s20.persist 
 from bot.research.market_events.signal_intelligence.decision_engine_s20.x_twitter import (
     XClientInterface,
 )
+from bot.research.market_events.signal_intelligence.pattern_agent_s31 import (
+    format_pattern_block_for_decision_s31,
+    run_pattern_agent_s31,
+)
 
 
 def _emoji(decision: str) -> str:
@@ -36,6 +40,7 @@ def format_decision_telegram_s20(
     market: dict[str, Any],
     news: dict[str, Any],
     decision: dict[str, Any],
+    pattern: dict[str, Any] | None = None,
 ) -> str:
     sym = symbol.upper()
     dec = str(decision.get("decision") or "FLAT").upper()
@@ -68,6 +73,8 @@ def format_decision_telegram_s20(
     )
     for r in (news.get("reasons") or [])[:4]:
         lines.append(f"• {r}")
+    if pattern is not None:
+        lines.extend(["", format_pattern_block_for_decision_s31(pattern)])
     lines.extend(["", "Decision Agent"])
     lines.append(str(decision.get("summary") or "")[:400])
     lines.extend(["", "Risk"])
@@ -86,19 +93,28 @@ def run_decision_engine_s20(
     headlines: list[dict[str, str]] | None = None,
     market_data: Any | None = None,
     x_client: XClientInterface | None = None,
+    timeframe: str | int | None = "60m",
 ) -> dict[str, Any]:
-    """Full MVP cycle. Default persist=False — pure READ ONLY (S2.2).
-
-    Research-only; does not touch production scoring. Opt-in persist for offline analysis.
-    """
+    """Full cycle with Pattern Agent. Default persist=False — pure READ ONLY."""
     sym = symbol.upper().replace("USDT", "").strip() or "BTC"
     market = run_market_agent_s20(conn, sym, market_data=market_data)
     news = run_news_agent_s20(sym, headlines=headlines, x_client=x_client)
+    pattern = run_pattern_agent_s31(
+        conn,
+        symbol=sym,
+        direction=str(market.get("direction") or ""),
+        timeframe=timeframe,
+        market_snapshot=market,
+    )
     decision = run_decision_agent_s20(
-        market, news, allow_claude=allow_claude, force_fallback=force_fallback,
+        market,
+        news,
+        pattern=pattern,
+        allow_claude=allow_claude,
+        force_fallback=force_fallback,
     )
     telegram = format_decision_telegram_s20(
-        symbol=sym, market=market, news=news, decision=decision,
+        symbol=sym, market=market, news=news, decision=decision, pattern=pattern,
     )
     run_id = None
     if persist:
@@ -115,6 +131,7 @@ def run_decision_engine_s20(
         "symbol": sym,
         "market": market,
         "news": news,
+        "pattern": pattern,
         "decision": decision,
         "telegram": telegram,
     }

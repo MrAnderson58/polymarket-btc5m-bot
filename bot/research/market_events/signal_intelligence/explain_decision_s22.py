@@ -360,12 +360,27 @@ def build_explain_decision_s22(conn: Any, symbol: str) -> dict[str, Any]:
         "reversal_eval": rev,
         "candidate": dict(latest) if latest else None,
         "source": data.source,
+        "pattern": None,
     }
 
 
 def format_explain_decision_s22(conn: Any, symbol: str) -> str:
+    from bot.research.market_events.signal_intelligence.pattern_agent_s31 import (
+        format_pattern_block_for_decision_s31,
+        run_pattern_agent_s31,
+    )
+
     data = build_explain_decision_s22(conn, symbol)
     sym = data["symbol"]
+    pattern = run_pattern_agent_s31(
+        conn,
+        symbol=sym,
+        direction=data.get("direction"),
+        timeframe="60m",
+        market_snapshot={"direction": data.get("direction"), "meta": {}, "reasons": []},
+    )
+    data["pattern"] = pattern
+
     lines = [
         f"explain-decision {sym}",
         "",
@@ -420,6 +435,7 @@ def format_explain_decision_s22(conn: Any, symbol: str) -> str:
             "",
         ])
     lines.append(format_reversal_conditions_s22(data["reversal_eval"]))
+    lines.extend(["", format_pattern_block_for_decision_s31(pattern), ""])
 
     cand = data.get("candidate")
     if cand:
