@@ -1,4 +1,7 @@
-"""Phase E.5.2 — start-all / stop-all / status process supervisor."""
+"""Phase E.5.2 / FIX-4 — unified start-all / stop-all / status process supervisor.
+
+Manages all market-events research services including telegram-poll.
+"""
 
 from __future__ import annotations
 
@@ -13,9 +16,9 @@ from typing import Any
 from bot.ops.process_utils import (
     EXCLUDE_CMD_SUBSTRINGS,
     ProcessInfo,
-    find_telegram_poll_processes,
     logs_dir,
     project_python,
+    remove_stale_telegram_lock,
     stop_processes,
     _ps_rows,
 )
@@ -88,6 +91,13 @@ SERVICES: tuple[ManagedService, ...] = (
         module_args=("-m", "bot.research.market_events", "dashboard-api-serve"),
         log_name="me-dashboard.log",
         markers=("bot.research.market_events dashboard-api-serve",),
+    ),
+    ManagedService(
+        key="telegram",
+        label="telegram",
+        module_args=("-m", "bot.research.futures_agent", "telegram-poll"),
+        log_name="me-telegram.log",
+        markers=("bot.research.futures_agent", "telegram-poll"),
     ),
 )
 
@@ -162,6 +172,17 @@ def start_service(svc: ManagedService) -> tuple[bool, str]:
     if existing:
         return False, f"{svc.label}: already running (PID {existing[0].pid})"
 
+    notes: list[str] = []
+    if svc.key == "telegram":
+        try:
+            from bot.research.futures_agent.env_bootstrap import bootstrap_config
+            bootstrap_config()
+        except Exception as exc:
+            notes.append(f"bootstrap skipped: {exc}")
+        removed, lock_msg = remove_stale_telegram_lock()
+        if removed and lock_msg != "no lock file present":
+            notes.append(f"lock: {lock_msg}")
+
     env = os.environ.copy()
     env.update(svc.env_overrides)
     log_path = logs_dir() / svc.log_name
@@ -176,16 +197,44 @@ def start_service(svc: ManagedService) -> tuple[bool, str]:
             env=env,
         )
     _write_pid(svc, proc.pid, str(log_path))
-    return True, f"{svc.label}: started PID {proc.pid} log={log_path}"
+    # Brief settle: catch immediate config/import crashes (e.g. missing TELEGRAM_BOT_TOKEN).
+    time.sleep(0.6)
+    rc = proc.poll()
+    if rc is not None:
+        _clear_pid(svc)
+        tail = ""
+        try:
+            text = Path(log_path).read_text(encoding="utf-8", errors="replace")
+            tail = " | ".join(ln.strip() for ln in text.strip().splitlines()[-3:] if ln.strip())
+        except Exception:
+            pass
+        detail = f"exit={rc}"
+        if tail:
+            detail = f"{detail}; {tail[:240]}"
+        msg = f"{svc.label}: exited immediately ({detail})"
+        if notes:
+            msg = f"{msg} ({'; '.join(notes)})"
+        return False, msg
+
+    msg = f"{svc.label}: started PID {proc.pid} log={log_path}"
+    if notes:
+        msg = f"{msg} ({'; '.join(notes)})"
+    return True, msg
 
 
 def stop_service(svc: ManagedService) -> tuple[bool, str]:
     procs = find_service_processes(svc)
     if not procs:
         _clear_pid(svc)
+        if svc.key == "telegram":
+            remove_stale_telegram_lock()
         return True, f"{svc.label}: not running"
     ok, lines = stop_processes(procs, label=svc.label)
     _clear_pid(svc)
+    if svc.key == "telegram":
+        removed, lock_msg = remove_stale_telegram_lock()
+        if removed and "removed" in lock_msg:
+            lines.append(f"telegram lock: {lock_msg}")
     summary = lines[-1] if lines else f"{svc.label}: stopped"
     return ok, summary
 
@@ -270,17 +319,6 @@ def status_report() -> str:
             lines.append(f"✓ {svc.label}  (PID {procs[0].pid})")
         else:
             lines.append(f"✗ {svc.label}")
-
-    tg = find_telegram_poll_processes()
-    if tg:
-        lines.append(f"✓ telegram  (PID {tg[0].pid})")
-    else:
-        lines.append("✗ telegram")
-        lines.append(
-            "  note: not managed by market_events start-all; "
-            "start via: python -m bot.ops.prod_control start  "
-            "(futures_agent telegram-poll)"
-        )
 
     lines.append("")
     try:
