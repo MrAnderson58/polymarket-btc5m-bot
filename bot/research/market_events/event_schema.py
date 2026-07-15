@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 48
+SCHEMA_VERSION = 49
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -804,6 +804,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v48")
             current = 48
+
+        if current < 49:
+            conn.executescript(N11_NEWS_FEED_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (49, now, "Phase N1.1 News Collector MVP"),
+            )
+            applied.append("v49")
+            current = 49
 
     if not applied:
         conn.commit()
@@ -2930,4 +2943,23 @@ CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_symbol ON market_signal_inbox_s2
 CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_parsed ON market_signal_inbox_s23(parsed_ok, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_decision ON market_signal_inbox_s23(decision_label, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_status ON market_signal_inbox_s23(status);
+"""
+
+N11_NEWS_FEED_DDL = """
+CREATE TABLE IF NOT EXISTS market_news_feed_n11 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    published_at INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT,
+    url TEXT,
+    symbols TEXT,
+    category TEXT,
+    raw_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_feed_n11_published ON market_news_feed_n11(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_news_feed_n11_source ON market_news_feed_n11(source, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_news_feed_n11_created ON market_news_feed_n11(created_at DESC);
 """

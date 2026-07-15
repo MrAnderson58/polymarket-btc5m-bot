@@ -467,6 +467,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     _json_response(self, pattern_explorer_dashboard_s32(
                         conn, symbol=symbol, direction=direction, limit=limit,
                     ))
+                elif path == "/news-feed":
+                    from bot.research.market_events.signal_intelligence.news_collector_n11 import (
+                        news_feed_dashboard_n11,
+                    )
+                    limit = _query_int(qs, "limit", 50)
+                    _json_response(self, news_feed_dashboard_n11(conn, limit=limit))
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -480,7 +486,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/validation/false-rejects", "/validation/false-accepts",
                             "/validation/optimizer",                             "/quant-research", "/market-memory",
                             "/signal-discovery", "/experimental-signals", "/shadow-signals",
-                            "/signal-inbox", "/pattern-explorer",
+                            "/signal-inbox", "/pattern-explorer", "/news-feed",
                         ],
                     })
         except Exception as exc:

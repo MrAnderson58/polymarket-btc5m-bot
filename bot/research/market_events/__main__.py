@@ -143,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
             "explain-decision",
             "pattern",
             "pattern-build",
+            "news-update",
+            "news-latest",
             "reversal-diagnostics",
             "signal-inbox",
             "pipeline-audit",
@@ -916,6 +918,45 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_readonly_connection() as conn:
             index = build_pattern_index_s31(conn)
             print(format_pattern_build_report_s31(index))
+        return 0
+
+    if args.command == "news-update":
+        from bot.research.market_events.db import market_events_connection
+        from bot.research.market_events.event_schema import apply_migrations
+        from bot.research.market_events.signal_intelligence.news_collector_n11 import (
+            format_news_update_report_n11,
+            run_news_update_n11,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            result = run_news_update_n11(conn)
+            if args.json:
+                print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+            else:
+                print(format_news_update_report_n11(result))
+        return 0
+
+    if args.command == "news-latest":
+        from bot.research.market_events.db import market_events_readonly_connection
+        from bot.research.market_events.signal_intelligence.news_collector_n11 import (
+            fetch_latest_news_n11,
+            format_news_latest_n11,
+        )
+        limit = 10
+        argv_list = argv if argv is not None else sys.argv[1:]
+        if "--limit" in argv_list:
+            limit = max(1, int(args.limit))
+        if getattr(args, "message_text", None):
+            try:
+                limit = max(1, int(args.message_text))
+            except (TypeError, ValueError):
+                pass
+        with market_events_readonly_connection() as conn:
+            rows = fetch_latest_news_n11(conn, limit=limit)
+            if args.json:
+                print(json.dumps(rows, indent=2, ensure_ascii=False, default=str))
+            else:
+                print(format_news_latest_n11(rows))
         return 0
 
     if args.command == "signal-inbox":
