@@ -8,7 +8,11 @@ import os
 import sys
 from pathlib import Path
 
-from bot.research.market_events.db import market_events_connection
+from bot.research.market_events.db import (
+    ensure_db_initialized,
+    market_events_connection,
+    market_events_readonly_connection,
+)
 from bot.research.market_events.event_schema import apply_migrations
 
 
@@ -864,8 +868,9 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.signal_intelligence.decision_engine_s20 import (
             run_decision_engine_s20,
         )
-        from bot.research.market_events.db import market_events_readonly_connection
         symbol = (args.symbol or "BTC").upper().replace("USDT", "")
+        if getattr(args, "message_text", None) and not args.symbol:
+            symbol = str(args.message_text).upper().replace("USDT", "")
         # S2.2: READ ONLY — use readonly connection, never persist.
         with market_events_readonly_connection() as conn:
             result = run_decision_engine_s20(conn, symbol, persist=False)
@@ -873,7 +878,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command in ("explain-decision", "explain"):
-        from bot.research.market_events.db import market_events_readonly_connection
         from bot.research.market_events.signal_intelligence.explain_decision_s22 import (
             format_explain_decision_s22,
         )
@@ -885,7 +889,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "pattern":
-        from bot.research.market_events.db import market_events_readonly_connection
         from bot.research.market_events.signal_intelligence.pattern_agent_s31 import (
             format_pattern_report_s31,
             run_pattern_agent_s31,
@@ -910,7 +913,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "pattern-build":
-        from bot.research.market_events.db import market_events_readonly_connection
         from bot.research.market_events.signal_intelligence.pattern_agent_s31 import (
             build_pattern_index_s31,
             format_pattern_build_report_s31,
@@ -921,8 +923,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "news-update":
-        from bot.research.market_events.db import market_events_connection
-        from bot.research.market_events.event_schema import apply_migrations
         from bot.research.market_events.signal_intelligence.news_collector_n11 import (
             format_news_update_report_n11,
             run_news_update_n11,
@@ -937,7 +937,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "news-latest":
-        from bot.research.market_events.db import market_events_readonly_connection
         from bot.research.market_events.signal_intelligence.news_collector_n11 import (
             fetch_latest_news_n11,
             format_news_latest_n11,
@@ -1123,7 +1122,6 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.sqlite_manager_g05 import format_sqlite_lock_debug_g05
         # Touch a readonly + write briefly so registry has something when idle
         try:
-            from bot.research.market_events.db import market_events_readonly_connection
             with market_events_readonly_connection() as conn:
                 conn.execute("SELECT 1")
                 print(format_sqlite_lock_debug_g05())
@@ -1427,7 +1425,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "market-event-migrate":
-        from bot.research.market_events.db import ensure_db_initialized
         from bot.research.market_events.db_config import resolve_market_events_db_config
         mode = ensure_db_initialized()
         with market_events_connection() as conn:

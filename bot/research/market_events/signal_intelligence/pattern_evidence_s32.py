@@ -89,6 +89,11 @@ def _row_to_example(row: Any) -> dict[str, Any]:
         "reason": "; ".join(reasons) if reasons else "—",
         "candidate_id": int(row["candidate_id"]) if row["candidate_id"] is not None else None,
         "win": bool(row["would_hit_tp"]) or pnl > 0,
+        "outcome": (
+            "WIN" if (row["would_hit_tp"] or pnl > 0)
+            else ("LOSS" if (row["would_hit_sl"] if "would_hit_sl" in row.keys() else False) or pnl < 0
+                  else "UNKNOWN")
+        ),
     }
 
 
@@ -117,7 +122,7 @@ def fetch_pattern_evidence_rows_s32(
             SELECT c.id AS candidate_id, c.symbol, c.direction, c.rejection_reason,
                    c.funding_score, c.oi_score, c.volume_score, c.atr_score, c.fear_greed,
                    o.price_entry, o.price_15m, o.price_30m, o.price_1h, o.price_4h, o.price_24h,
-                   o.max_profit_pct, o.would_hit_tp, o.created_at, o.updated_at, o.best_rr
+                   o.max_profit_pct, o.would_hit_tp, o.would_hit_sl, o.created_at, o.updated_at, o.best_rr
             FROM market_candidate_outcomes_g32 o
             JOIN market_candidate_g31 c ON c.id = o.candidate_id
             WHERE {" AND ".join(clauses)}
@@ -133,9 +138,17 @@ def fetch_pattern_evidence_rows_s32(
 
 
 def select_best_examples_s32(rows: list[dict[str, Any]], *, limit: int = MAX_EXAMPLES) -> list[dict[str, Any]]:
-    """Top cases: wins first by PnL, then fill with least-bad losses."""
-    wins = sorted([r for r in rows if r.get("win")], key=lambda r: float(r.get("PnL") or 0), reverse=True)
-    losses = sorted([r for r in rows if not r.get("win")], key=lambda r: float(r.get("PnL") or 0), reverse=True)
+    """Top cases: wins first by PnL, then fill with least-bad losses (skip UNKNOWN flats)."""
+    wins = sorted(
+        [r for r in rows if r.get("outcome") == "WIN" or r.get("win")],
+        key=lambda r: float(r.get("PnL") or 0),
+        reverse=True,
+    )
+    losses = sorted(
+        [r for r in rows if r.get("outcome") == "LOSS"],
+        key=lambda r: float(r.get("PnL") or 0),
+        reverse=True,
+    )
     out = wins[:limit]
     if len(out) < limit:
         out.extend(losses[: limit - len(out)])

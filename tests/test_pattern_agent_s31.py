@@ -19,6 +19,7 @@ from bot.research.market_events.signal_intelligence.market_data_source_g01 impor
 from bot.research.market_events.signal_intelligence.candles import CandleBar
 from bot.research.market_events.signal_intelligence.pattern_agent_s31 import (
     build_pattern_index_s31,
+    classify_outcome_s31,
     format_pattern_report_s31,
     run_pattern_agent_s31,
 )
@@ -67,6 +68,26 @@ def _seed_outcomes(conn, *, symbol: str, direction: str, wins: int, losses: int)
             ) VALUES (?, ?, ?, ?, 100, ?, 0.5, ?, 0, 2.4, 'COMPLETE', ?)
             """,
             (cid, symbol, direction, ts + i, 1.5 if win else -1.0, 1 if win else 0, ts + i + 7200),
+        )
+
+
+class TestOutcomeClassifyS31(unittest.TestCase):
+    def test_win_loss_unknown(self) -> None:
+        self.assertEqual(
+            classify_outcome_s31(would_hit_tp=1, would_hit_sl=0, max_profit_pct=0),
+            "WIN",
+        )
+        self.assertEqual(
+            classify_outcome_s31(would_hit_tp=0, would_hit_sl=1, max_profit_pct=0),
+            "LOSS",
+        )
+        self.assertEqual(
+            classify_outcome_s31(would_hit_tp=0, would_hit_sl=0, max_profit_pct=0),
+            "UNKNOWN",
+        )
+        self.assertEqual(
+            classify_outcome_s31(would_hit_tp=0, would_hit_sl=0, max_profit_pct=-1.2),
+            "LOSS",
         )
 
 

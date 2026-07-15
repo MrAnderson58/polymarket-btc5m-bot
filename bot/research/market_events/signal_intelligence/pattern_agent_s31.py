@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 MIN_SAMPLES_FOUND = 5
 
 
+OUTCOME_WIN = "WIN"
+OUTCOME_LOSS = "LOSS"
+OUTCOME_UNKNOWN = "UNKNOWN"
+
+
 @dataclass(frozen=True)
 class PatternHitS31:
     symbol: str
@@ -31,12 +36,53 @@ class PatternHitS31:
     rr: float | None
     hold_hours: float | None
     source: str
+    outcome: str = OUTCOME_UNKNOWN
+
+    @property
+    def resolved(self) -> bool:
+        return self.outcome in (OUTCOME_WIN, OUTCOME_LOSS)
+
+
+def classify_outcome_s31(
+    *,
+    would_hit_tp: Any = None,
+    would_hit_sl: Any = None,
+    max_profit_pct: Any = None,
+) -> str:
+    """Classify g32-style outcomes as WIN / LOSS / UNKNOWN.
+
+    Flat unresolved rows (tp=0, sl=0, pnl=0) are UNKNOWN — not losses.
+    """
+    try:
+        tp = int(would_hit_tp or 0) == 1 or would_hit_tp is True
+    except (TypeError, ValueError):
+        tp = bool(would_hit_tp)
+    try:
+        sl = int(would_hit_sl or 0) == 1 or would_hit_sl is True
+    except (TypeError, ValueError):
+        sl = bool(would_hit_sl)
+    try:
+        pnl = float(max_profit_pct) if max_profit_pct is not None else 0.0
+    except (TypeError, ValueError):
+        pnl = 0.0
+
+    if tp:
+        return OUTCOME_WIN
+    if sl:
+        return OUTCOME_LOSS
+    if pnl > 0:
+        return OUTCOME_WIN
+    if pnl < 0:
+        return OUTCOME_LOSS
+    return OUTCOME_UNKNOWN
 
 
 def _is_win_outcome(row: Any) -> bool:
-    if row["would_hit_tp"]:
-        return True
-    return float(row["max_profit_pct"] or 0) > 0
+    return classify_outcome_s31(
+        would_hit_tp=row["would_hit_tp"] if "would_hit_tp" in row.keys() else None,
+        would_hit_sl=row["would_hit_sl"] if "would_hit_sl" in row.keys() else None,
+        max_profit_pct=row["max_profit_pct"] if "max_profit_pct" in row.keys() else None,
+    ) == OUTCOME_WIN
 
 
 def _safe_table_exists(conn: Any, name: str) -> bool:
@@ -71,12 +117,13 @@ def _collect_candidate_outcomes(
     try:
         rows = conn.execute(
             f"""
-            SELECT c.symbol, c.direction, o.would_hit_tp, o.max_profit_pct,
+            SELECT c.symbol, c.direction, o.would_hit_tp, o.would_hit_sl, o.max_profit_pct,
                    o.best_rr, c.rr, o.created_at, o.updated_at
             FROM market_candidate_outcomes_g32 o
             JOIN market_candidate_g31 c ON c.id = o.candidate_id
             WHERE {" AND ".join(clauses)}
-              AND (o.would_hit_tp IS NOT NULL OR o.max_profit_pct IS NOT NULL)
+              AND (o.would_hit_tp IS NOT NULL OR o.max_profit_pct IS NOT NULL
+                   OR o.would_hit_sl IS NOT NULL)
             ORDER BY o.id DESC
             LIMIT ?
             """,
@@ -96,13 +143,19 @@ def _collect_candidate_outcomes(
         except (TypeError, ValueError):
             pass
         rr = r["best_rr"] if r["best_rr"] is not None else r["rr"]
+        outcome = classify_outcome_s31(
+            would_hit_tp=r["would_hit_tp"],
+            would_hit_sl=r["would_hit_sl"],
+            max_profit_pct=r["max_profit_pct"],
+        )
         hits.append(
             PatternHitS31(
                 symbol=str(r["symbol"]).upper(),
-                win=_is_win_outcome(r),
+                win=outcome == OUTCOME_WIN,
                 rr=float(rr) if rr is not None else None,
                 hold_hours=hold,
                 source="g32",
+                outcome=outcome,
             )
         )
     return hits
@@ -139,16 +192,26 @@ def _collect_validation_hits(
     except Exception as exc:
         logger.debug("pattern validation skipped: %s", exc)
         return []
-    return [
-        PatternHitS31(
-            symbol=str(r["symbol"]).upper(),
-            win=bool(r["is_win"]) or float(r["pnl_pct"] or 0) > 0,
-            rr=float(r["rr"]) if r["rr"] is not None else None,
-            hold_hours=None,
-            source="g4",
+    hits: list[PatternHitS31] = []
+    for r in rows:
+        pnl = float(r["pnl_pct"] or 0)
+        if bool(r["is_win"]) or pnl > 0:
+            outcome = OUTCOME_WIN
+        elif pnl < 0:
+            outcome = OUTCOME_LOSS
+        else:
+            outcome = OUTCOME_UNKNOWN
+        hits.append(
+            PatternHitS31(
+                symbol=str(r["symbol"]).upper(),
+                win=outcome == OUTCOME_WIN,
+                rr=float(r["rr"]) if r["rr"] is not None else None,
+                hold_hours=None,
+                source="g4",
+                outcome=outcome,
+            )
         )
-        for r in rows
-    ]
+    return hits
 
 
 def _collect_learning_hits(
@@ -200,10 +263,16 @@ def _collect_learning_hits(
     # Expand into synthetic hits for sample_size accounting (not double-counted if we merge carefully)
     wins = int(round(wr * matched_samples))
     hits = [
-        PatternHitS31(symbol=symbol.upper(), win=True, rr=None, hold_hours=None, source="g1")
+        PatternHitS31(
+            symbol=symbol.upper(), win=True, rr=None, hold_hours=None,
+            source="g1", outcome=OUTCOME_WIN,
+        )
         for _ in range(wins)
     ] + [
-        PatternHitS31(symbol=symbol.upper(), win=False, rr=None, hold_hours=None, source="g1")
+        PatternHitS31(
+            symbol=symbol.upper(), win=False, rr=None, hold_hours=None,
+            source="g1", outcome=OUTCOME_LOSS,
+        )
         for _ in range(max(0, matched_samples - wins))
     ]
     avg_hold = sum(hold_hours) / len(hold_hours) if hold_hours else None
@@ -217,7 +286,9 @@ def _aggregate_hits(
     symbol: str,
     learning_hold: float | None = None,
 ) -> dict[str, Any]:
-    n = len(hits)
+    unknown_n = sum(1 for h in hits if h.outcome == OUTCOME_UNKNOWN)
+    resolved = [h for h in hits if h.resolved]
+    n = len(resolved)
     if n <= 0:
         return {
             "sample_size": 0,
@@ -226,12 +297,16 @@ def _aggregate_hits(
             "avg_hold_hours": 0.0,
             "similar_symbols": [],
             "confidence": 0.0,
+            "wins": 0,
+            "losses": 0,
+            "unknown": unknown_n,
         }
-    wins = sum(1 for h in hits if h.win)
+    wins = sum(1 for h in resolved if h.outcome == OUTCOME_WIN)
+    losses = n - wins
     wr = wins / n
-    rrs = [h.rr for h in hits if h.rr is not None and h.rr > 0]
+    rrs = [h.rr for h in resolved if h.rr is not None and h.rr > 0]
     avg_rr = round(sum(rrs) / len(rrs), 2) if rrs else 0.0
-    holds = [h.hold_hours for h in hits if h.hold_hours is not None]
+    holds = [h.hold_hours for h in resolved if h.hold_hours is not None]
     if holds:
         avg_hold = round(sum(holds) / len(holds), 2)
     elif learning_hold is not None:
@@ -241,7 +316,7 @@ def _aggregate_hits(
 
     # Similar symbols: other symbols appearing with wins in same direction cohort
     by_sym: dict[str, list[bool]] = defaultdict(list)
-    for h in hits:
+    for h in resolved:
         by_sym[h.symbol].append(h.win)
     ranked = sorted(
         by_sym.items(),
@@ -265,6 +340,9 @@ def _aggregate_hits(
         "avg_hold_hours": avg_hold,
         "similar_symbols": similar,
         "confidence": confidence,
+        "wins": wins,
+        "losses": losses,
+        "unknown": unknown_n,
     }
 
 
@@ -290,22 +368,30 @@ def run_pattern_agent_s31(
 
     # Prefer same-symbol+direction outcomes; also gather peers for similar_symbols
     own = _collect_candidate_outcomes(conn, symbol=sym, direction=direction_u)
+    # If direction filter yields only UNKNOWN flats, broaden to symbol-all (still SELECT-only)
+    if sum(1 for h in own if h.resolved) < MIN_SAMPLES_FOUND:
+        own_any = _collect_candidate_outcomes(conn, symbol=sym, direction=None)
+        if sum(1 for h in own_any if h.resolved) > sum(1 for h in own if h.resolved):
+            own = own_any
     peers = _collect_candidate_outcomes(conn, symbol=None, direction=direction_u, limit=800)
     val_own = _collect_validation_hits(conn, symbol=sym, direction=direction_u)
     learn_hits, learn_hold, _learn_n = _collect_learning_hits(
         conn, symbol=sym, family=fam, timeframe=tf,
     )
 
-    # Dedup strategy: use own g32+g4 primarily; add learning if own thin; peers only for symbols list
+    # Dedup strategy: resolved own g32+g4 first; add learning/peers if resolved set is thin
     primary = list(own) + list(val_own)
-    if len(primary) < MIN_SAMPLES_FOUND and learn_hits:
+    resolved_n = sum(1 for h in primary if h.resolved)
+    if resolved_n < MIN_SAMPLES_FOUND and learn_hits:
         primary = primary + learn_hits
-    if len(primary) < MIN_SAMPLES_FOUND:
-        # broaden: same family via peers outcomes (direction match)
-        primary = primary + [h for h in peers if h.symbol != sym][: max(0, MIN_SAMPLES_FOUND * 3 - len(primary))]
+        resolved_n = sum(1 for h in primary if h.resolved)
+    if resolved_n < MIN_SAMPLES_FOUND:
+        peer_resolved = [h for h in peers if h.symbol != sym and h.resolved]
+        need = max(0, MIN_SAMPLES_FOUND * 3 - resolved_n)
+        primary = primary + peer_resolved[:need]
 
     agg = _aggregate_hits(primary, symbol=sym, learning_hold=learn_hold)
-    # Enrich similar_symbols from peer cohort
+    # Enrich similar_symbols from peer cohort (resolved only)
     if peers:
         peer_agg = _aggregate_hits(peers + own, symbol=sym)
         sim = peer_agg["similar_symbols"]
@@ -350,6 +436,9 @@ def run_pattern_agent_s31(
         "similar_symbols": agg["similar_symbols"],
         "confidence": confidence,
         "reason": reason,
+        "wins": agg.get("wins", 0),
+        "losses": agg.get("losses", 0),
+        "unknown": agg.get("unknown", 0),
         "pattern_examples": evidence.get("pattern_examples") or [],
         "common_features": evidence.get("common_features") or [],
         "pattern_quality": evidence.get("pattern_quality") or "Low",
@@ -359,6 +448,11 @@ def run_pattern_agent_s31(
             "read_only": True,
             "evidence_variance": evidence.get("evidence_variance"),
             "evidence_n": evidence.get("evidence_n"),
+            "outcome_counts": {
+                "WIN": agg.get("wins", 0),
+                "LOSS": agg.get("losses", 0),
+                "UNKNOWN": agg.get("unknown", 0),
+            },
         },
     }
 
@@ -372,7 +466,7 @@ def build_pattern_index_s31(conn: Any, *, limit_per_bucket: int = 500) -> dict[s
         try:
             rows = conn.execute(
                 """
-                SELECT c.symbol, c.direction, o.would_hit_tp, o.max_profit_pct,
+                SELECT c.symbol, c.direction, o.would_hit_tp, o.would_hit_sl, o.max_profit_pct,
                        o.best_rr, c.rr, o.created_at, o.updated_at
                 FROM market_candidate_outcomes_g32 o
                 JOIN market_candidate_g31 c ON c.id = o.candidate_id
@@ -382,7 +476,6 @@ def build_pattern_index_s31(conn: Any, *, limit_per_bucket: int = 500) -> dict[s
             ).fetchall()
             for r in rows:
                 sym = str(r["symbol"]).upper()
-                direction = str(r["direction"] or "").upper()
                 fam = "trend_reversal"
                 # Rejection "No reversal confirmation" cohort → trend_reversal
                 key = canonical_pattern_key_s31(symbol=sym, family=fam, timeframe="60m")
@@ -391,13 +484,19 @@ def build_pattern_index_s31(conn: Any, *, limit_per_bucket: int = 500) -> dict[s
                 if ua > ca > 0:
                     hold = round((ua - ca) / 3600.0, 2)
                 rr = r["best_rr"] if r["best_rr"] is not None else r["rr"]
+                outcome = classify_outcome_s31(
+                    would_hit_tp=r["would_hit_tp"],
+                    would_hit_sl=r["would_hit_sl"],
+                    max_profit_pct=r["max_profit_pct"],
+                )
                 buckets[key].append(
                     PatternHitS31(
                         symbol=sym,
-                        win=_is_win_outcome(r),
+                        win=outcome == OUTCOME_WIN,
                         rr=float(rr) if rr is not None else None,
                         hold_hours=hold,
                         source="g32",
+                        outcome=outcome,
                     )
                 )
         except Exception as exc:
@@ -421,11 +520,15 @@ def build_pattern_index_s31(conn: Any, *, limit_per_bucket: int = 500) -> dict[s
                 wins = int(round(wr * n))
                 for _ in range(wins):
                     buckets[key].append(
-                        PatternHitS31(parsed["symbol"], True, None, None, "g1")
+                        PatternHitS31(
+                            parsed["symbol"], True, None, None, "g1", outcome=OUTCOME_WIN,
+                        )
                     )
                 for _ in range(max(0, n - wins)):
                     buckets[key].append(
-                        PatternHitS31(parsed["symbol"], False, None, None, "g1")
+                        PatternHitS31(
+                            parsed["symbol"], False, None, None, "g1", outcome=OUTCOME_LOSS,
+                        )
                     )
         except Exception as exc:
             logger.debug("pattern-build g1 skipped: %s", exc)
@@ -476,6 +579,11 @@ def format_pattern_report_s31(result: dict[str, Any], *, show_examples: bool = F
         "WR",
         "",
         f"{round(float(result.get('historical_wr') or 0) * 100):.0f}%",
+        "",
+        "Outcomes",
+        "",
+        f"WIN {int(result.get('wins') or 0)}  LOSS {int(result.get('losses') or 0)}  "
+        f"UNKNOWN {int(result.get('unknown') or 0)}",
         "",
         "Avg RR",
         "",
