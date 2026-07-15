@@ -276,13 +276,16 @@ def status_report() -> str:
         lines.append(f"✓ telegram  (PID {tg[0].pid})")
     else:
         lines.append("✗ telegram")
+        lines.append(
+            "  note: not managed by market_events start-all; "
+            "start via: python -m bot.ops.prod_control start  "
+            "(futures_agent telegram-poll)"
+        )
 
     lines.append("")
     try:
-        from bot.research.market_events.db import market_events_connection
-        from bot.research.market_events.event_schema import apply_migrations
-        with market_events_connection() as conn:
-            apply_migrations(conn)
+        from bot.research.market_events.db import market_events_readonly_connection
+        with market_events_readonly_connection() as conn:
             lines.extend(_health_block(conn))
     except Exception as exc:
         lines.append(f"DB: unreachable ({exc})")

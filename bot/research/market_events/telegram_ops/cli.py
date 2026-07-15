@@ -77,17 +77,18 @@ def build_test_message(*, db_ok: bool) -> str:
     ])
 
 
-def run_telegram_alert_test(conn: Any) -> tuple[int, str]:
-    """Send deterministic test alert via production notifier path."""
+def run_telegram_alert_test(conn: Any | None = None) -> tuple[int, str]:
+    """Send deterministic test alert. READ ONLY for SQLite — no delivery_log / heartbeat writes."""
     from bot.research.market_events.alert_engine.telegram_delivery import deliver_telegram
 
-    db_status = _db_ok(conn)
+    db_status = _db_ok(conn) if conn is not None else False
     message = build_test_message(db_ok=db_status)
     resolution = resolve_alert_chat_id()
     token_ok = _token_configured()
 
+    # FIX-3: conn=None → deliver_telegram skips INSERT into delivery log.
     result = deliver_telegram(
-        message, conn=conn, alert_type=ALERT_TEST, event_id=0,
+        message, conn=None, alert_type=ALERT_TEST, event_id=0,
     )
 
     lines = [
@@ -108,7 +109,14 @@ def run_telegram_alert_test(conn: Any) -> tuple[int, str]:
     ])
     if result.error:
         lines.append(f"Error: {result.error}")
-    lines.extend(["", "— message sent —", "", message])
+    lines.extend([
+        "",
+        "Mode: sendMessage only (no delivery_log / heartbeat / queue writes)",
+        "",
+        "— message sent —",
+        "",
+        message,
+    ])
     return (0 if result.ok else 1), "\n".join(lines)
 
 

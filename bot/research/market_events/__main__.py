@@ -301,11 +301,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "telegram-alert-test":
         from bot.research.market_events.telegram_ops.cli import run_telegram_alert_test
-        with market_events_connection() as conn:
-            apply_migrations(conn)
-            code, text = run_telegram_alert_test(conn)
-            conn.commit()
-            print(text)
+        # FIX-3 READ ONLY: optional RO db probe for message text; no INSERT/UPDATE/migrate.
+        try:
+            with market_events_readonly_connection() as conn:
+                conn.execute("SELECT 1")
+                code, text = run_telegram_alert_test(conn)
+        except Exception:
+            code, text = run_telegram_alert_test(None)
+        print(text)
         return code
 
     if args.command == "ai-test":
@@ -328,8 +331,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "telegram-health":
         from bot.research.market_events.telegram_ops.cli import run_telegram_health
-        with market_events_connection() as conn:
-            apply_migrations(conn)
+        with market_events_readonly_connection() as conn:
             print(run_telegram_health(conn))
         return 0
 
@@ -992,8 +994,7 @@ def main(argv: list[str] | None = None) -> int:
             format_reversal_diagnostics_s21,
         )
         limit = max(50, int(getattr(args, "limit", 500) or 500))
-        with market_events_connection() as conn:
-            apply_migrations(conn)
+        with market_events_readonly_connection() as conn:
             print(format_reversal_diagnostics_s21(conn, limit=limit))
         return 0
 
@@ -1113,8 +1114,7 @@ def main(argv: list[str] | None = None) -> int:
             format_provider_status_g03,
         )
         sym = (args.symbol or "BTC").upper()
-        with market_events_connection() as conn:
-            apply_migrations(conn)
+        with market_events_readonly_connection() as conn:
             print(format_provider_status_g03(conn, symbol=sym))
         return 0
 

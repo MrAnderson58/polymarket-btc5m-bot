@@ -862,32 +862,39 @@ def probe_provider_status_g03(
 
 
 def format_provider_status_g03(conn: Any, *, symbol: str = "BTC") -> str:
-    _load_provider_state_g03(conn)
-    _bind_ops_conn(conn)
-    active = get_active_provider_id()
-    lines = ["Provider Status", ""]
-    for pid in (*PROVIDER_CHAIN_ORDER, "snapshot_db"):
-        row = probe_provider_status_g03(conn, pid, symbol=symbol)
-        lines.append("Provider")
-        lines.append("")
-        lines.append(row.display)
-        if row.disable_code is not None:
+    """Probe providers read-only — never INSERT/UPDATE provider_state."""
+    global _allow_provider_state_persist
+    prev = _allow_provider_state_persist
+    _allow_provider_state_persist = False
+    try:
+        _load_provider_state_g03(conn)
+        _bind_ops_conn(None)
+        active = get_active_provider_id()
+        lines = ["Provider Status", ""]
+        for pid in (*PROVIDER_CHAIN_ORDER, "snapshot_db"):
+            row = probe_provider_status_g03(conn, pid, symbol=symbol)
+            lines.append("Provider")
             lines.append("")
-            lines.append(str(row.disable_code))
-        if row.funding is not None:
-            lines.extend(["", "Funding", row.funding])
-        if row.oi is not None:
-            lines.extend(["", "OI", row.oi])
-        if row.candles is not None:
-            lines.extend(["", "Candles", row.candles])
-        if row.latency_ms is not None:
-            lines.extend(["", "Latency", f"{row.latency_ms}ms"])
-        lines.extend(["", row.state])
-        if pid == active and row.state == "ACTIVE":
-            lines.append("(current)")
-        lines.extend(["", "----------", ""])
-    _save_provider_state_g03(conn)
-    return "\n".join(lines).rstrip()
+            lines.append(row.display)
+            if row.disable_code is not None:
+                lines.append("")
+                lines.append(str(row.disable_code))
+            if row.funding is not None:
+                lines.extend(["", "Funding", row.funding])
+            if row.oi is not None:
+                lines.extend(["", "OI", row.oi])
+            if row.candles is not None:
+                lines.extend(["", "Candles", row.candles])
+            if row.latency_ms is not None:
+                lines.extend(["", "Latency", f"{row.latency_ms}ms"])
+            lines.extend(["", row.state])
+            if pid == active and row.state == "ACTIVE":
+                lines.append("(current)")
+            lines.extend(["", "----------", ""])
+        return "\n".join(lines).rstrip()
+    finally:
+        _allow_provider_state_persist = prev
+        _bind_ops_conn(None)
 
 
 def probe_active_provider_quick_g03(conn: Any) -> str:
