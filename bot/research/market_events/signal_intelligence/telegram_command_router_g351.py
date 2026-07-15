@@ -37,12 +37,14 @@ SUPPORTED_COMMANDS = frozenset({
     "/experimental",
     "/shadow",
     "/validation",
+    "/decision",
 })
 
 # Commands that INSERT/UPDATE — never open on readonly connection.
 _WRITE_COMMANDS = frozenset({
     "/watch",
     "/history-backfill",
+    "/decision",
 })
 
 # No DB required (still open RO if file exists; fall back to in-memory reply).
@@ -123,6 +125,7 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
                     "/experimental",
                     "/shadow",
                     "/validation",
+                    "/decision BTC",
                     "/research  /research-debug  /dataset",
                     "/help",
                 ])
@@ -251,6 +254,14 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
             format_validation_open_s11,
         )
         return format_validation_open_s11(conn)
+    if cmd == "/decision":
+        from bot.research.market_events.signal_intelligence.decision_engine_s20 import (
+            run_decision_engine_s20,
+        )
+        symbol = (args[0] if args else "BTC").upper().replace("USDT", "")
+        result = run_decision_engine_s20(conn, symbol, persist=True)
+        conn.commit()
+        return result["telegram"]
     return "Unknown command. Use /help."
 
 

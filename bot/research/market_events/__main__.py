@@ -138,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
             "validation-open",
             "validation-report",
             "validation-force",
+            "decision",
             "pipeline-audit",
             "recorder-debug",
             "telegram-debug",
@@ -832,6 +833,21 @@ def main(argv: list[str] | None = None) -> int:
                 print("VALIDATION SIGNAL not created (no candidates)")
             print("")
             print(format_validation_open_s11(conn))
+        return 0
+
+    if args.command == "decision":
+        from bot.research.market_events.signal_intelligence.decision_engine_s20 import (
+            run_decision_engine_s20,
+        )
+        symbol = (args.symbol or "BTC").upper().replace("USDT", "")
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            result = run_decision_engine_s20(conn, symbol, persist=True)
+            conn.commit()
+            print(result["telegram"])
+            if result.get("run_id"):
+                print("")
+                print(f"persisted run_id={result['run_id']}")
         return 0
 
     if args.command == "pipeline-audit":

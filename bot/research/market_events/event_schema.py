@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 46
+SCHEMA_VERSION = 47
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -778,6 +778,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v46")
             current = 46
+
+        if current < 47:
+            conn.executescript(S20_DECISION_ENGINE_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (47, now, "Phase S2.0 Trading Decision Engine MVP"),
+            )
+            applied.append("v47")
+            current = 47
 
     if not applied:
         conn.commit()
@@ -2843,4 +2856,34 @@ CREATE TABLE IF NOT EXISTS market_validation_horizons (
 );
 
 CREATE INDEX IF NOT EXISTS idx_validation_horizons_signal ON market_validation_horizons(signal_id);
+"""
+
+S20_DECISION_ENGINE_DDL = """
+CREATE TABLE IF NOT EXISTS market_decision_runs_s20 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_uuid TEXT NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    probability INTEGER NOT NULL,
+    confidence REAL NOT NULL,
+    summary TEXT,
+    risks_json TEXT NOT NULL DEFAULT '[]',
+    telegram_rendered TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_decision_runs_s20_ts ON market_decision_runs_s20(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_decision_runs_s20_symbol ON market_decision_runs_s20(symbol, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_decision_agent_outputs_s20 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    agent_name TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES market_decision_runs_s20(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_decision_agent_s20_run ON market_decision_agent_outputs_s20(run_id);
+CREATE INDEX IF NOT EXISTS idx_decision_agent_s20_name ON market_decision_agent_outputs_s20(agent_name);
 """
