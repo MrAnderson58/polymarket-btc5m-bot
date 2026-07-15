@@ -457,6 +457,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     _json_response(self, signal_inbox_dashboard_s23(
                         conn, parsed=parsed, decision=decision, limit=limit,
                     ))
+                elif path == "/pattern-explorer":
+                    from bot.research.market_events.signal_intelligence.pattern_evidence_s32 import (
+                        pattern_explorer_dashboard_s32,
+                    )
+                    symbol = qs.get("symbol", [None])[0]
+                    direction = qs.get("direction", [None])[0]
+                    limit = _query_int(qs, "limit", 20)
+                    _json_response(self, pattern_explorer_dashboard_s32(
+                        conn, symbol=symbol, direction=direction, limit=limit,
+                    ))
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -470,7 +480,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/validation/false-rejects", "/validation/false-accepts",
                             "/validation/optimizer",                             "/quant-research", "/market-memory",
                             "/signal-discovery", "/experimental-signals", "/shadow-signals",
-                            "/signal-inbox",
+                            "/signal-inbox", "/pattern-explorer",
                         ],
                     })
         except Exception as exc:

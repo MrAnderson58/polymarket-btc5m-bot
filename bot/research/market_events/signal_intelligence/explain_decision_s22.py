@@ -365,11 +365,13 @@ def build_explain_decision_s22(conn: Any, symbol: str) -> dict[str, Any]:
 
 
 def format_explain_decision_s22(conn: Any, symbol: str) -> str:
+    from bot.research.market_events.signal_intelligence.decision_engine_s20 import (
+        run_decision_engine_s20,
+    )
     from bot.research.market_events.signal_intelligence.pattern_agent_s31 import (
         format_pattern_block_for_decision_s31,
         run_pattern_agent_s31,
     )
-
     data = build_explain_decision_s22(conn, symbol)
     sym = data["symbol"]
     pattern = run_pattern_agent_s31(
@@ -381,7 +383,76 @@ def format_explain_decision_s22(conn: Any, symbol: str) -> str:
     )
     data["pattern"] = pattern
 
+    # Compact S3.2 evidence summary at top (TASK 6 style)
+    try:
+        decision_pack = run_decision_engine_s20(
+            conn, sym, persist=False, force_fallback=True,
+        )
+        dec = str(decision_pack["decision"].get("decision") or "FLAT").upper()
+        prob = int(decision_pack["decision"].get("probability") or 0)
+        news = decision_pack.get("news") or {}
+    except Exception:
+        dec = "LONG" if data["direction"] == "LONG" else "SHORT"
+        prob = round(float(pattern.get("historical_wr") or 0) * 100) if pattern.get("pattern_found") else 50
+        news = {}
+
+    label = {"LONG": "BUY", "SHORT": "SELL"}.get(dec, "WAIT")
+    wr_pct = round(float(pattern.get("historical_wr") or 0) * 100)
+    news_line = "—"
+    n_reasons = news.get("reasons") or []
+    if n_reasons:
+        news_line = str(n_reasons[0])[:80]
+    elif news.get("sentiment"):
+        news_line = f"{news.get('sentiment')} ({news.get('importance') or 'low'})"
+
+    common_short: list[str] = []
+    for f in (pattern.get("common_features") or [])[:5]:
+        if not isinstance(f, dict):
+            continue
+        if float(f.get("rate") or 0) < 0.55:
+            continue
+        name = str(f.get("name") or "")
+        if name == "Funding positive":
+            common_short.append("Funding+")
+        elif name == "OI rising":
+            common_short.append("OI+")
+        elif name == "Volume expansion":
+            common_short.append("Volume+")
+        elif name == "ATR contraction":
+            common_short.append("ATR↓")
+        elif name == "FearGreed <30":
+            common_short.append("FG<30")
+
+    by_name = {f.name: f for f in data["factors"] if isinstance(f, FactorExplainS22)}
+    trend_f = by_name.get("Trend")
+    funding_f = by_name.get("Funding")
+
     lines = [
+        f"{label}",
+        f"{prob}%",
+        "",
+        "Почему",
+        "",
+        "Trend",
+        "PASS" if trend_f and trend_f.passed else "FAIL",
+        "",
+        "Funding",
+        "PASS" if funding_f and funding_f.passed else "FAIL",
+        "",
+        "News",
+        news_line,
+        "",
+        "Pattern",
+        f"{wr_pct}%" if pattern.get("pattern_found") else "—",
+        "",
+        "Evidence",
+        f"{len(pattern.get('pattern_examples') or [])} similar cases",
+        "",
+        "Common",
+        " ".join(common_short) if common_short else "—",
+        "",
+        f"Quality {pattern.get('pattern_quality') or 'Low'}",
+        "",
         f"explain-decision {sym}",
         "",
         f"Direction {data['direction']}",

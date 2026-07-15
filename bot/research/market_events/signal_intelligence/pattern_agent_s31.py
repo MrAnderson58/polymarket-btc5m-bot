@@ -323,6 +323,19 @@ def run_pattern_agent_s31(
         )
     )
 
+    confidence = agg["confidence"] if found else round(agg["confidence"] * 0.5, 3)
+
+    from bot.research.market_events.signal_intelligence.pattern_evidence_s32 import (
+        build_pattern_evidence_s32,
+    )
+    evidence = build_pattern_evidence_s32(
+        conn,
+        symbol=sym,
+        direction=direction_u,
+        sample_size=int(agg["sample_size"]),
+        confidence=float(confidence),
+    )
+
     return {
         "pattern_found": found,
         "pattern_key": pattern_key,
@@ -335,12 +348,17 @@ def run_pattern_agent_s31(
         "avg_rr": agg["avg_rr"],
         "avg_hold_hours": agg["avg_hold_hours"],
         "similar_symbols": agg["similar_symbols"],
-        "confidence": agg["confidence"] if found else round(agg["confidence"] * 0.5, 3),
+        "confidence": confidence,
         "reason": reason,
+        "pattern_examples": evidence.get("pattern_examples") or [],
+        "common_features": evidence.get("common_features") or [],
+        "pattern_quality": evidence.get("pattern_quality") or "Low",
         "meta": {
             "aliases": expand_pattern_key_aliases_s31(pattern_key)[:8],
             "sources_used": sorted({h.source for h in primary}),
             "read_only": True,
+            "evidence_variance": evidence.get("evidence_variance"),
+            "evidence_n": evidence.get("evidence_n"),
         },
     }
 
@@ -438,7 +456,11 @@ def build_pattern_index_s31(conn: Any, *, limit_per_bucket: int = 500) -> dict[s
     }
 
 
-def format_pattern_report_s31(result: dict[str, Any]) -> str:
+def format_pattern_report_s31(result: dict[str, Any], *, show_examples: bool = False) -> str:
+    from bot.research.market_events.signal_intelligence.pattern_evidence_s32 import (
+        format_evidence_block_s32,
+    )
+
     lines = [
         "Pattern",
         "",
@@ -477,6 +499,12 @@ def format_pattern_report_s31(result: dict[str, Any]) -> str:
         "",
         "Found" if result.get("pattern_found") else "Not found",
         "",
+        "Quality",
+        "",
+        str(result.get("pattern_quality") or "Low"),
+        "",
+        format_evidence_block_s32(result, show_examples=show_examples),
+        "",
         "READ ONLY",
     ]
     return "\n".join(lines)
@@ -506,6 +534,9 @@ def format_pattern_block_for_decision_s31(pattern: dict[str, Any]) -> str:
     if not pattern:
         return "Pattern\n—\n"
     wr_pct = round(float(pattern.get("historical_wr") or 0) * 100)
+    from bot.research.market_events.signal_intelligence.pattern_evidence_s32 import (
+        format_evidence_block_s32,
+    )
     return "\n".join([
         "Pattern",
         "",
@@ -517,7 +548,11 @@ def format_pattern_block_for_decision_s31(pattern: dict[str, Any]) -> str:
         "",
         f"Confidence {pattern.get('confidence')}",
         "",
+        f"Quality {pattern.get('pattern_quality') or '—'}",
+        "",
         "Reason",
         "",
         str(pattern.get("reason") or "—"),
+        "",
+        format_evidence_block_s32(pattern, show_examples=False),
     ])

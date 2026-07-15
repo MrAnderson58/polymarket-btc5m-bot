@@ -279,9 +279,16 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
             run_pattern_agent_s31,
         )
         symbol = (args[0] if args else "BTC").upper().replace("USDT", "")
-        tf = args[1] if len(args) > 1 else "60m"
+        show_examples = False
+        tf = "60m"
+        for a in args[1:]:
+            al = a.lower()
+            if al in ("--examples", "examples"):
+                show_examples = True
+            elif al not in ("--json", "json") and not al.startswith("-"):
+                tf = a
         result = run_pattern_agent_s31(conn, symbol=symbol, timeframe=tf)
-        return format_pattern_report_s31(result)
+        return format_pattern_report_s31(result, show_examples=show_examples)
     if cmd == "/reversal-diagnostics":
         from bot.research.market_events.signal_intelligence.reversal_diagnostics_s21 import (
             format_reversal_diagnostics_s21,

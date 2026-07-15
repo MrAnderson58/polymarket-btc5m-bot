@@ -1,4 +1,4 @@
-"""S2.0/S3.1 Decision Agent — merges Market + News + Pattern; Claude does not recompute market."""
+"""S2.0/S3.1/S3.2 Decision Agent — merges Market + News + Pattern evidence."""
 
 from __future__ import annotations
 
@@ -11,7 +11,10 @@ logger = logging.getLogger(__name__)
 _SYSTEM = """You are the Decision Agent for a crypto research desk.
 You receive ONLY agent JSON blobs: Market, News, and optionally Pattern.
 Do NOT invent prices, recompute indicators, or search for historical cases yourself.
-Use Pattern Agent fields (historical_wr, sample_size, confidence) when present.
+Use Pattern Agent fields when present:
+historical_wr, sample_size, confidence, pattern_examples (up to 10),
+common_features (hit rates), pattern_quality (High|Medium|Low).
+Treat High quality + strong common_features as supportive evidence; Low quality as weak.
 Merge conclusions, assess agreement, explain risks, return a final trade decision.
 Output ONLY valid JSON with keys:
 decision (LONG|SHORT|FLAT), probability (0-100 int), confidence (0-10 float),
@@ -50,11 +53,22 @@ def _fallback_merge(
     pat_wr = float(pat.get("historical_wr") or 0.0)
     pat_n = int(pat.get("sample_size") or 0)
     pat_conf = float(pat.get("confidence") or 0.0)
+    pat_quality = str(pat.get("pattern_quality") or "Low")
+    pat_examples = pat.get("pattern_examples") or []
+    common = pat.get("common_features") or []
+    common_top = [
+        f["name"] for f in common
+        if isinstance(f, dict) and float(f.get("rate") or 0) >= 0.6
+    ][:3]
 
     base_prob = int(round(50 + (m_conf - 0.5) * 60 + (0.15 if agree else -0.2) * 100 * n_conf))
     if pat_found and pat_n >= 5:
         # nudge probability toward historical WR
         base_prob = int(round(base_prob * 0.7 + pat_wr * 100 * 0.3))
+        if pat_quality == "High":
+            base_prob = min(92, base_prob + 3)
+        elif pat_quality == "Low":
+            base_prob = max(35, base_prob - 2)
     if decision == "FLAT":
         base_prob = min(base_prob, 55)
     probability = max(35, min(92, base_prob))
@@ -79,12 +93,21 @@ def _fallback_merge(
         risks.append("Market agent RR is modest — asymmetric payoff limited")
     if pat_found and pat_wr < 0.45:
         risks.append(f"Pattern historical WR low ({pat_wr:.0%}, n={pat_n})")
+    if pat_found and pat_quality == "Low":
+        risks.append(f"Pattern quality Low (n={pat_n}, conf={pat_conf})")
     if not pat_found:
         risks.append("Pattern Agent: insufficient similar history")
     risks.append("Research-only decision; not wired to production execution")
 
     m_reasons = market.get("reasons") or []
     n_reasons = news.get("reasons") or []
+    evidence_bit = (
+        f"Evidence {len(pat_examples)} cases; quality {pat_quality}"
+        + (f"; common {', '.join(common_top)}" if common_top else "")
+        + ". "
+        if pat_found
+        else ""
+    )
     summary = (
         f"Market {m_dir} (conf {m_conf:.2f}) with news {n_sent} "
         f"(conf {n_conf:.2f}, {n_imp}). "
@@ -94,6 +117,7 @@ def _fallback_merge(
             if pat_found
             else "Pattern not found. "
         )
+        + evidence_bit
         + (f"Key market: {m_reasons[0]}" if m_reasons else "")
         + (f" Key news: {n_reasons[0]}" if n_reasons else "")
     ).strip()
@@ -104,7 +128,13 @@ def _fallback_merge(
         "confidence": confidence,
         "summary": summary[:500],
         "risks": risks[:8],
-        "meta": {"claude": False, "mode": "fallback_merge", "pattern_used": pat_found},
+        "meta": {
+            "claude": False,
+            "mode": "fallback_merge",
+            "pattern_used": pat_found,
+            "pattern_quality": pat_quality if pat_found else None,
+            "pattern_examples_n": len(pat_examples) if pat_found else 0,
+        },
     }
 
 
@@ -175,6 +205,8 @@ def run_decision_agent_s20(
                 "claude": True,
                 "model": resp.model,
                 "pattern_used": bool(pattern and pattern.get("pattern_found")),
+                "pattern_quality": (pattern or {}).get("pattern_quality"),
+                "pattern_examples_n": len((pattern or {}).get("pattern_examples") or []),
                 "usage": {
                     "input_tokens": resp.usage.input_tokens,
                     "output_tokens": resp.usage.output_tokens,

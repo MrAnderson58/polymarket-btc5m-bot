@@ -139,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
             "validation-report",
             "validation-force",
             "decision",
+            "explain",
             "explain-decision",
             "pattern",
             "pattern-build",
@@ -219,7 +220,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--read-only", action="store_true", help="Skip mutating validation checks")
     parser.add_argument("--skip-load", action="store_true", help="Skip synthetic load test")
     parser.add_argument("--load-events", type=int, default=200, help="Synthetic load test event count")
-    parser.add_argument("--json", action="store_true", help="JSON output for system-validation")
+    parser.add_argument("--json", action="store_true", help="JSON output for system-validation / pattern")
+    parser.add_argument(
+        "--examples",
+        action="store_true",
+        help="pattern: include up to 10 historical case examples",
+    )
     parser.add_argument(
         "--send-telegram",
         action="store_true",
@@ -864,12 +870,14 @@ def main(argv: list[str] | None = None) -> int:
             print(result["telegram"])
         return 0
 
-    if args.command == "explain-decision":
+    if args.command in ("explain-decision", "explain"):
         from bot.research.market_events.db import market_events_readonly_connection
         from bot.research.market_events.signal_intelligence.explain_decision_s22 import (
             format_explain_decision_s22,
         )
         symbol = (args.symbol or "BTC").upper().replace("USDT", "")
+        if getattr(args, "message_text", None) and not args.symbol:
+            symbol = str(args.message_text).upper().replace("USDT", "")
         with market_events_readonly_connection() as conn:
             print(format_explain_decision_s22(conn, symbol))
         return 0
@@ -886,9 +894,17 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "message_text", None) and not args.symbol:
             symbol = str(args.message_text).upper().replace("USDT", "")
         tf = getattr(args, "timeframe", None) or "60m"
+        # Global --timeframe defaults to 1m (backfill); Pattern Agent defaults to 60m
+        # unless the user explicitly passed --timeframe on the CLI.
+        argv_list = argv if argv is not None else sys.argv[1:]
+        if "--timeframe" not in argv_list:
+            tf = "60m"
         with market_events_readonly_connection() as conn:
             result = run_pattern_agent_s31(conn, symbol=symbol, timeframe=tf)
-            print(format_pattern_report_s31(result))
+            if args.json:
+                print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+            else:
+                print(format_pattern_report_s31(result, show_examples=bool(args.examples)))
         return 0
 
     if args.command == "pattern-build":
