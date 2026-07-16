@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 49
+SCHEMA_VERSION = 51
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -817,6 +817,32 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v49")
             current = 49
+
+        if current < 50:
+            conn.executescript(S40_SIGNAL_LEARNING_OBSERVE_ONLY_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (50, now, "Phase S4.0 Signal Learning Pipeline (Observe Only)"),
+            )
+            applied.append("v50")
+            current = 50
+
+        if current < 51:
+            conn.executescript(S42_PAPER_PERFORMANCE_OBSERVE_ONLY_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (51, now, "Phase S4.2 Paper Performance Tracker (Observe Only)"),
+            )
+            applied.append("v51")
+            current = 51
 
     if not applied:
         conn.commit()
@@ -2943,6 +2969,135 @@ CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_symbol ON market_signal_inbox_s2
 CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_parsed ON market_signal_inbox_s23(parsed_ok, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_decision ON market_signal_inbox_s23(decision_label, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_signal_inbox_s23_status ON market_signal_inbox_s23(status);
+"""
+
+S40_SIGNAL_LEARNING_OBSERVE_ONLY_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_signal_learning_s40_ops_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_signal_learning_s40_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_type TEXT NOT NULL,
+    signal_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT,
+    entry REAL,
+    stop REAL,
+    tp1 REAL,
+    tp2 REAL,
+    timestamp INTEGER,
+    snapshot_funding REAL,
+    snapshot_open_interest REAL,
+    snapshot_volume REAL,
+    snapshot_atr REAL,
+    snapshot_fear_greed REAL,
+    snapshot_trend TEXT,
+    snapshot_news_score REAL,
+    snapshot_news_impact TEXT,
+    snapshot_pattern_json TEXT,
+    snapshot_decision_confidence REAL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(signal_type, signal_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_s40_signals_type_ts ON market_events_signal_learning_s40_signals(signal_type, timestamp DESC);
+
+CREATE TABLE IF NOT EXISTS market_events_signal_learning_s40_checkpoints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_type TEXT NOT NULL,
+    signal_id INTEGER NOT NULL,
+    horizon_key TEXT NOT NULL,
+    checkpoint_ts INTEGER NOT NULL,
+    max_profit_pct REAL,
+    max_drawdown_pct REAL,
+    reached_tp1 INTEGER NOT NULL DEFAULT 0,
+    reached_tp2 INTEGER NOT NULL DEFAULT 0,
+    stopped INTEGER NOT NULL DEFAULT 0,
+    expired INTEGER NOT NULL DEFAULT 0,
+    holding_time_seconds INTEGER,
+    created_at INTEGER NOT NULL,
+    UNIQUE(signal_type, signal_id, horizon_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_s40_cp_signal_horizon ON market_events_signal_learning_s40_checkpoints(signal_type, signal_id, horizon_key);
+
+CREATE TABLE IF NOT EXISTS market_events_signal_learning_s40_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_type TEXT NOT NULL,
+    signal_id INTEGER NOT NULL,
+    reviewed_at INTEGER NOT NULL,
+    analysis_text TEXT NOT NULL,
+    win_loss_be TEXT,
+    pnl_pct REAL,
+    rr_achieved REAL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(signal_type, signal_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_s40_reviews_type_sig ON market_events_signal_learning_s40_reviews(signal_type, signal_id);
+"""
+
+S42_PAPER_PERFORMANCE_OBSERVE_ONLY_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_paper_account_s42 (
+    id INTEGER PRIMARY KEY,
+    initial_capital REAL NOT NULL,
+    current_equity REAL NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_paper_trades_s42 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    s40_signal_type TEXT NOT NULL,
+    s40_signal_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entry REAL NOT NULL,
+    stop REAL,
+    tp1 REAL,
+    tp2 REAL,
+    created_at INTEGER NOT NULL,
+    closed_at INTEGER,
+    holding_seconds INTEGER,
+    mfe_pct REAL NOT NULL DEFAULT 0,
+    mae_pct REAL NOT NULL DEFAULT 0,
+    pnl_pct REAL,
+    pnl_usd REAL,
+    result TEXT,
+    exit_reason TEXT,
+    exit_price REAL,
+    rr_achieved REAL,
+    status TEXT NOT NULL,
+    decision_confidence REAL,
+    pattern_json TEXT,
+    news_category TEXT,
+    capital_usd REAL NOT NULL,
+    leverage INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(s40_signal_type, s40_signal_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_s42_trades_status ON market_events_paper_trades_s42(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_s42_trades_closed ON market_events_paper_trades_s42(closed_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_events_paper_reports_s42 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_type TEXT NOT NULL,
+    period_key TEXT NOT NULL,
+    body_text TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(report_type, period_key)
+);
+
+CREATE TABLE IF NOT EXISTS market_events_paper_ops_state_s42 (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
 """
 
 N11_NEWS_FEED_DDL = """

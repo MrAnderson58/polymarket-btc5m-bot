@@ -133,6 +133,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         "f5_dashboard_only_today": dashboard_skipped_count(conn, since_ts=day_start),
                         "heartbeat": read_heartbeat_diagnostics(conn),
                     }
+                    try:
+                        from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
+                            paper_performance_dashboard_s42,
+                        )
+                        stats["paper_performance"] = paper_performance_dashboard_s42(conn)
+                    except Exception:
+                        stats["paper_performance"] = None
                     _json_response(self, stats)
                 elif path.startswith("/timeline/"):
                     eid = int(path.split("/")[-1])
@@ -473,6 +480,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     )
                     limit = _query_int(qs, "limit", 50)
                     _json_response(self, news_feed_dashboard_n11(conn, limit=limit))
+                elif path == "/paper-performance":
+                    from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
+                        paper_performance_dashboard_s42,
+                    )
+                    _json_response(self, paper_performance_dashboard_s42(conn))
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -486,7 +498,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/validation/false-rejects", "/validation/false-accepts",
                             "/validation/optimizer",                             "/quant-research", "/market-memory",
                             "/signal-discovery", "/experimental-signals", "/shadow-signals",
-                            "/signal-inbox", "/pattern-explorer", "/news-feed",
+                            "/signal-inbox", "/pattern-explorer", "/news-feed", "/paper-performance",
                         ],
                     })
         except Exception as exc:

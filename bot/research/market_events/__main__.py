@@ -151,6 +151,10 @@ def main(argv: list[str] | None = None) -> int:
             "news-latest",
             "reversal-diagnostics",
             "signal-inbox",
+            "review",
+            "learning-status",
+            "learning-worker",
+            "paper-performance",
             "pipeline-audit",
             "recorder-debug",
             "telegram-debug",
@@ -267,6 +271,16 @@ def main(argv: list[str] | None = None) -> int:
         nargs="?",
         default=None,
         help="simulate-telegram-message: inbound text (positional)",
+    )
+    parser.add_argument(
+        "--today",
+        action="store_true",
+        help="paper-performance: today's AI paper report",
+    )
+    parser.add_argument(
+        "--week",
+        action="store_true",
+        help="paper-performance: weekly paper report",
     )
     parser.add_argument(
         "--iterations",
@@ -987,6 +1001,51 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_connection() as conn:
             apply_migrations(conn)
             print(format_signal_inbox_cli_s23(conn, limit=limit, symbol=symbol))
+        return 0
+
+    if args.command == "learning-status":
+        from bot.research.market_events.signal_intelligence.signal_learning_s40 import (
+            learning_status_s40,
+        )
+        print(learning_status_s40())
+        return 0
+
+    if args.command == "review":
+        from bot.research.market_events.signal_intelligence.signal_learning_s40 import (
+            run_review_s40_cli,
+        )
+        symbol = getattr(args, "symbol", None) or getattr(args, "message_text", None)
+        print(run_review_s40_cli(symbol=symbol, last=int(getattr(args, "last", None) or 20)))
+        return 0
+
+    if args.command == "learning-worker":
+        from bot.research.market_events.signal_intelligence.signal_learning_s40 import (
+            run_learning_worker_s40,
+        )
+        stats = run_learning_worker_s40(max_cycles=args.max_cycles)
+        print(
+            "S4.1 cycles={cycles} ingested={ingested} checkpoints={checkpoints_written} "
+            "reviews={reviews_written} paper_opened={paper_opened} paper_ticked={paper_ticked} "
+            "errors={errors}".format(**stats),
+        )
+        return 1 if stats["errors"] and not stats["ingested"] and not stats["reviews_written"] else 0
+
+    if args.command == "paper-performance":
+        from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
+            format_paper_performance_s42,
+        )
+        symbol = (args.symbol or None)
+        if symbol:
+            symbol = symbol.upper().replace("USDT", "")
+        elif getattr(args, "message_text", None) and not args.today and not args.week:
+            symbol = str(args.message_text).upper().replace("USDT", "")
+        with market_events_readonly_connection() as conn:
+            print(format_paper_performance_s42(
+                conn,
+                symbol=symbol,
+                today=bool(args.today),
+                week=bool(args.week),
+            ))
         return 0
 
     if args.command == "reversal-diagnostics":

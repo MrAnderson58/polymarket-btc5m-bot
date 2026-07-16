@@ -459,4 +459,7 @@ PURE_READONLY_COMMANDS = frozenset({
     "/explain-decision",
     "/pattern",
     "/news",
+    "/review",
+    "/paper",
+    "/learning-status",
 })

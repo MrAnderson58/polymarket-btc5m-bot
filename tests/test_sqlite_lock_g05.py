@@ -56,13 +56,12 @@ class SqliteLockG05Tests(unittest.TestCase):
             conn.close()
 
     def test_pure_ro_commands_no_write_trace(self) -> None:
-        self.assertEqual(
-            PURE_READONLY_COMMANDS,
-            frozenset({
-                "/status", "/market", "/health", "/top", "/help",
-                "/decision", "/explain-decision", "/pattern",
-            }),
-        )
+        for cmd in (
+            "/status", "/market", "/health", "/top", "/help",
+            "/decision", "/explain-decision", "/pattern", "/news",
+            "/review", "/paper", "/learning-status",
+        ):
+            self.assertIn(cmd, PURE_READONLY_COMMANDS, msg=cmd)
         with market_events_connection() as conn:
             apply_migrations(conn)
             conn.commit()

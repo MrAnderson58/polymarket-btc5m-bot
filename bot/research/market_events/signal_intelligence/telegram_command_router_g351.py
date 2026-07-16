@@ -41,6 +41,9 @@ SUPPORTED_COMMANDS = frozenset({
     "/explain-decision",
     "/pattern",
     "/news",
+    "/review",
+    "/paper",
+    "/learning-status",
     "/reversal-diagnostics",
 })
 
@@ -125,17 +128,20 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
             "/watch SOL  /watchlist",
             "/why-not BTC  /top-blockers  /pipeline",
             "/trend-status BTC  /history-backfill",
-                    "/experimental",
-                    "/shadow",
-                    "/validation",
-                    "/decision BTC",
-                    "/explain-decision BTC",
-                    "/pattern BTC",
-                    "/news",
-                    "/reversal-diagnostics",
-                    "/research  /research-debug  /dataset",
-                    "/help",
-                ])
+            "/experimental",
+            "/shadow",
+            "/validation",
+            "/decision BTC",
+            "/explain-decision BTC",
+            "/pattern BTC",
+            "/news",
+            "/review  [/review BTC]",
+            "/paper  /paper today  /paper week  [/paper BTC]",
+            "/learning-status",
+            "/reversal-diagnostics",
+            "/research  /research-debug  /dataset",
+            "/help",
+        ])
     if cmd == "/status":
         from bot.research.market_events.signal_intelligence.health_g3 import format_g3_health_report
         from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
@@ -291,6 +297,27 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
                 tf = a
         result = run_pattern_agent_s31(conn, symbol=symbol, timeframe=tf)
         return format_pattern_report_s31(result, show_examples=show_examples)
+    if cmd == "/review":
+        from bot.research.market_events.signal_intelligence.signal_learning_s40 import run_review_s40_cli
+        sym = args[0] if args else None
+        return run_review_s40_cli(symbol=sym, last=20)
+    if cmd == "/paper":
+        from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
+            format_paper_performance_s42,
+        )
+        today = any(a.lower() == "today" for a in args)
+        week = any(a.lower() == "week" for a in args)
+        symbol = None
+        for a in args:
+            al = a.lower()
+            if al in ("today", "week"):
+                continue
+            symbol = a.upper().replace("USDT", "")
+            break
+        return format_paper_performance_s42(conn, symbol=symbol, today=today, week=week)
+    if cmd == "/learning-status":
+        from bot.research.market_events.signal_intelligence.signal_learning_s40 import learning_status_s40
+        return learning_status_s40()
     if cmd == "/news":
         from bot.research.market_events.signal_intelligence.news_collector_n11 import (
             fetch_latest_news_n11,

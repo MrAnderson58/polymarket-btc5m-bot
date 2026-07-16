@@ -99,6 +99,24 @@ def _today_stats(conn: Any) -> dict[str, Any]:
 def render_live_dashboard(conn: Any) -> str:
     btc = _btc_snapshot(conn)
     today = _today_stats(conn)
+    paper_block: list[str] = []
+    try:
+        from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
+            paper_performance_dashboard_s42,
+        )
+        paper = paper_performance_dashboard_s42(conn)
+        paper_block = [
+            "Paper Account (S4.2)",
+            "",
+            f"Current Equity  ${paper['current_equity']:.2f}",
+            f"Today's PnL     ${paper['today_pnl_usd']:+.2f}",
+            f"Weekly PnL      ${paper['weekly_pnl_usd']:+.2f}",
+            f"Trades          {paper['trades']}",
+            f"Winrate         {paper['winrate_pct']:.1f}%",
+            "",
+        ]
+    except Exception:
+        pass
     now = time.strftime("%H:%M:%S UTC", time.gmtime())
     fund = btc["funding"]
     fund_s = f"{fund:+.3f}%" if fund is not None else "n/a"
@@ -139,6 +157,7 @@ def render_live_dashboard(conn: Any) -> str:
         "",
         f"Paper pnl {pnl_sign}{pnl:.1f}%",
         "",
+        *paper_block,
         "(Ctrl+C to exit)",
     ])
 
