@@ -43,7 +43,11 @@ HORIZONS_S40: tuple[tuple[str, int], ...] = (
 )
 
 MAX_REVIEWS_PER_CYCLE = 5
+QUEUE_NEWEST_PER_CYCLE = 2
+QUEUE_OLDEST_PER_CYCLE = 3
 CLAUDE_REVIEW_TIMEOUT_SEC = 15
+DAILY_PERFORMANCE_HOUR = 22
+WORKER_RUNNING_WINDOW_SEC = 150
 REVIEW_STATUS_COMPLETE = "complete"
 REVIEW_STATUS_PENDING_AI = "pending_ai"
 REVIEW_TYPE_CLAUDE = "claude"
@@ -911,21 +915,18 @@ def _aggregate_signs_from_analyses(texts: list[str]) -> tuple[list[str], list[st
     return best_lines, worst_lines
 
 
-def _fetch_review_candidates_s40(
+def _fetch_pending_review_pool_s40(
     conn: Any,
     *,
     symbol: str | None,
-    limit: int,
+    pool_limit: int,
 ) -> list[dict[str, Any]]:
-    """Pick closed signals without an existing review."""
+    """Fetch pending closed reviews across lanes."""
     where_symbol = "AND s.symbol = ?" if symbol else ""
     params: list[Any] = [symbol] if symbol else []
+    limit = max(20, int(pool_limit))
 
-    # Lane-specific closed detection (best-effort).
-    # G3 closed
-    g3 = _exec_sql(
-        conn,
-        f"""
+    g3_sql = f"""
         SELECT 'g3_signal' AS signal_type, s.signal_id, s.symbol, s.direction, s.timestamp,
                s.entry, s.stop, s.tp1, s.tp2,
                g.pnl_pct, g.risk_reward, g.holding_seconds, g.status AS source_status
@@ -937,17 +938,10 @@ def _fetch_review_candidates_s40(
           AND (lower(g.status) = 'closed' OR g.closed_at IS NOT NULL OR g.holding_seconds IS NOT NULL)
           AND (r.signal_id IS NULL OR COALESCE(r.review_status, 'complete') = 'pending_ai')
           {where_symbol}
-        ORDER BY CASE WHEN r.signal_id IS NULL THEN 0 ELSE 1 END, s.timestamp DESC
+        ORDER BY s.timestamp DESC
         LIMIT ?
-        """,
-        (*params, limit),
-    ).fetchall()
-
-    # Telegram closed
-    tel_params = params + [limit]
-    tel = _exec_sql(
-        conn,
-        f"""
+    """
+    tel_sql = f"""
         SELECT 'telegram_signal' AS signal_type, s.signal_id, s.symbol, s.direction, s.timestamp,
                s.entry, s.stop, s.tp1, s.tp2,
                f.pnl_pct, f.risk_reward, f.holding_seconds, f.status AS source_status
@@ -959,17 +953,10 @@ def _fetch_review_candidates_s40(
           AND lower(f.status) = 'closed'
           AND (r.signal_id IS NULL OR COALESCE(r.review_status, 'complete') = 'pending_ai')
           {where_symbol}
-        ORDER BY CASE WHEN r.signal_id IS NULL THEN 0 ELSE 1 END, s.timestamp DESC
+        ORDER BY s.timestamp DESC
         LIMIT ?
-        """,
-        (*tel_params,),
-    ).fetchall()
-
-    # Validation closed (all rows are effectively "closed")
-    val_params = params + [limit]
-    val = _exec_sql(
-        conn,
-        f"""
+    """
+    val_sql = f"""
         SELECT 'validation_signal' AS signal_type, s.signal_id, s.symbol, s.direction, s.timestamp,
                s.entry, s.stop, s.tp1, s.tp2,
                v.pnl_pct, v.rr, NULL AS holding_seconds, 'VALIDATION' AS source_status
@@ -980,16 +967,80 @@ def _fetch_review_candidates_s40(
         WHERE s.signal_type = 'validation_signal'
           AND (r.signal_id IS NULL OR COALESCE(r.review_status, 'complete') = 'pending_ai')
           {where_symbol}
-        ORDER BY CASE WHEN r.signal_id IS NULL THEN 0 ELSE 1 END, s.timestamp DESC
+        ORDER BY s.timestamp DESC
         LIMIT ?
-        """,
-        (*val_params,),
-    ).fetchall()
+    """
+    g3 = _exec_sql(conn, g3_sql, (*params, limit)).fetchall()
+    tel = _exec_sql(conn, tel_sql, (*params, limit)).fetchall()
+    val = _exec_sql(conn, val_sql, (*params, limit)).fetchall()
+    combined = [dict(r) for r in list(g3) + list(tel) + list(val)]
+    combined.sort(key=lambda r: int(r.get("timestamp") or 0), reverse=True)
+    seen: set[tuple[str, int]] = set()
+    unique: list[dict[str, Any]] = []
+    for r in combined:
+        key = (str(r["signal_type"]), int(r["signal_id"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(r)
+    return unique
 
-    # Combine, then take last overall by timestamp.
-    combined = list(g3) + list(tel) + list(val)
-    combined.sort(key=lambda r: int(r["timestamp"] or 0), reverse=True)
-    return combined[:limit]
+
+def _pick_newest_and_oldest_s40(
+    pool: list[dict[str, Any]],
+    *,
+    newest_n: int = QUEUE_NEWEST_PER_CYCLE,
+    oldest_n: int = QUEUE_OLDEST_PER_CYCLE,
+    limit: int = MAX_REVIEWS_PER_CYCLE,
+) -> list[dict[str, Any]]:
+    """Take up to `newest_n` newest and `oldest_n` oldest pending reviews."""
+    if not pool:
+        return []
+    by_new = sorted(pool, key=lambda r: int(r.get("timestamp") or 0), reverse=True)
+    by_old = sorted(pool, key=lambda r: int(r.get("timestamp") or 0))
+    picked: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+
+    newest_added = 0
+    for r in by_new:
+        if newest_added >= newest_n or len(picked) >= limit:
+            break
+        key = (str(r["signal_type"]), int(r["signal_id"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        picked.append(r)
+        newest_added += 1
+
+    oldest_added = 0
+    for r in by_old:
+        if oldest_added >= oldest_n or len(picked) >= limit:
+            break
+        key = (str(r["signal_type"]), int(r["signal_id"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        picked.append(r)
+        oldest_added += 1
+
+    return picked[:limit]
+
+
+def _fetch_review_candidates_s40(
+    conn: Any,
+    *,
+    symbol: str | None,
+    limit: int,
+    newest_n: int = QUEUE_NEWEST_PER_CYCLE,
+    oldest_n: int = QUEUE_OLDEST_PER_CYCLE,
+) -> list[dict[str, Any]]:
+    """Pick closed pending reviews: newest + oldest mix per cycle."""
+    if limit <= 0:
+        limit = MAX_REVIEWS_PER_CYCLE
+    pool = _fetch_pending_review_pool_s40(conn, symbol=symbol, pool_limit=max(limit * 10, 50))
+    return _pick_newest_and_oldest_s40(
+        pool, newest_n=newest_n, oldest_n=oldest_n, limit=limit,
+    )
 
 
 def _fetch_signal_snapshot_for_prompt(conn: Any, signal_type: str, signal_id: int) -> dict[str, Any]:
@@ -1321,17 +1372,21 @@ def run_learning_reviews_s40_once(
     *,
     limit: int = MAX_REVIEWS_PER_CYCLE,
     timeout_sec: float = CLAUDE_REVIEW_TIMEOUT_SEC,
+    newest_n: int = QUEUE_NEWEST_PER_CYCLE,
+    oldest_n: int = QUEUE_OLDEST_PER_CYCLE,
 ) -> dict[str, Any]:
     """Background-only review generation. Report commands must stay readonly.
 
-    Throughput: at most `limit` reviews per call; Claude hard-timeout per review.
+    Throughput: at most `limit` reviews per call (2 newest + 3 oldest by default).
     """
     if limit <= 0:
         limit = MAX_REVIEWS_PER_CYCLE
 
     with market_events_readonly_connection() as ro:
         remaining_before = _count_pending_review_queue_s40(ro)
-        candidates = _fetch_review_candidates_s40(ro, symbol=None, limit=limit)
+        candidates = _fetch_review_candidates_s40(
+            ro, symbol=None, limit=limit, newest_n=newest_n, oldest_n=oldest_n,
+        )
         enriched: list[dict[str, Any]] = []
         for c in candidates:
             signal_type = str(c["signal_type"])
@@ -1348,10 +1403,12 @@ def run_learning_reviews_s40_once(
     skipped_timeout = 0
     placeholders = 0
     completed = 0
+    review_secs: list[float] = []
 
     for row in enriched:
         st = str(row["signal_type"])
         sid = int(row["signal_id"])
+        t0 = time.perf_counter()
         analysis_text, outcome_fields, review_status, review_type, timed_out = _generate_review_text_s40(
             signal_type=st,
             signal_row=row,
@@ -1359,6 +1416,7 @@ def run_learning_reviews_s40_once(
             checkpoints=row.get("_checkpoints") or [],
             timeout_sec=timeout_sec,
         )
+        review_secs.append(time.perf_counter() - t0)
         if timed_out:
             skipped_timeout += 1
             continue
@@ -1369,6 +1427,7 @@ def run_learning_reviews_s40_once(
         reviews.append((st, sid, analysis_text, outcome_fields, review_status, review_type))
 
     written = _persist_reviews_s40(reviews)
+    avg_review_sec = round(sum(review_secs) / len(review_secs), 1) if review_secs else 0.0
 
     with market_events_readonly_connection() as ro:
         remaining_after = _count_pending_review_queue_s40(ro)
@@ -1381,7 +1440,168 @@ def run_learning_reviews_s40_once(
         "skipped_timeout": skipped_timeout,
         "remaining_queue": remaining_after,
         "remaining_queue_before": remaining_before,
+        "avg_review_sec": avg_review_sec,
     }
+
+
+def _persist_worker_cycle_ops_s40(
+    *,
+    duration_sec: int,
+    avg_review_sec: float | None,
+    remaining_queue: int,
+) -> None:
+    now = int(time.time())
+    with market_events_connection() as conn:
+        apply_migrations(conn)
+        _set_ops_state(conn, "last_cycle_ended_at", str(now))
+        _set_ops_state(conn, "last_cycle_duration_sec", str(duration_sec))
+        _set_ops_state(conn, "last_remaining_queue", str(remaining_queue))
+        if avg_review_sec is not None and avg_review_sec > 0:
+            prev = _get_ops_state(conn, "avg_review_sec")
+            try:
+                prev_f = float(prev) if prev else avg_review_sec
+            except (TypeError, ValueError):
+                prev_f = avg_review_sec
+            # EMA toward latest cycle average
+            ema = round(0.7 * prev_f + 0.3 * float(avg_review_sec), 2)
+            _set_ops_state(conn, "avg_review_sec", str(ema))
+        conn.commit()
+
+
+def _relative_age(ts: int | None, *, now: int | None = None) -> str:
+    if not ts:
+        return "—"
+    now = now or int(time.time())
+    delta = max(0, now - int(ts))
+    if delta < 60:
+        return f"{delta} sec ago"
+    if delta < 3600:
+        return f"{delta // 60} min ago"
+    if delta < 86400:
+        return f"{delta // 3600} h ago"
+    return f"{delta // 86400} d ago"
+
+
+def _format_eta_minutes(remaining: int, *, reviews_per_cycle: int = MAX_REVIEWS_PER_CYCLE, interval_sec: int = 60) -> str:
+    if remaining <= 0:
+        return "0 min"
+    cycles_needed = (remaining + max(1, reviews_per_cycle) - 1) // max(1, reviews_per_cycle)
+    minutes = max(1, int(round(cycles_needed * interval_sec / 60.0)))
+    return f"{minutes} min"
+
+
+def _daily_placeholder_review_s43(stats: dict[str, Any]) -> str:
+    return "\n".join([
+        "Claude unavailable.",
+        "",
+        f"Signals: {stats.get('signals', 0)}",
+        f"Win rate: {stats.get('win_rate', 0)}%",
+        f"PnL: {stats.get('pnl_usd', 0):+.2f}",
+        f"Best: {stats.get('best_symbol') or '—'}",
+        f"Worst: {stats.get('worst_symbol') or '—'}",
+        "",
+        "Auto daily review postponed.",
+    ])
+
+
+def _generate_daily_claude_review_s43(stats: dict[str, Any]) -> tuple[str, str]:
+    """Return (text, review_status). Never raises."""
+    if not is_claude_configured():
+        return _daily_placeholder_review_s43(stats), REVIEW_STATUS_PENDING_AI
+
+    system = (
+        "You are a concise trading research coach. Write at most 250 words. "
+        "No code changes. English is fine."
+    )
+    user = "\n".join([
+        "Write a short daily performance review for the paper learning pipeline.",
+        "Cover: strongest setups, weakest decisions, why losses happened, recommendation for tomorrow.",
+        "",
+        f"Signals: {stats.get('signals')}",
+        f"Wins: {stats.get('wins')}  Losses: {stats.get('losses')}",
+        f"Win rate: {stats.get('win_rate')}%",
+        f"PnL $: {stats.get('pnl_usd')}",
+        f"Best symbol: {stats.get('best_symbol')}",
+        f"Worst symbol: {stats.get('worst_symbol')}",
+        f"Best pattern: {stats.get('best_pattern')}",
+        f"Worst pattern: {stats.get('worst_pattern')}",
+        f"Avg hold hours: {stats.get('avg_hold_hours')}",
+        f"Avg RR: {stats.get('avg_rr')}",
+    ])
+    try:
+        text = _call_claude_review_bounded_s40(system=system, user=user, timeout_sec=CLAUDE_REVIEW_TIMEOUT_SEC)
+        words = text.split()
+        if len(words) > 250:
+            text = " ".join(words[:250])
+        return text, REVIEW_STATUS_COMPLETE
+    except Exception as exc:
+        logger.warning("s43 daily claude review unavailable: %s", exc)
+        return _daily_placeholder_review_s43(stats), REVIEW_STATUS_PENDING_AI
+
+
+def maybe_emit_daily_performance_s43() -> dict[str, Any]:
+    """At local 22:00 create daily paper performance row + optional Claude review (DB only)."""
+    now = int(time.time())
+    from datetime import datetime
+    dt = datetime.fromtimestamp(now)
+    day_key = dt.strftime("%Y-%m-%d")
+    result: dict[str, Any] = {"emitted": False, "day_key": day_key}
+
+    if dt.hour < DAILY_PERFORMANCE_HOUR:
+        return result
+
+    with market_events_connection() as conn:
+        apply_migrations(conn)
+        if _get_ops_state(conn, "last_daily_performance_s43") == day_key:
+            conn.commit()
+            return result
+
+        from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
+            paper_day_stats_s42,
+        )
+        stats = paper_day_stats_s42(conn)
+        conn.commit()
+
+    review_text, review_status = _generate_daily_claude_review_s43(stats)
+
+    with market_events_connection() as conn:
+        apply_migrations(conn)
+        execute_with_retry(
+            conn,
+            """
+            INSERT OR REPLACE INTO market_events_learning_daily_s43 (
+              day_key, signals, wins, losses, win_rate, pnl_usd,
+              best_symbol, worst_symbol, best_pattern, worst_pattern,
+              avg_hold_hours, avg_rr, claude_review_text, review_status,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                day_key,
+                int(stats.get("signals") or 0),
+                int(stats.get("wins") or 0),
+                int(stats.get("losses") or 0),
+                float(stats.get("win_rate") or 0),
+                float(stats.get("pnl_usd") or 0),
+                stats.get("best_symbol"),
+                stats.get("worst_symbol"),
+                stats.get("best_pattern"),
+                stats.get("worst_pattern"),
+                float(stats.get("avg_hold_hours") or 0),
+                float(stats.get("avg_rr") or 0),
+                review_text,
+                review_status,
+                now,
+                now,
+            ),
+        )
+        _set_ops_state(conn, "last_daily_performance_s43", day_key)
+        conn.commit()
+
+    result["emitted"] = True
+    result["stats"] = stats
+    result["review_status"] = review_status
+    return result
 
 
 def run_learning_worker_s40(
@@ -1391,7 +1611,7 @@ def run_learning_worker_s40(
     max_reviews_per_cycle: int = MAX_REVIEWS_PER_CYCLE,
     claude_timeout_sec: float = CLAUDE_REVIEW_TIMEOUT_SEC,
 ) -> dict[str, Any]:
-    """Minute worker: ingest -> checkpoints -> bounded reviews.
+    """Minute worker: ingest -> checkpoints -> bounded reviews -> paper -> daily.
 
     Heavy Claude/HTTP work always happens outside write connections.
     """
@@ -1426,6 +1646,10 @@ def run_learning_worker_s40(
             paper = run_paper_performance_cycle_s42()
             paper_opened += int(paper.get("opened") or 0)
             paper_ticked += int(paper.get("ticked") or 0)
+            try:
+                maybe_emit_daily_performance_s43()
+            except Exception:
+                logger.exception("s43 daily performance failed")
             duration_sec = int(round(time.perf_counter() - t0))
             last_cycle = {
                 "ingested": int(prep.get("ingested") or 0),
@@ -1435,6 +1659,11 @@ def run_learning_worker_s40(
                 "remaining_queue": int(rev.get("remaining_queue") or 0),
                 "duration_sec": duration_sec,
             }
+            _persist_worker_cycle_ops_s40(
+                duration_sec=duration_sec,
+                avg_review_sec=float(rev.get("avg_review_sec") or 0) or None,
+                remaining_queue=int(rev.get("remaining_queue") or 0),
+            )
             print(format_learning_cycle_report_s40(last_cycle), flush=True)
         except Exception:
             errors += 1
@@ -1459,30 +1688,127 @@ def run_learning_worker_s40(
 
 
 def learning_status_s40() -> str:
+    now = int(time.time())
     with market_events_readonly_connection() as conn:
-        sig_n = conn.execute("SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_signals").fetchone()["n"]
-        cp_n = conn.execute("SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_checkpoints").fetchone()["n"]
-        rev_n = conn.execute("SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_reviews").fetchone()["n"]
+        sig_n = conn.execute(
+            "SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_signals",
+        ).fetchone()["n"]
+        rev_complete = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_reviews
+            WHERE COALESCE(review_status, 'complete') = 'complete'
+            """,
+        ).fetchone()["n"]
         try:
-            pending_ai = conn.execute(
+            placeholder_n = conn.execute(
                 """
                 SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_reviews
-                WHERE COALESCE(review_status, 'complete') = 'pending_ai'
+                WHERE COALESCE(review_type, 'claude') = 'placeholder'
+                   OR COALESCE(review_status, 'complete') = 'pending_ai'
                 """,
             ).fetchone()["n"]
-            remaining = _count_pending_review_queue_s40(conn)
+            pending = _count_pending_review_queue_s40(conn)
+            last_rev = conn.execute(
+                "SELECT MAX(reviewed_at) AS t FROM market_events_signal_learning_s40_reviews",
+            ).fetchone()["t"]
+            avg_review = _get_ops_state(conn, "avg_review_sec")
+            last_cycle_at = _get_ops_state(conn, "last_cycle_ended_at")
+            last_cycle_dur = _get_ops_state(conn, "last_cycle_duration_sec")
         except Exception:
-            pending_ai = 0
-            remaining = max(0, sig_n - rev_n)
-    pending = max(0, sig_n - rev_n)
+            placeholder_n = 0
+            pending = max(0, sig_n - rev_complete)
+            last_rev = None
+            avg_review = None
+            last_cycle_at = None
+            last_cycle_dur = None
+
+        try:
+            from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
+                paper_performance_dashboard_s42,
+            )
+            paper = paper_performance_dashboard_s42(conn)
+            paper_trades = int(paper.get("trades") or 0)
+            paper_pnl = float(paper.get("current_equity") or 100) - 100.0
+            # Prefer total closed pnl if available via equity delta; also show weekly as fallback
+            paper_pnl = float(paper.get("today_pnl_usd") or 0)  # will replace below
+        except Exception:
+            paper_trades = 0
+            paper_pnl = 0.0
+            paper = {}
+
+        try:
+            pnl_row = conn.execute(
+                """
+                SELECT COALESCE(SUM(pnl_usd), 0) AS s
+                FROM market_events_paper_trades_s42
+                WHERE status = 'CLOSED'
+                """,
+            ).fetchone()
+            paper_pnl = float(pnl_row["s"] or 0)
+            paper_trades = conn.execute(
+                "SELECT COUNT(*) AS n FROM market_events_paper_trades_s42",
+            ).fetchone()["n"]
+        except Exception:
+            pass
+
+    try:
+        avg_f = float(avg_review) if avg_review else 0.0
+    except (TypeError, ValueError):
+        avg_f = 0.0
+
+    try:
+        last_cycle_ts = int(last_cycle_at) if last_cycle_at else None
+    except (TypeError, ValueError):
+        last_cycle_ts = None
+
+    if last_cycle_ts and (now - last_cycle_ts) <= WORKER_RUNNING_WINDOW_SEC:
+        worker_status = "RUNNING"
+    elif last_cycle_ts:
+        worker_status = "IDLE"
+    else:
+        worker_status = "UNKNOWN"
+
+    eta = _format_eta_minutes(int(pending or 0))
+    pnl_sign = "+" if paper_pnl >= 0 else ""
+    last_cycle_line = _relative_age(last_cycle_ts, now=now)
+    if last_cycle_dur:
+        last_cycle_line = f"{last_cycle_line} ({last_cycle_dur} sec)"
+
     return "\n".join([
-        "Signal Learning Pipeline S4.0 (Observe Only)",
-        f"- Signals: {sig_n}",
-        f"- Checkpoints: {cp_n}",
-        f"- Reviews: {rev_n}",
-        f"- Pending AI placeholders: {pending_ai}",
-        f"- Remaining review queue: {remaining}",
-        f"- Pending (signals without review): {pending}",
+        "Learning Pipeline",
+        "",
+        "Signals:",
+        str(int(sig_n or 0)),
+        "",
+        "Reviews:",
+        str(int(rev_complete or 0)),
+        "",
+        "Pending:",
+        str(int(pending or 0)),
+        "",
+        "Placeholder:",
+        str(int(placeholder_n or 0)),
+        "",
+        "Last review:",
+        _relative_age(int(last_rev) if last_rev else None, now=now),
+        "",
+        "Average review:",
+        f"{avg_f:.1f} sec" if avg_f else "—",
+        "",
+        "Queue ETA:",
+        eta,
+        "",
+        "Paper trades:",
+        str(int(paper_trades or 0)),
+        "",
+        "Paper PnL:",
+        f"{pnl_sign}${paper_pnl:.0f}" if abs(paper_pnl) >= 1 else f"{pnl_sign}${paper_pnl:.2f}",
+        "",
+        "Worker:",
+        worker_status,
+        "",
+        "Last cycle:",
+        last_cycle_line,
     ])
 
 
@@ -1533,6 +1859,7 @@ __all__ = [
     "MAX_REVIEWS_PER_CYCLE",
     "format_learning_cycle_report_s40",
     "learning_status_s40",
+    "maybe_emit_daily_performance_s43",
     "run_review_s40_cli",
     "run_learning_pipeline_s40_once",
     "run_learning_reviews_s40_once",

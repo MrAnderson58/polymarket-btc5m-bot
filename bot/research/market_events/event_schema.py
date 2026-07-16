@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 52
+SCHEMA_VERSION = 53
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -856,6 +856,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v52")
             current = 52
+
+        if current < 53:
+            conn.executescript(S43_LEARNING_DAILY_PERFORMANCE_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (53, now, "Phase S4.3 Learning queue scheduling and daily performance"),
+            )
+            applied.append("v53")
+            current = 53
 
     if not applied:
         conn.commit()
@@ -3060,6 +3073,27 @@ ALTER TABLE market_events_signal_learning_s40_reviews
     ADD COLUMN review_status TEXT NOT NULL DEFAULT 'complete';
 ALTER TABLE market_events_signal_learning_s40_reviews
     ADD COLUMN review_type TEXT NOT NULL DEFAULT 'claude';
+"""
+
+S43_LEARNING_DAILY_PERFORMANCE_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_learning_daily_s43 (
+    day_key TEXT PRIMARY KEY,
+    signals INTEGER NOT NULL DEFAULT 0,
+    wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    win_rate REAL NOT NULL DEFAULT 0,
+    pnl_usd REAL NOT NULL DEFAULT 0,
+    best_symbol TEXT,
+    worst_symbol TEXT,
+    best_pattern TEXT,
+    worst_pattern TEXT,
+    avg_hold_hours REAL NOT NULL DEFAULT 0,
+    avg_rr REAL NOT NULL DEFAULT 0,
+    claude_review_text TEXT,
+    review_status TEXT NOT NULL DEFAULT 'pending_ai',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
 """
 
 S42_PAPER_PERFORMANCE_OBSERVE_ONLY_DDL = """

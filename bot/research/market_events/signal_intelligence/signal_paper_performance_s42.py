@@ -318,6 +318,10 @@ def _aggregate_trades(rows: list[Any]) -> dict[str, Any]:
             "worst_trade": None,
             "top_symbols": [],
             "worst_symbols": [],
+            "best_pattern": None,
+            "worst_pattern": None,
+            "best_news_category": None,
+            "worst_news_category": None,
             "largest_drawdown_pct": 0.0,
         }
 
@@ -572,6 +576,42 @@ def run_paper_performance_cycle_s42() -> dict[str, Any]:
     return {"opened": opened, "ticked": ticked, **reports}
 
 
+def paper_closed_trades_since_s42(conn: Any, since_ts: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        f"""
+        SELECT * FROM {_TRADES}
+        WHERE status = ? AND closed_at IS NOT NULL AND closed_at >= ?
+        ORDER BY closed_at DESC
+        """,
+        (STATUS_CLOSED, since_ts),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def paper_day_stats_s42(conn: Any, *, day_start: int | None = None) -> dict[str, Any]:
+    """Aggregate closed paper trades for a local calendar day (observe-only)."""
+    start = day_start if day_start is not None else _day_start_local()
+    rows = paper_closed_trades_since_s42(conn, start)
+    # Restrict to this day only (not week).
+    end = start + 86400
+    day_rows = [r for r in rows if int(r.get("closed_at") or 0) < end]
+    agg = _aggregate_trades(day_rows)
+    return {
+        "day_start": start,
+        "signals": agg["signals"],
+        "wins": agg["win"],
+        "losses": agg["loss"],
+        "win_rate": agg["accuracy_pct"],
+        "pnl_usd": agg["paper_pnl_usd"],
+        "best_symbol": (agg.get("top_symbols") or [None])[0],
+        "worst_symbol": (agg.get("worst_symbols") or [None])[0],
+        "best_pattern": agg.get("best_pattern"),
+        "worst_pattern": agg.get("worst_pattern"),
+        "avg_hold_hours": agg["avg_hold_hours"],
+        "avg_rr": agg["avg_rr"],
+    }
+
+
 def paper_performance_dashboard_s42(conn: Any) -> dict[str, Any]:
     equity_row = conn.execute(f"SELECT current_equity FROM {_ACCOUNT} WHERE id = 1").fetchone()
     equity = float(equity_row["current_equity"]) if equity_row else INITIAL_CAPITAL_USD
@@ -689,6 +729,7 @@ def format_paper_performance_s42(
 
 __all__ = [
     "format_paper_performance_s42",
+    "paper_day_stats_s42",
     "paper_performance_dashboard_s42",
     "run_paper_performance_cycle_s42",
 ]
