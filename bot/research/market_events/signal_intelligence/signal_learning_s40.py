@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -25,6 +28,7 @@ from bot.research.market_events.db import (
 )
 from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence.claude_client_g2 import (
+    ClaudeClientError,
     call_claude_g2,
     is_claude_configured,
 )
@@ -37,6 +41,13 @@ HORIZONS_S40: tuple[tuple[str, int], ...] = (
     ("4h", 4 * 60 * 60),
     ("24h", 24 * 60 * 60),
 )
+
+MAX_REVIEWS_PER_CYCLE = 5
+CLAUDE_REVIEW_TIMEOUT_SEC = 15
+REVIEW_STATUS_COMPLETE = "complete"
+REVIEW_STATUS_PENDING_AI = "pending_ai"
+REVIEW_TYPE_CLAUDE = "claude"
+REVIEW_TYPE_PLACEHOLDER = "placeholder"
 
 
 def _exec_sql(conn: Any, sql: str, params: tuple[Any, ...] | list[Any] = ()) -> Any:
@@ -924,9 +935,9 @@ def _fetch_review_candidates_s40(
           ON r.signal_type = 'g3_signal' AND r.signal_id = s.signal_id
         WHERE s.signal_type = 'g3_signal'
           AND (lower(g.status) = 'closed' OR g.closed_at IS NOT NULL OR g.holding_seconds IS NOT NULL)
-          AND r.signal_id IS NULL
+          AND (r.signal_id IS NULL OR COALESCE(r.review_status, 'complete') = 'pending_ai')
           {where_symbol}
-        ORDER BY s.timestamp DESC
+        ORDER BY CASE WHEN r.signal_id IS NULL THEN 0 ELSE 1 END, s.timestamp DESC
         LIMIT ?
         """,
         (*params, limit),
@@ -946,9 +957,9 @@ def _fetch_review_candidates_s40(
           ON r.signal_type = 'telegram_signal' AND r.signal_id = s.signal_id
         WHERE s.signal_type = 'telegram_signal'
           AND lower(f.status) = 'closed'
-          AND r.signal_id IS NULL
+          AND (r.signal_id IS NULL OR COALESCE(r.review_status, 'complete') = 'pending_ai')
           {where_symbol}
-        ORDER BY s.timestamp DESC
+        ORDER BY CASE WHEN r.signal_id IS NULL THEN 0 ELSE 1 END, s.timestamp DESC
         LIMIT ?
         """,
         (*tel_params,),
@@ -967,9 +978,9 @@ def _fetch_review_candidates_s40(
         LEFT JOIN market_events_signal_learning_s40_reviews r
           ON r.signal_type = 'validation_signal' AND r.signal_id = s.signal_id
         WHERE s.signal_type = 'validation_signal'
-          AND r.signal_id IS NULL
+          AND (r.signal_id IS NULL OR COALESCE(r.review_status, 'complete') = 'pending_ai')
           {where_symbol}
-        ORDER BY s.timestamp DESC
+        ORDER BY CASE WHEN r.signal_id IS NULL THEN 0 ELSE 1 END, s.timestamp DESC
         LIMIT ?
         """,
         (*val_params,),
@@ -1010,14 +1021,111 @@ def _fetch_signal_checkpoints(conn: Any, signal_type: str, signal_id: int) -> li
     return [dict(r) for r in rows]
 
 
+def _pattern_label_from_snapshot(snapshot: dict[str, Any]) -> str:
+    raw = snapshot.get("snapshot_pattern_json") or snapshot.get("pattern") or ""
+    if isinstance(raw, dict):
+        data = raw
+    else:
+        try:
+            data = json.loads(raw) if raw else {}
+        except (TypeError, json.JSONDecodeError):
+            text = str(raw).strip()
+            return text[:80] if text else "—"
+    if isinstance(data, dict):
+        for key in ("pattern", "name", "pattern_name", "label", "candidate_state"):
+            val = data.get(key)
+            if val:
+                return str(val)[:80]
+    return "—"
+
+
+def _news_label_from_snapshot(snapshot: dict[str, Any]) -> str:
+    for key in ("snapshot_news_impact", "news", "news_text", "snapshot_news_score"):
+        val = snapshot.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()[:80]
+    return "—"
+
+
+def _placeholder_review_text_s40(
+    *,
+    signal_row: dict[str, Any],
+    snapshot: dict[str, Any],
+) -> str:
+    direction = str(signal_row.get("direction") or "FLAT")
+    news = _news_label_from_snapshot(snapshot)
+    pattern = _pattern_label_from_snapshot(snapshot)
+    return "\n".join([
+        "Claude unavailable.",
+        "",
+        "Market:",
+        direction,
+        "",
+        "News:",
+        news,
+        "",
+        "Pattern:",
+        pattern,
+        "",
+        "Auto review postponed.",
+    ])
+
+
+@contextmanager
+def _s40_claude_http_budget(*, timeout_sec: float = CLAUDE_REVIEW_TIMEOUT_SEC):
+    """Tighten Claude HTTP timeout/retries for this worker only (no global client changes)."""
+    old_timeout = os.environ.get("ME_G2_TIMEOUT_SEC")
+    old_retries = os.environ.get("ME_G2_MAX_RETRIES")
+    os.environ["ME_G2_TIMEOUT_SEC"] = str(max(5, int(timeout_sec)))
+    os.environ["ME_G2_MAX_RETRIES"] = "0"
+    try:
+        yield
+    finally:
+        if old_timeout is None:
+            os.environ.pop("ME_G2_TIMEOUT_SEC", None)
+        else:
+            os.environ["ME_G2_TIMEOUT_SEC"] = old_timeout
+        if old_retries is None:
+            os.environ.pop("ME_G2_MAX_RETRIES", None)
+        else:
+            os.environ["ME_G2_MAX_RETRIES"] = old_retries
+
+
+def _call_claude_review_bounded_s40(
+    *,
+    system: str,
+    user: str,
+    timeout_sec: float = CLAUDE_REVIEW_TIMEOUT_SEC,
+) -> str:
+    """Call Claude with a hard per-review ceiling so the worker never hangs."""
+
+    def _run() -> str:
+        with _s40_claude_http_budget(timeout_sec=timeout_sec):
+            resp = call_claude_g2(
+                system=system,
+                user_content=user,
+                label="s40_review",
+                max_tokens=1200,
+            )
+            return resp.text.strip()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(_run)
+        try:
+            return fut.result(timeout=timeout_sec + 2)
+        except FuturesTimeout as exc:
+            raise TimeoutError(f"claude review timeout after {timeout_sec}s") from exc
+
+
 def _generate_review_text_s40(
     *,
     signal_type: str,
     signal_row: dict[str, Any],
     snapshot: dict[str, Any],
     checkpoints: list[dict[str, Any]],
-) -> tuple[str, dict[str, Any]]:
-    """Return (analysis_text, extracted_outcome_fields)."""
+    timeout_sec: float = CLAUDE_REVIEW_TIMEOUT_SEC,
+) -> tuple[str, dict[str, Any], str, str, bool]:
+    """Return (analysis_text, outcome_fields, review_status, review_type, timed_out)."""
     symbol = str(signal_row["symbol"])
     direction = str(signal_row["direction"] or "LONG")
     entry = signal_row.get("entry")
@@ -1034,7 +1142,6 @@ def _generate_review_text_s40(
     checkpoint_summary = _format_checkpoint_summary_s40(checkpoints)
 
     snapshot_pattern = snapshot.get("snapshot_pattern_json") or "{}"
-    # Keep pattern as a readable substring (do not force JSON parse failures).
     pattern_text = snapshot_pattern if isinstance(snapshot_pattern, str) else json.dumps(snapshot_pattern, ensure_ascii=False)
 
     snapshot_for_prompt = {
@@ -1072,15 +1179,39 @@ def _generate_review_text_s40(
     )
 
     if not is_claude_configured():
-        analysis = "Claude not configured. Stored observe-only snapshot/outcome; no self-review text generated."
-        return analysis, outcome
+        return (
+            _placeholder_review_text_s40(signal_row=signal_row, snapshot=snapshot),
+            outcome,
+            REVIEW_STATUS_PENDING_AI,
+            REVIEW_TYPE_PLACEHOLDER,
+            False,
+        )
 
     try:
-        resp = call_claude_g2(system=system, user_content=user, label="s40_review", max_tokens=1200)
-        return resp.text.strip(), outcome
+        text = _call_claude_review_bounded_s40(
+            system=system, user=user, timeout_sec=timeout_sec,
+        )
+        return text, outcome, REVIEW_STATUS_COMPLETE, REVIEW_TYPE_CLAUDE, False
+    except TimeoutError:
+        return "", outcome, REVIEW_STATUS_PENDING_AI, REVIEW_TYPE_PLACEHOLDER, True
+    except (ClaudeClientError, OSError, ConnectionError) as exc:
+        logger.warning("s40 claude unavailable for review: %s", exc)
+        return (
+            _placeholder_review_text_s40(signal_row=signal_row, snapshot=snapshot),
+            outcome,
+            REVIEW_STATUS_PENDING_AI,
+            REVIEW_TYPE_PLACEHOLDER,
+            False,
+        )
     except Exception as exc:
-        analysis = f"Claude review failed (observe-only): {exc}"
-        return analysis, outcome
+        logger.warning("s40 claude review failed: %s", exc)
+        return (
+            _placeholder_review_text_s40(signal_row=signal_row, snapshot=snapshot),
+            outcome,
+            REVIEW_STATUS_PENDING_AI,
+            REVIEW_TYPE_PLACEHOLDER,
+            False,
+        )
 
 
 def run_learning_pipeline_s40_once(*, limit_ingest: int = 200, limit_checkpoints: int = 200) -> dict[str, Any]:
@@ -1094,22 +1225,23 @@ def run_learning_pipeline_s40_once(*, limit_ingest: int = 200, limit_checkpoints
 
 
 def _persist_reviews_s40(
-    rows: list[tuple[str, int, str, dict[str, Any]]],
+    rows: list[tuple[str, int, str, dict[str, Any], str, str]],
 ) -> int:
     if not rows:
         return 0
     written = 0
     with market_events_connection() as conn:
         apply_migrations(conn)
-        for st, sid, analysis_text, outcome_fields in rows:
+        for st, sid, analysis_text, outcome_fields, review_status, review_type in rows:
             now = int(time.time())
             execute_with_retry(
                 conn,
                 """
                 INSERT OR REPLACE INTO market_events_signal_learning_s40_reviews (
                     signal_type, signal_id, reviewed_at, analysis_text,
-                    win_loss_be, pnl_pct, rr_achieved, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    win_loss_be, pnl_pct, rr_achieved, created_at, updated_at,
+                    review_status, review_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     st,
@@ -1121,6 +1253,8 @@ def _persist_reviews_s40(
                     outcome_fields.get("rr_achieved"),
                     now,
                     now,
+                    review_status,
+                    review_type,
                 ),
             )
             written += 1
@@ -1128,12 +1262,75 @@ def _persist_reviews_s40(
     return written
 
 
-def run_learning_reviews_s40_once(*, limit: int = 100) -> dict[str, Any]:
-    """Background-only review generation. Report commands must stay readonly."""
+def _count_pending_review_queue_s40(conn: Any) -> int:
+    """Closed signals still waiting for a complete Claude review."""
+    g3 = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM market_events_signal_learning_s40_signals s
+        JOIN market_live_signals_g3 g ON g.id = s.signal_id
+        LEFT JOIN market_events_signal_learning_s40_reviews r
+          ON r.signal_type = 'g3_signal' AND r.signal_id = s.signal_id
+        WHERE s.signal_type = 'g3_signal'
+          AND (lower(g.status) = 'closed' OR g.closed_at IS NOT NULL OR g.holding_seconds IS NOT NULL)
+          AND (r.signal_id IS NULL OR COALESCE(r.review_status, 'complete') = 'pending_ai')
+        """,
+    ).fetchone()["n"]
+    tel = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM market_events_signal_learning_s40_signals s
+        JOIN market_events_signal_outcomes_f72 f ON f.event_id = s.signal_id
+        LEFT JOIN market_events_signal_learning_s40_reviews r
+          ON r.signal_type = 'telegram_signal' AND r.signal_id = s.signal_id
+        WHERE s.signal_type = 'telegram_signal'
+          AND lower(f.status) = 'closed'
+          AND (r.signal_id IS NULL OR COALESCE(r.review_status, 'complete') = 'pending_ai')
+        """,
+    ).fetchone()["n"]
+    val = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM market_events_signal_learning_s40_signals s
+        JOIN market_validation_records_g4 v ON v.id = s.signal_id
+        LEFT JOIN market_events_signal_learning_s40_reviews r
+          ON r.signal_type = 'validation_signal' AND r.signal_id = s.signal_id
+        WHERE s.signal_type = 'validation_signal'
+          AND (r.signal_id IS NULL OR COALESCE(r.review_status, 'complete') = 'pending_ai')
+        """,
+    ).fetchone()["n"]
+    return int(g3 or 0) + int(tel or 0) + int(val or 0)
+
+
+def format_learning_cycle_report_s40(stats: dict[str, Any]) -> str:
+    return "\n".join([
+        "Cycle",
+        "",
+        f"Signals ingested: {int(stats.get('ingested') or 0)}",
+        f"Checkpoints: {int(stats.get('checkpoints_written') or 0)}",
+        "",
+        f"Reviews completed: {int(stats.get('reviews_completed') or 0)}",
+        f"Skipped (timeout): {int(stats.get('skipped_timeout') or 0)}",
+        f"Remaining queue: {int(stats.get('remaining_queue') or 0)}",
+        "",
+        f"Duration: {int(stats.get('duration_sec') or 0)} sec",
+    ])
+
+
+def run_learning_reviews_s40_once(
+    *,
+    limit: int = MAX_REVIEWS_PER_CYCLE,
+    timeout_sec: float = CLAUDE_REVIEW_TIMEOUT_SEC,
+) -> dict[str, Any]:
+    """Background-only review generation. Report commands must stay readonly.
+
+    Throughput: at most `limit` reviews per call; Claude hard-timeout per review.
+    """
     if limit <= 0:
-        limit = 100
+        limit = MAX_REVIEWS_PER_CYCLE
 
     with market_events_readonly_connection() as ro:
+        remaining_before = _count_pending_review_queue_s40(ro)
         candidates = _fetch_review_candidates_s40(ro, symbol=None, limit=limit)
         enriched: list[dict[str, Any]] = []
         for c in candidates:
@@ -1147,27 +1344,54 @@ def run_learning_reviews_s40_once(*, limit: int = 100) -> dict[str, Any]:
                 "_checkpoints": cps,
             })
 
-    reviews: list[tuple[str, int, str, dict[str, Any]]] = []
+    reviews: list[tuple[str, int, str, dict[str, Any], str, str]] = []
+    skipped_timeout = 0
+    placeholders = 0
+    completed = 0
+
     for row in enriched:
         st = str(row["signal_type"])
         sid = int(row["signal_id"])
-        analysis_text, outcome_fields = _generate_review_text_s40(
+        analysis_text, outcome_fields, review_status, review_type, timed_out = _generate_review_text_s40(
             signal_type=st,
             signal_row=row,
             snapshot=row.get("_snapshot") or {},
             checkpoints=row.get("_checkpoints") or [],
+            timeout_sec=timeout_sec,
         )
-        reviews.append((st, sid, analysis_text, outcome_fields))
+        if timed_out:
+            skipped_timeout += 1
+            continue
+        if review_type == REVIEW_TYPE_PLACEHOLDER:
+            placeholders += 1
+        else:
+            completed += 1
+        reviews.append((st, sid, analysis_text, outcome_fields, review_status, review_type))
+
     written = _persist_reviews_s40(reviews)
-    return {"review_candidates": len(enriched), "reviews_written": written}
+
+    with market_events_readonly_connection() as ro:
+        remaining_after = _count_pending_review_queue_s40(ro)
+
+    return {
+        "review_candidates": len(enriched),
+        "reviews_written": written,
+        "reviews_completed": completed,
+        "placeholders_written": placeholders,
+        "skipped_timeout": skipped_timeout,
+        "remaining_queue": remaining_after,
+        "remaining_queue_before": remaining_before,
+    }
 
 
 def run_learning_worker_s40(
     *,
     interval_sec: int = 60,
     max_cycles: int | None = None,
+    max_reviews_per_cycle: int = MAX_REVIEWS_PER_CYCLE,
+    claude_timeout_sec: float = CLAUDE_REVIEW_TIMEOUT_SEC,
 ) -> dict[str, Any]:
-    """Minute worker: ingest -> checkpoints -> reviews.
+    """Minute worker: ingest -> checkpoints -> bounded reviews.
 
     Heavy Claude/HTTP work always happens outside write connections.
     """
@@ -1175,24 +1399,43 @@ def run_learning_worker_s40(
     ingested = 0
     checkpoints = 0
     reviews = 0
+    reviews_completed = 0
+    skipped_timeout = 0
     paper_opened = 0
     paper_ticked = 0
     errors = 0
+    last_cycle: dict[str, Any] = {}
 
     while True:
         cycles += 1
+        t0 = time.perf_counter()
         try:
             prep = run_learning_pipeline_s40_once()
             ingested += int(prep.get("ingested") or 0)
             checkpoints += int(prep.get("checkpoints_written") or 0)
-            rev = run_learning_reviews_s40_once()
+            rev = run_learning_reviews_s40_once(
+                limit=max_reviews_per_cycle,
+                timeout_sec=claude_timeout_sec,
+            )
             reviews += int(rev.get("reviews_written") or 0)
+            reviews_completed += int(rev.get("reviews_completed") or 0)
+            skipped_timeout += int(rev.get("skipped_timeout") or 0)
             from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
                 run_paper_performance_cycle_s42,
             )
             paper = run_paper_performance_cycle_s42()
             paper_opened += int(paper.get("opened") or 0)
             paper_ticked += int(paper.get("ticked") or 0)
+            duration_sec = int(round(time.perf_counter() - t0))
+            last_cycle = {
+                "ingested": int(prep.get("ingested") or 0),
+                "checkpoints_written": int(prep.get("checkpoints_written") or 0),
+                "reviews_completed": int(rev.get("reviews_completed") or 0) + int(rev.get("placeholders_written") or 0),
+                "skipped_timeout": int(rev.get("skipped_timeout") or 0),
+                "remaining_queue": int(rev.get("remaining_queue") or 0),
+                "duration_sec": duration_sec,
+            }
+            print(format_learning_cycle_report_s40(last_cycle), flush=True)
         except Exception:
             errors += 1
             logger.exception("s40 worker cycle failed")
@@ -1206,9 +1449,12 @@ def run_learning_worker_s40(
         "ingested": ingested,
         "checkpoints_written": checkpoints,
         "reviews_written": reviews,
+        "reviews_completed": reviews_completed,
+        "skipped_timeout": skipped_timeout,
         "paper_opened": paper_opened,
         "paper_ticked": paper_ticked,
         "errors": errors,
+        "last_cycle": last_cycle,
     }
 
 
@@ -1217,12 +1463,25 @@ def learning_status_s40() -> str:
         sig_n = conn.execute("SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_signals").fetchone()["n"]
         cp_n = conn.execute("SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_checkpoints").fetchone()["n"]
         rev_n = conn.execute("SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_reviews").fetchone()["n"]
+        try:
+            pending_ai = conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_reviews
+                WHERE COALESCE(review_status, 'complete') = 'pending_ai'
+                """,
+            ).fetchone()["n"]
+            remaining = _count_pending_review_queue_s40(conn)
+        except Exception:
+            pending_ai = 0
+            remaining = max(0, sig_n - rev_n)
     pending = max(0, sig_n - rev_n)
     return "\n".join([
         "Signal Learning Pipeline S4.0 (Observe Only)",
         f"- Signals: {sig_n}",
         f"- Checkpoints: {cp_n}",
         f"- Reviews: {rev_n}",
+        f"- Pending AI placeholders: {pending_ai}",
+        f"- Remaining review queue: {remaining}",
         f"- Pending (signals without review): {pending}",
     ])
 
@@ -1271,6 +1530,8 @@ def run_review_s40_cli(*, symbol: str | None = None, last: int = 20) -> str:
 
 
 __all__ = [
+    "MAX_REVIEWS_PER_CYCLE",
+    "format_learning_cycle_report_s40",
     "learning_status_s40",
     "run_review_s40_cli",
     "run_learning_pipeline_s40_once",

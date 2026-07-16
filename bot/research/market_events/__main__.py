@@ -197,6 +197,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--paper-only", action="store_true", default=True)
     parser.add_argument("--max-cycles", type=int, default=None, help="Limit poll cycles (testing)")
+    parser.add_argument(
+        "--max-reviews-per-cycle",
+        type=int,
+        default=5,
+        help="learning-worker: max Claude reviews per cycle (default 5)",
+    )
     parser.add_argument("--heartbeat-sec", type=int, default=None, help="Heartbeat interval (default 60)")
     parser.add_argument("--seconds", type=int, default=30, help="Duration for collector-path-audit")
     parser.add_argument("--days", type=int, default=7)
@@ -1022,7 +1028,10 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.signal_intelligence.signal_learning_s40 import (
             run_learning_worker_s40,
         )
-        stats = run_learning_worker_s40(max_cycles=args.max_cycles)
+        stats = run_learning_worker_s40(
+            max_cycles=args.max_cycles,
+            max_reviews_per_cycle=int(getattr(args, "max_reviews_per_cycle", None) or 5),
+        )
         print(
             "S4.1 cycles={cycles} ingested={ingested} checkpoints={checkpoints_written} "
             "reviews={reviews_written} paper_opened={paper_opened} paper_ticked={paper_ticked} "

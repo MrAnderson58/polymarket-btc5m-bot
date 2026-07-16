@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 51
+SCHEMA_VERSION = 52
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -843,6 +843,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v51")
             current = 51
+
+        if current < 52:
+            conn.executescript(S41_LEARNING_REVIEW_STATUS_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (52, now, "FIX-S4.2 Learning worker review status / throughput"),
+            )
+            applied.append("v52")
+            current = 52
 
     if not applied:
         conn.commit()
@@ -3040,6 +3053,13 @@ CREATE TABLE IF NOT EXISTS market_events_signal_learning_s40_reviews (
 );
 
 CREATE INDEX IF NOT EXISTS idx_s40_reviews_type_sig ON market_events_signal_learning_s40_reviews(signal_type, signal_id);
+"""
+
+S41_LEARNING_REVIEW_STATUS_DDL = """
+ALTER TABLE market_events_signal_learning_s40_reviews
+    ADD COLUMN review_status TEXT NOT NULL DEFAULT 'complete';
+ALTER TABLE market_events_signal_learning_s40_reviews
+    ADD COLUMN review_type TEXT NOT NULL DEFAULT 'claude';
 """
 
 S42_PAPER_PERFORMANCE_OBSERVE_ONLY_DDL = """
