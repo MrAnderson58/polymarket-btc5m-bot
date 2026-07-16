@@ -301,6 +301,19 @@ class ResearchG2Tests(unittest.TestCase):
             self.assertIn("CLAUDE HEALTH", text)
             self.assertIn("Requests:", text)
 
+    def test_claude_health_is_readonly(self) -> None:
+        """FIX-G2.1: health must not INSERT into g2 ops state."""
+        with conn_ctx(self.db) as conn:
+            apply_migrations(conn)
+            before = conn.execute(
+                "SELECT COUNT(*) AS n FROM market_events_g2_ops_state",
+            ).fetchone()["n"]
+            format_claude_health_report(conn)
+            after = conn.execute(
+                "SELECT COUNT(*) AS n FROM market_events_g2_ops_state",
+            ).fetchone()["n"]
+            self.assertEqual(before, after)
+
     def test_run_research_g2_records_trace(self) -> None:
         from bot.research.market_events.signal_intelligence.signal_trace_f51 import (
             STAGE_G2_COMPLETED,

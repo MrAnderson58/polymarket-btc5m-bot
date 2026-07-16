@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -20,6 +21,79 @@ def _parse_symbols(raw: str | None) -> list[str] | None:
     if not raw:
         return None
     return [s.strip() for s in raw.split(",") if s.strip()]
+
+
+def _audit_s42_db_path(*, command: str) -> int:
+    """FIX-S4.3B: print DB path diagnostics before S4 CLI commands.
+
+    Returns 0 if S4.2 review columns are present (or backend is not sqlite).
+    Returns 1 with a clear migrate hint if schema is older than S4.2.
+    Does not change learning / Decision / G3 logic.
+    """
+    from bot.research.market_events.db_config import resolve_market_events_db_config
+    from bot.research.market_events.event_schema import SCHEMA_VERSION
+
+    cfg = resolve_market_events_db_config()
+    path = cfg.sqlite_path
+    exists = path.exists()
+    user_version: int | str | None = None
+    max_version: int | str | None = None
+    has_review_status = False
+    has_review_type = False
+
+    if cfg.backend == "sqlite":
+        if exists:
+            try:
+                conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+                try:
+                    user_version = conn.execute("PRAGMA user_version").fetchone()[0]
+                    try:
+                        max_version = conn.execute(
+                            "SELECT MAX(version) FROM market_events_migrations",
+                        ).fetchone()[0]
+                    except sqlite3.OperationalError:
+                        max_version = None
+                    try:
+                        cols = {
+                            str(r[1])
+                            for r in conn.execute(
+                                "PRAGMA table_info(market_events_signal_learning_s40_reviews)",
+                            )
+                        }
+                        has_review_status = "review_status" in cols
+                        has_review_type = "review_type" in cols
+                    except sqlite3.OperationalError:
+                        has_review_status = False
+                        has_review_type = False
+                finally:
+                    conn.close()
+            except sqlite3.Error as exc:
+                print(f"[DEBUG] DB Path Audit ({command}): open failed: {exc}", file=sys.stderr)
+        else:
+            has_review_status = False
+            has_review_type = False
+    else:
+        # Non-sqlite: still print resolved config; column check is sqlite-focused.
+        has_review_status = True
+        has_review_type = True
+
+    print(f"[DEBUG] DB Path Audit ({command})", file=sys.stderr)
+    print(f"DB path: {path}", file=sys.stderr)
+    print(f"Schema version: {SCHEMA_VERSION}", file=sys.stderr)
+    print(f"SQLite file exists: {exists}", file=sys.stderr)
+    print(f"PRAGMA user_version: {user_version}", file=sys.stderr)
+    print(f"MAX(version): {max_version}", file=sys.stderr)
+    print(f"Backend: {cfg.backend}", file=sys.stderr)
+
+    if cfg.backend == "sqlite" and (not has_review_status or not has_review_type):
+        print(
+            "\nDatabase schema is older than S4.2.\n"
+            "Run:\n"
+            "python -m bot.research.market_events market-event-migrate\n",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -489,8 +563,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "claude-health":
         from bot.research.market_events.signal_intelligence.claude_ops_g2 import format_claude_health_report
-        with market_events_connection() as conn:
-            apply_migrations(conn)
+        # FIX-G2.1: pure read-only — no apply_migrations / INSERT from health path.
+        with market_events_readonly_connection() as conn:
             print(format_claude_health_report(conn))
         return 0
 
@@ -1010,28 +1084,67 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "learning-status":
+        if _audit_s42_db_path(command="learning-status") != 0:
+            return 1
         from bot.research.market_events.signal_intelligence.signal_learning_s40 import (
             learning_status_s40,
         )
-        print(learning_status_s40())
+        try:
+            print(learning_status_s40())
+        except sqlite3.OperationalError as exc:
+            if "review_status" in str(exc) or "review_type" in str(exc):
+                print(
+                    "Database schema is older than S4.2.\n"
+                    "Run:\n"
+                    "python -m bot.research.market_events market-event-migrate",
+                    file=sys.stderr,
+                )
+                return 1
+            raise
         return 0
 
     if args.command == "review":
+        if _audit_s42_db_path(command="review") != 0:
+            return 1
         from bot.research.market_events.signal_intelligence.signal_learning_s40 import (
             run_review_s40_cli,
         )
         symbol = getattr(args, "symbol", None) or getattr(args, "message_text", None)
-        print(run_review_s40_cli(symbol=symbol, last=int(getattr(args, "last", None) or 20)))
+        try:
+            print(run_review_s40_cli(symbol=symbol, last=int(getattr(args, "last", None) or 20)))
+        except sqlite3.OperationalError as exc:
+            if "review_status" in str(exc) or "review_type" in str(exc):
+                print(
+                    "Database schema is older than S4.2.\n"
+                    "Run:\n"
+                    "python -m bot.research.market_events market-event-migrate",
+                    file=sys.stderr,
+                )
+                return 1
+            raise
         return 0
 
     if args.command == "learning-worker":
+        if _audit_s42_db_path(command="learning-worker") != 0:
+            return 1
         from bot.research.market_events.signal_intelligence.signal_learning_s40 import (
             run_learning_worker_s40,
         )
-        stats = run_learning_worker_s40(
-            max_cycles=args.max_cycles,
-            max_reviews_per_cycle=int(getattr(args, "max_reviews_per_cycle", None) or 5),
-        )
+        try:
+            stats = run_learning_worker_s40(
+                max_cycles=args.max_cycles,
+                max_reviews_per_cycle=int(getattr(args, "max_reviews_per_cycle", None) or 5),
+            )
+        except sqlite3.OperationalError as exc:
+            if "review_status" in str(exc) or "review_type" in str(exc):
+                print(
+                    "Database schema is older than S4.2.\n"
+                    "Run:\n"
+                    "python -m bot.research.market_events market-event-migrate",
+                    file=sys.stderr,
+                )
+                return 1
+            raise
         print(
             "S4.1 cycles={cycles} ingested={ingested} checkpoints={checkpoints_written} "
             "reviews={reviews_written} paper_opened={paper_opened} paper_ticked={paper_ticked} "
@@ -1040,6 +1153,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if stats["errors"] and not stats["ingested"] and not stats["reviews_written"] else 0
 
     if args.command == "paper-performance":
+        if _audit_s42_db_path(command="paper-performance") != 0:
+            return 1
         from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
             format_paper_performance_s42,
         )
@@ -1048,13 +1163,24 @@ def main(argv: list[str] | None = None) -> int:
             symbol = symbol.upper().replace("USDT", "")
         elif getattr(args, "message_text", None) and not args.today and not args.week:
             symbol = str(args.message_text).upper().replace("USDT", "")
-        with market_events_readonly_connection() as conn:
-            print(format_paper_performance_s42(
-                conn,
-                symbol=symbol,
-                today=bool(args.today),
-                week=bool(args.week),
-            ))
+        try:
+            with market_events_readonly_connection() as conn:
+                print(format_paper_performance_s42(
+                    conn,
+                    symbol=symbol,
+                    today=bool(args.today),
+                    week=bool(args.week),
+                ))
+        except sqlite3.OperationalError as exc:
+            if "review_status" in str(exc) or "review_type" in str(exc):
+                print(
+                    "Database schema is older than S4.2.\n"
+                    "Run:\n"
+                    "python -m bot.research.market_events market-event-migrate",
+                    file=sys.stderr,
+                )
+                return 1
+            raise
         return 0
 
     if args.command == "reversal-diagnostics":

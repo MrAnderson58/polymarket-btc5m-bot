@@ -67,6 +67,30 @@ def get_daily_usage(conn: Any) -> dict[str, Any]:
     }
 
 
+def get_daily_usage_readonly(conn: Any) -> dict[str, Any]:
+    """SELECT-only daily usage for claude-health (no INSERT / quota reset)."""
+    today = _utc_day()
+    quota_day = _get_ops(conn, "quota_day", today)
+    if quota_day != today:
+        # Day rolled over; health must not write a reset — show empty today.
+        return {
+            "quota_day": today,
+            "requests_today": 0,
+            "limit": G2_DAILY_REQUEST_LIMIT,
+            "input_tokens_today": 0,
+            "output_tokens_today": 0,
+            "cost_usd_today": 0.0,
+        }
+    return {
+        "quota_day": quota_day,
+        "requests_today": int(_get_ops(conn, "requests_today", "0")),
+        "limit": G2_DAILY_REQUEST_LIMIT,
+        "input_tokens_today": int(_get_ops(conn, "input_tokens_today", "0")),
+        "output_tokens_today": int(_get_ops(conn, "output_tokens_today", "0")),
+        "cost_usd_today": float(_get_ops(conn, "cost_usd_today", "0")),
+    }
+
+
 def can_make_claude_request(conn: Any) -> tuple[bool, str | None]:
     _ensure_quota_day(conn)
     used = int(_get_ops(conn, "requests_today", "0"))
@@ -132,7 +156,7 @@ def format_ts(ts_raw: str) -> str:
 
 
 def format_claude_health_report(conn: Any) -> str:
-    usage = get_daily_usage(conn)
+    usage = get_daily_usage_readonly(conn)
     model = default_model()
     last_ok = format_ts(_get_ops(conn, "last_success_at"))
     last_ok_model = _get_ops(conn, "last_success_model") or "—"
