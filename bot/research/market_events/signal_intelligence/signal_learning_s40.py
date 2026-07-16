@@ -39,6 +39,15 @@ HORIZONS_S40: tuple[tuple[str, int], ...] = (
 )
 
 
+def _exec_sql(conn: Any, sql: str, params: tuple[Any, ...] | list[Any] = ()) -> Any:
+    """Execute SQL; on failure log the full statement for worker diagnostics."""
+    try:
+        return conn.execute(sql, params)
+    except Exception:
+        logger.exception("S4 worker failed. SQL=%s params=%s", sql.strip(), params)
+        raise
+
+
 def _safe_float(x: Any) -> float | None:
     if x is None:
         return None
@@ -445,9 +454,10 @@ def ingest_new_s40_signals(conn: Any, *, limit: int = 200) -> int:
 
         else:
             # replay_complete / rejected_candidate — derive entry/stop/tp from outcome row + rr
-            out = conn.execute(
+            out = _exec_sql(
+                conn,
                 """
-                SELECT o.price_entry, o.best_rr, c.direction,
+                SELECT o.price_entry, o.best_rr, COALESCE(o.direction, c.direction) AS direction,
                        c.funding_score, c.oi_score, c.volume_score, c.atr_score,
                        c.fear_greed, c.trend_score, c.candidate_state, c.rejection_reason, c.confidence
                 FROM market_candidate_outcomes_g32 o
@@ -652,13 +662,14 @@ def _ensure_checkpoint_for_signal(
 
     elif signal_type == "validation_signal":
         # Best-effort: validation signals use underlying g3_signal when possible.
-        s = conn.execute(
+        s = _exec_sql(
+            conn,
             """
-            SELECT s.source_type, s.source_id, v.direction
-            FROM market_events_signal_learning_s40_signals ss
-            JOIN market_validation_records_g4 s ON ss.signal_id = s.id AND ss.signal_type = 'validation_signal'
-            LEFT JOIN market_validation_records_g4 v ON v.id = s.id
-            WHERE ss.signal_type = 'validation_signal' AND ss.signal_id = ?
+            SELECT s.source_type, s.source_id, s.direction
+            FROM market_validation_records_g4 s
+            JOIN market_events_signal_learning_s40_signals ss
+              ON ss.signal_id = s.id AND ss.signal_type = 'validation_signal'
+            WHERE ss.signal_id = ?
             """,
             (signal_id,),
         ).fetchone()
@@ -683,14 +694,15 @@ def _ensure_checkpoint_for_signal(
                     max_profit_pct = _safe_float(g3["max_profit_pct"])
                     max_drawdown_pct = _safe_float(g3["max_drawdown_pct"])
             elif source_type in ("replay_complete", "rejected_candidate"):
-                out = conn.execute(
+                out = _exec_sql(
+                    conn,
                     """
-                    SELECT price_entry, best_rr, would_hit_tp, would_hit_sl,
-                           price_15m, price_1h, price_4h, price_24h,
-                           direction
-                    FROM market_candidate_outcomes_g32
-                    JOIN market_candidate_g31 ON market_candidate_g31.id = market_candidate_outcomes_g32.candidate_id
-                    WHERE market_candidate_outcomes_g32.id = ?
+                    SELECT o.price_entry, o.best_rr, o.would_hit_tp, o.would_hit_sl,
+                           o.price_15m, o.price_1h, o.price_4h, o.price_24h,
+                           COALESCE(o.direction, c.direction) AS direction
+                    FROM market_candidate_outcomes_g32 o
+                    JOIN market_candidate_g31 c ON c.id = o.candidate_id
+                    WHERE o.id = ?
                     """,
                     (source_id,),
                 ).fetchone()
@@ -900,7 +912,8 @@ def _fetch_review_candidates_s40(
 
     # Lane-specific closed detection (best-effort).
     # G3 closed
-    g3 = conn.execute(
+    g3 = _exec_sql(
+        conn,
         f"""
         SELECT 'g3_signal' AS signal_type, s.signal_id, s.symbol, s.direction, s.timestamp,
                s.entry, s.stop, s.tp1, s.tp2,
@@ -921,7 +934,8 @@ def _fetch_review_candidates_s40(
 
     # Telegram closed
     tel_params = params + [limit]
-    tel = conn.execute(
+    tel = _exec_sql(
+        conn,
         f"""
         SELECT 'telegram_signal' AS signal_type, s.signal_id, s.symbol, s.direction, s.timestamp,
                s.entry, s.stop, s.tp1, s.tp2,
@@ -942,7 +956,8 @@ def _fetch_review_candidates_s40(
 
     # Validation closed (all rows are effectively "closed")
     val_params = params + [limit]
-    val = conn.execute(
+    val = _exec_sql(
+        conn,
         f"""
         SELECT 'validation_signal' AS signal_type, s.signal_id, s.symbol, s.direction, s.timestamp,
                s.entry, s.stop, s.tp1, s.tp2,
@@ -1178,9 +1193,9 @@ def run_learning_worker_s40(
             paper = run_paper_performance_cycle_s42()
             paper_opened += int(paper.get("opened") or 0)
             paper_ticked += int(paper.get("ticked") or 0)
-        except Exception as exc:
+        except Exception:
             errors += 1
-            logger.warning("s40 worker cycle failed: %s", exc)
+            logger.exception("s40 worker cycle failed")
 
         if max_cycles is not None and cycles >= max_cycles:
             break
