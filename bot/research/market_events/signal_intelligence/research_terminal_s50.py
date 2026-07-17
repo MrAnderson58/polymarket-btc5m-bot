@@ -216,6 +216,7 @@ def _call_claude_research_s50(
     image_path: str | None = None,
     telegram_user: str | None = None,
     artifacts_used: list[int] | None = None,
+    max_tokens: int = 2048,
 ) -> str:
     if not is_claude_configured():
         return "Claude not configured (ANTHROPIC_API_KEY missing)."
@@ -244,7 +245,7 @@ def _call_claude_research_s50(
                 system=system,
                 user_content=content,
                 label=f"s50_{command}",
-                max_tokens=2048,
+                max_tokens=max_tokens,
             )
         duration = (time.perf_counter() - t0) * 1000.0
         _record_request_s50(

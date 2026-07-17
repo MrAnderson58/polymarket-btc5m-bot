@@ -234,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
             "learning-worker",
             "paper-performance",
             "research-ai",
+            "research-audit",
             "research-cost",
             "research-history",
             "research-artifacts",
@@ -1154,6 +1155,21 @@ def main(argv: list[str] | None = None) -> int:
         sym = (getattr(args, "symbol", None) or "BTC").upper().replace("USDT", "")
         with telegram_claude_session():
             print(run_ai_s50_cli(symbol=sym))
+        return 0
+
+    if args.command == "research-audit":
+        from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
+        from bot.research.market_events.signal_intelligence.audit_engine_s51 import run_audit_s51_cli
+        # Allow: research-audit --symbol BTC | research-audit BTC | research-audit system
+        raw = (
+            getattr(args, "symbol", None)
+            or getattr(args, "message_text", None)
+            or "BTC"
+        )
+        raw = str(raw).strip()
+        system = raw.lower() in {"system", "sys", "all"}
+        with telegram_claude_session():
+            print(run_audit_s51_cli(symbol=None if system else raw, system=system))
         return 0
 
     if args.command == "research-compare":

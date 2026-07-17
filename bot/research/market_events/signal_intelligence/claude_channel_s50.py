@@ -54,7 +54,7 @@ def claude_call_allowed() -> tuple[bool, str | None]:
         return True, None
     if s50_automatic_enabled():
         return True, None
-    return False, "telegram_only: Claude is manual-only (S5.0). Use Telegram /ai /analyze /compare."
+    return False, "telegram_only: Claude is manual-only (S5.0). Use Telegram /ai /audit /analyze /compare."
 
 
 @contextmanager

@@ -28,6 +28,7 @@ SUPPORTED_COMMANDS = frozenset({
     "/vision",
     "/analyze",
     "/ai",
+    "/audit",
     "/compare",
     "/cost",
     "/history",
@@ -57,6 +58,7 @@ _WRITE_COMMANDS = frozenset({
     "/watch",
     "/history-backfill",
     "/ai",
+    "/audit",
     "/compare",
     "/analyze",
 })
@@ -130,6 +132,9 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
             "",
             "/status  /health",
             "/market  /ai BTC  /analyze BTC",
+            "/audit BTC",
+            "/audit system",
+            "/ai BTC --audit",
             "/compare BTC  /cost  /history  /artifacts BTC",
             "/candidates  /top",
             "/replay  /score",
@@ -213,10 +218,25 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
             return dispatch_analyze_command_s50(args)
     if cmd == "/ai":
         from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
+        # Alias: /ai BTC --audit → /audit BTC
+        if any(a.lower() in {"--audit", "audit"} for a in args[1:]):
+            from bot.research.market_events.signal_intelligence.audit_engine_s51 import (
+                run_audit_s51_cli,
+            )
+            sym = args[0] if args else "BTC"
+            with telegram_claude_session():
+                return run_audit_s51_cli(symbol=sym)
         from bot.research.market_events.signal_intelligence.research_terminal_s50 import run_ai_s50_cli
         sym = args[0] if args else "BTC"
         with telegram_claude_session():
             return run_ai_s50_cli(symbol=sym)
+    if cmd == "/audit":
+        from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
+        from bot.research.market_events.signal_intelligence.audit_engine_s51 import (
+            dispatch_audit_command_s51,
+        )
+        with telegram_claude_session():
+            return dispatch_audit_command_s51(args)
     if cmd == "/compare":
         from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
         from bot.research.market_events.signal_intelligence.research_terminal_s50 import run_compare_s50_cli
