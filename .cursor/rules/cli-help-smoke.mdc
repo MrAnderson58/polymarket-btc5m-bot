@@ -1,0 +1,51 @@
+---
+description: Stage done only after clean git, commit, push, and post-pull CLI smoke
+alwaysApply: true
+---
+
+# CLI stage completion gate
+
+A market_events CLI stage is **not** complete until **all four** checks pass.
+Do not say "готово" / "done" if any item fails.
+
+## Mandatory checklist
+
+1. **`git status` is clean** for the stage files (no leftover unstaged/uncommitted stage work claimed as done).
+2. **`git commit` executed** — the command registration and handlers are in a real commit on the branch.
+3. **`git push` executed** — the commit is on the remote tracking branch (`origin/...`).
+4. **Post-pull verification** — after `git pull` (or equivalent checkout of the pushed commit) on a clean tree, the command actually works:
+
+```bash
+git status                    # must be clean for claimed stage
+git rev-parse HEAD            # show commit that was pushed
+python -m bot.research.market_events --help | grep <command>
+python -m bot.research.market_events <command>   # or documented flags; must not be "invalid choice"
+```
+
+For learning/paper stages, at minimum:
+
+```bash
+python -m bot.research.market_events --help | grep learning
+python -m bot.research.market_events --help | grep review
+python -m bot.research.market_events --help | grep paper
+```
+
+## Why
+
+Local working-tree registration is not "shipped". Several times the agent reported done while the machine after pull still lacked the command. Only remote HEAD that survives `git pull` counts.
+
+## Registration requirements
+
+A command is registered only if both exist in the **pushed** commit:
+
+1. name in `choices=(...)` in `__main__.py`
+2. matching `if args.command == "...":` dispatch
+
+Prefer verifying with real `--help` / command invocation over grepping source alone.
+
+## Incomplete if
+
+- command missing from `--help`
+- changes only in working tree / uncommitted
+- committed but not pushed
+- pushed, but post-pull run fails with `invalid choice` / unknown command

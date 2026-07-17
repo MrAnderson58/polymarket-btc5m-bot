@@ -1,0 +1,48 @@
+---
+description: Before claiming a stage done, show git evidence; after commit show log and status
+alwaysApply: true
+---
+
+# Stage shipping evidence gate
+
+Do **not** write that a stage is implemented / "готово" / "S5.x реализован" until you have shown live git evidence in the same turn.
+
+## Before claiming implemented
+
+Run and **paste** (or clearly quote) in the reply:
+
+```bash
+git diff --stat
+```
+
+If the stage is already committed, instead show:
+
+```bash
+git show --stat HEAD
+# or
+git diff <base>..HEAD --stat
+```
+
+Also confirm the stage files exist on disk (e.g. `ls` / `--help | grep <command>`).
+
+## After commit (same turn)
+
+```bash
+git log --oneline -1
+git status
+```
+
+## After push (required for CLI stages)
+
+Keep following `.cursor/rules/cli-help-smoke.mdc`:
+
+1. `git push` succeeded
+2. `git rev-parse HEAD` matches remote
+3. `python -m bot.research.market_events --help | grep <command>`
+
+## Never claim done when
+
+- changes only in working tree
+- committed but not pushed
+- agent workspace HEAD differs from the machine the user is checking (tell them to `git pull`)
+- inventing "already shipped" without showing `git log` / remote SHA
