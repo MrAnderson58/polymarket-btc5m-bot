@@ -27,6 +27,9 @@ from bot.research.market_events.db import (
     market_events_readonly_connection,
 )
 from bot.research.market_events.event_schema import apply_migrations
+from bot.research.market_events.signal_intelligence.claude_channel_s50 import (
+    claude_call_allowed,
+)
 from bot.research.market_events.signal_intelligence.claude_client_g2 import (
     ClaudeClientError,
     call_claude_g2,
@@ -1156,6 +1159,56 @@ def _placeholder_review_text_s40(
     ])
 
 
+def _local_review_text_s40(
+    *,
+    signal_row: dict[str, Any],
+    snapshot: dict[str, Any],
+    checkpoints: list[dict[str, Any]] | None = None,
+) -> str:
+    """Deterministic local review when automatic Claude is disabled (S5.0 / BUG-S5.0)."""
+    direction = str(signal_row.get("direction") or "FLAT")
+    symbol = str(signal_row.get("symbol") or "—")
+    pnl_pct = _safe_float(signal_row.get("pnl_pct"))
+    win_loss = _win_loss_be(pnl_pct)
+    rr = _safe_float(signal_row.get("risk_reward") or signal_row.get("rr"))
+    holding = signal_row.get("holding_seconds")
+    news = _news_label_from_snapshot(snapshot)
+    pattern = _pattern_label_from_snapshot(snapshot)
+    conf = snapshot.get("snapshot_decision_confidence")
+    trend = snapshot.get("snapshot_trend")
+    cp_lines = _format_checkpoint_summary_s40(checkpoints or [])
+
+    hold_h = None
+    try:
+        if holding is not None:
+            hold_h = round(float(holding) / 3600.0, 2)
+    except (TypeError, ValueError):
+        hold_h = None
+
+    lines = [
+        "Local Review (automatic Claude disabled)",
+        "",
+        f"Symbol: {symbol}",
+        f"Direction: {direction}",
+        f"Outcome: {win_loss}",
+        f"PnL: {pnl_pct if pnl_pct is not None else '—'}%",
+        f"RR: {rr if rr is not None else '—'}",
+        f"Hold: {hold_h if hold_h is not None else '—'}h",
+        "",
+        "Market context:",
+        f"  Trend: {trend or '—'}",
+        f"  News: {news}",
+        f"  Pattern: {pattern}",
+        f"  Decision confidence: {conf if conf is not None else '—'}",
+        "",
+        "Horizons:",
+        cp_lines,
+        "",
+        "Note: Claude review available via Telegram /ai or /analyze.",
+    ]
+    return "\n".join(lines)
+
+
 @contextmanager
 def _s40_claude_http_budget(*, timeout_sec: float = CLAUDE_REVIEW_TIMEOUT_SEC):
     """Tighten Claude HTTP timeout/retries for this worker only (no global client changes)."""
@@ -1263,14 +1316,20 @@ def _generate_review_text_s40(
         checkpoint_summary=checkpoint_summary,
     )
 
-    if not is_claude_configured():
+    # BUG-S5.0: automatic=false / telegram_only must NOT skip reviews.
+    # Use a complete local review so Pending drains without Claude.
+    claude_ok, block_reason = claude_call_allowed()
+    use_claude = bool(is_claude_configured() and claude_ok)
+    if not use_claude:
         return (
-            _placeholder_review_text_s40(signal_row=signal_row, snapshot=snapshot),
+            _local_review_text_s40(
+                signal_row=signal_row, snapshot=snapshot, checkpoints=checkpoints,
+            ),
             outcome,
-            REVIEW_STATUS_PENDING_AI,
-            REVIEW_TYPE_PLACEHOLDER,
+            REVIEW_STATUS_COMPLETE,
+            REVIEW_TYPE_LOCAL,
             False,
-            PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE,
+            None,
         )
 
     try:
@@ -1279,34 +1338,51 @@ def _generate_review_text_s40(
         )
         return text, outcome, REVIEW_STATUS_COMPLETE, REVIEW_TYPE_CLAUDE, False, None
     except TimeoutError:
-        return "", outcome, REVIEW_STATUS_PENDING_AI, REVIEW_TYPE_PLACEHOLDER, True, PLACEHOLDER_REASON_TIMEOUT
+        # Do not leave the signal forever pending — fall back to local complete.
+        logger.warning("s40 claude timeout — writing local review (%s)", block_reason)
+        return (
+            _local_review_text_s40(
+                signal_row=signal_row, snapshot=snapshot, checkpoints=checkpoints,
+            ),
+            outcome,
+            REVIEW_STATUS_COMPLETE,
+            REVIEW_TYPE_LOCAL,
+            False,
+            PLACEHOLDER_REASON_TIMEOUT,
+        )
     except json.JSONDecodeError as exc:
         logger.warning("s40 claude review invalid json: %s", exc)
         return (
-            _placeholder_review_text_s40(signal_row=signal_row, snapshot=snapshot),
+            _local_review_text_s40(
+                signal_row=signal_row, snapshot=snapshot, checkpoints=checkpoints,
+            ),
             outcome,
-            REVIEW_STATUS_PENDING_AI,
-            REVIEW_TYPE_PLACEHOLDER,
+            REVIEW_STATUS_COMPLETE,
+            REVIEW_TYPE_LOCAL,
             False,
             PLACEHOLDER_REASON_INVALID_JSON,
         )
     except (ClaudeClientError, OSError, ConnectionError) as exc:
         logger.warning("s40 claude unavailable for review: %s", exc)
         return (
-            _placeholder_review_text_s40(signal_row=signal_row, snapshot=snapshot),
+            _local_review_text_s40(
+                signal_row=signal_row, snapshot=snapshot, checkpoints=checkpoints,
+            ),
             outcome,
-            REVIEW_STATUS_PENDING_AI,
-            REVIEW_TYPE_PLACEHOLDER,
+            REVIEW_STATUS_COMPLETE,
+            REVIEW_TYPE_LOCAL,
             False,
             PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE,
         )
     except Exception as exc:
         logger.warning("s40 claude review failed: %s", exc)
         return (
-            _placeholder_review_text_s40(signal_row=signal_row, snapshot=snapshot),
+            _local_review_text_s40(
+                signal_row=signal_row, snapshot=snapshot, checkpoints=checkpoints,
+            ),
             outcome,
-            REVIEW_STATUS_PENDING_AI,
-            REVIEW_TYPE_PLACEHOLDER,
+            REVIEW_STATUS_COMPLETE,
+            REVIEW_TYPE_LOCAL,
             False,
             PLACEHOLDER_REASON_OTHER,
         )
@@ -1598,10 +1674,30 @@ def _daily_placeholder_review_s43(stats: dict[str, Any]) -> str:
     ])
 
 
+def _daily_local_review_s43(stats: dict[str, Any]) -> str:
+    return "\n".join([
+        "Local Daily Review (automatic Claude disabled)",
+        "",
+        f"Signals: {stats.get('signals', 0)}",
+        f"Wins: {stats.get('wins', 0)}  Losses: {stats.get('losses', 0)}",
+        f"Win rate: {stats.get('win_rate', 0)}%",
+        f"PnL: {stats.get('pnl_usd', 0):+.2f}",
+        f"Best: {stats.get('best_symbol') or '—'}",
+        f"Worst: {stats.get('worst_symbol') or '—'}",
+        f"Best pattern: {stats.get('best_pattern') or '—'}",
+        f"Worst pattern: {stats.get('worst_pattern') or '—'}",
+        f"Avg hold: {stats.get('avg_hold_hours', 0)}h",
+        f"Avg RR: {stats.get('avg_rr', 0)}",
+        "",
+        "Use Telegram /ai for Claude deep-dive.",
+    ])
+
+
 def _generate_daily_claude_review_s43(stats: dict[str, Any]) -> tuple[str, str]:
     """Return (text, review_status). Never raises."""
-    if not is_claude_configured():
-        return _daily_placeholder_review_s43(stats), REVIEW_STATUS_PENDING_AI
+    claude_ok, _ = claude_call_allowed()
+    if not is_claude_configured() or not claude_ok:
+        return _daily_local_review_s43(stats), REVIEW_STATUS_COMPLETE
 
     system = (
         "You are a concise trading research coach. Write at most 250 words. "
@@ -1630,7 +1726,7 @@ def _generate_daily_claude_review_s43(stats: dict[str, Any]) -> tuple[str, str]:
         return text, REVIEW_STATUS_COMPLETE
     except Exception as exc:
         logger.warning("s43 daily claude review unavailable: %s", exc)
-        return _daily_placeholder_review_s43(stats), REVIEW_STATUS_PENDING_AI
+        return _daily_local_review_s43(stats), REVIEW_STATUS_COMPLETE
 
 
 def maybe_emit_daily_performance_s43() -> dict[str, Any]:

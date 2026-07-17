@@ -15,10 +15,13 @@ from bot.research.market_events.signal_intelligence.signal_learning_s40 import (
     MAX_REVIEWS_PER_CYCLE,
     PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE,
     PLACEHOLDER_REASON_TIMEOUT,
+    REVIEW_STATUS_COMPLETE,
     REVIEW_STATUS_PENDING_AI,
+    REVIEW_TYPE_LOCAL,
     REVIEW_TYPE_PLACEHOLDER,
     _generate_review_text_s40,
     _infer_placeholder_reason,
+    _local_review_text_s40,
     _placeholder_review_text_s40,
     learning_health_s40,
     run_learning_reviews_s40_once,
@@ -49,10 +52,13 @@ class TestLearningThroughputS42(unittest.TestCase):
         self.assertIn("Pattern:\nCompression", text)
         self.assertIn("Auto review postponed.", text)
 
-    def test_timeout_skips_without_persist(self) -> None:
+    def test_timeout_falls_back_to_local_complete(self) -> None:
         with patch(
             "bot.research.market_events.signal_intelligence.signal_learning_s40.is_claude_configured",
             return_value=True,
+        ), patch(
+            "bot.research.market_events.signal_intelligence.signal_learning_s40.claude_call_allowed",
+            return_value=(True, None),
         ), patch(
             "bot.research.market_events.signal_intelligence.signal_learning_s40._call_claude_review_bounded_s40",
             side_effect=TimeoutError("timeout"),
@@ -67,18 +73,42 @@ class TestLearningThroughputS42(unittest.TestCase):
                     "tp1": 1.1,
                     "tp2": 1.2,
                     "timestamp": int(time.time()),
+                    "pnl_pct": 1.5,
                 },
                 snapshot={},
                 checkpoints=[],
                 timeout_sec=1,
             )
-        self.assertTrue(timed_out)
-        self.assertEqual(text, "")
-        self.assertEqual(status, REVIEW_STATUS_PENDING_AI)
-        self.assertEqual(rtype, REVIEW_TYPE_PLACEHOLDER)
+        self.assertFalse(timed_out)
+        self.assertEqual(status, REVIEW_STATUS_COMPLETE)
+        self.assertEqual(rtype, REVIEW_TYPE_LOCAL)
         self.assertEqual(reason, PLACEHOLDER_REASON_TIMEOUT)
+        self.assertIn("Local Review", text)
 
-    def test_claude_unavailable_writes_placeholder(self) -> None:
+    def test_claude_blocked_writes_local_complete(self) -> None:
+        """BUG-S5.0: automatic=false must use Local Review, not pending placeholder."""
+        with patch(
+            "bot.research.market_events.signal_intelligence.signal_learning_s40.is_claude_configured",
+            return_value=True,
+        ), patch(
+            "bot.research.market_events.signal_intelligence.signal_learning_s40.claude_call_allowed",
+            return_value=(False, "telegram_only"),
+        ):
+            text, _outcome, status, rtype, timed_out, reason = _generate_review_text_s40(
+                signal_type="g3_signal",
+                signal_row={"symbol": "ETH", "direction": "SHORT", "pnl_pct": -2.0},
+                snapshot={"snapshot_news_impact": "Hack"},
+                checkpoints=[],
+            )
+        self.assertFalse(timed_out)
+        self.assertEqual(status, REVIEW_STATUS_COMPLETE)
+        self.assertEqual(rtype, REVIEW_TYPE_LOCAL)
+        self.assertIsNone(reason)
+        self.assertIn("Local Review", text)
+        self.assertIn("ETH", text)
+        self.assertIn("Hack", text)
+
+    def test_claude_unconfigured_writes_local_complete(self) -> None:
         with patch(
             "bot.research.market_events.signal_intelligence.signal_learning_s40.is_claude_configured",
             return_value=False,
@@ -90,10 +120,21 @@ class TestLearningThroughputS42(unittest.TestCase):
                 checkpoints=[],
             )
         self.assertFalse(timed_out)
-        self.assertEqual(status, REVIEW_STATUS_PENDING_AI)
-        self.assertEqual(rtype, REVIEW_TYPE_PLACEHOLDER)
-        self.assertEqual(reason, PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE)
-        self.assertIn("Claude unavailable.", text)
+        self.assertEqual(status, REVIEW_STATUS_COMPLETE)
+        self.assertEqual(rtype, REVIEW_TYPE_LOCAL)
+        self.assertIn("Local Review", text)
+
+    def test_local_review_format(self) -> None:
+        text = _local_review_text_s40(
+            signal_row={"symbol": "BTC", "direction": "LONG", "pnl_pct": 2.5},
+            snapshot={
+                "snapshot_news_impact": "Bullish",
+                "snapshot_pattern_json": '{"pattern": "Compression"}',
+            },
+        )
+        self.assertIn("Local Review", text)
+        self.assertIn("BTC", text)
+        self.assertIn("WIN", text)
 
     def test_worker_one_cycle_fast(self) -> None:
         with market_events_connection() as conn:
