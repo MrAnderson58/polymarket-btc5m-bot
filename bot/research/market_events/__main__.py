@@ -150,6 +150,9 @@ def main(argv: list[str] | None = None) -> int:
             "start-all",
             "stop-all",
             "status",
+            "health",
+            "telegram-status",
+            "restart-telegram",
             "ai-worker-run",
             "telegram-alert-test",
             "ai-test",
@@ -397,6 +400,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         from bot.research.market_events.process_manager import status_report
         print(status_report())
+        return 0
+
+    if args.command == "health":
+        from bot.research.market_events.process_manager import system_health_report
+        print(system_health_report())
+        return 0
+
+    if args.command == "telegram-status":
+        from bot.research.market_events.process_manager import telegram_status_report
+        print(telegram_status_report())
+        return 0
+
+    if args.command == "restart-telegram":
+        from bot.research.market_events.process_manager import restart_telegram
+        for line in restart_telegram():
+            print(line)
         return 0
 
     if args.command == "telegram-alert-test":
@@ -1156,7 +1175,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "research-artifacts":
-        from bot.research.market_events.db import market_events_readonly_connection
         from bot.research.market_events.signal_intelligence.research_artifacts_s50 import (
             format_artifacts_report_s50,
         )

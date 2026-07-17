@@ -16,6 +16,7 @@ from typing import Any
 from bot.ops.process_utils import (
     EXCLUDE_CMD_SUBSTRINGS,
     ProcessInfo,
+    find_telegram_poll_processes,
     logs_dir,
     project_python,
     remove_stale_telegram_lock,
@@ -142,18 +143,32 @@ def _matches(cmd: str, markers: tuple[str, ...]) -> bool:
 
 
 def find_service_processes(svc: ManagedService) -> list[ProcessInfo]:
-    found = [
-        ProcessInfo(pid=pid, command=cmd)
-        for pid, cmd in _ps_rows()
-        if _matches(cmd, svc.markers)
-    ]
-    if found:
-        return found
+    # Telegram: use the same discovery as ops/prod_control so start/status agree.
+    if svc.key == "telegram":
+        found = find_telegram_poll_processes()
+        if found:
+            return found
+    else:
+        found = [
+            ProcessInfo(pid=pid, command=cmd)
+            for pid, cmd in _ps_rows()
+            if _matches(cmd, svc.markers)
+        ]
+        if found:
+            return found
+
     pid_file = _pid_path(svc.key)
     if pid_file.exists():
         try:
             pid = int(pid_file.read_text().strip())
             if _pid_alive(pid):
+                # Re-validate telegram pid file against live poll markers.
+                if svc.key == "telegram":
+                    live = find_telegram_poll_processes()
+                    if any(p.pid == pid for p in live):
+                        return live
+                    # Stale pid for unrelated process — ignore.
+                    return live
                 return [ProcessInfo(pid=pid, command=f"(pid file) {svc.key}")]
         except ValueError:
             pass
@@ -336,4 +351,283 @@ def status_report() -> str:
         lines.append(f"DB: unreachable ({exc})")
 
     lines.extend(["", f"logs: {logs_dir()}", f"DB path: {MARKET_EVENTS_DATABASE_PATH}"])
+    return "\n".join(lines)
+
+
+def _service_by_key(key: str) -> ManagedService:
+    for svc in SERVICES:
+        if svc.key == key:
+            return svc
+    raise KeyError(key)
+
+
+def restart_telegram() -> list[str]:
+    """Stop then start telegram only — no full supervisor restart."""
+    svc = _service_by_key("telegram")
+    lines = ["Restarting telegram...", ""]
+    ok_stop, msg_stop = stop_service(svc)
+    lines.append(f"{'✓' if ok_stop else '✗'} stop: {msg_stop}")
+    time.sleep(0.8)
+    ok_start, msg_start = start_service(svc)
+    lines.append(f"{'✓' if ok_start else '✗'} start: {msg_start}")
+    return lines
+
+
+def telegram_status_report() -> str:
+    """Detailed telegram poll status (same process discovery as start/status)."""
+    from bot.ops.process_utils import assess_telegram_lock, telegram_lock_path
+
+    svc = _service_by_key("telegram")
+    procs = find_service_processes(svc)
+    running = bool(procs)
+    lines = [
+        "Telegram",
+        "",
+        f"Running: {'yes' if running else 'no'}",
+    ]
+    if procs:
+        lines.append(f"PID: {procs[0].pid}")
+        lines.append(f"Command: {procs[0].command[:120]}")
+    else:
+        lines.append("PID: —")
+
+    lock = assess_telegram_lock()
+    lines.extend([
+        f"Lock: {lock}",
+        f"Lock path: {telegram_lock_path()}",
+        "Mode: polling",
+    ])
+
+    bot_ok = "—"
+    try:
+        from bot.research.futures_agent.telegram_config import get_telegram_bot_token
+        from bot.research.futures_agent.telegram_intake_f52 import check_telegram_connected
+        token = get_telegram_bot_token()
+        bot_ok = "yes" if token and check_telegram_connected(token) else "no (token/getMe)"
+    except Exception as exc:
+        bot_ok = f"error ({exc})"
+    lines.append(f"Bot connected: {bot_ok}")
+
+    last_update = "—"
+    last_command = "—"
+    errors_today = 0
+    messages_today = 0
+    try:
+        from datetime import datetime
+        from bot.research.market_events.db import market_events_readonly_connection
+        day_start = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+        with market_events_readonly_connection() as conn:
+            try:
+                row = conn.execute(
+                    """
+                    SELECT MAX(created_at) AS t FROM market_events_inbound_trace_g04
+                    """,
+                ).fetchone()
+                if row and row["t"]:
+                    last_update = str(row["t"])
+            except Exception:
+                pass
+            try:
+                row = conn.execute(
+                    """
+                    SELECT command FROM market_events_inbound_trace_g04
+                    WHERE command IS NOT NULL AND command != ''
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                ).fetchone()
+                if row:
+                    last_command = str(row["command"])
+            except Exception:
+                pass
+            try:
+                messages_today = int(conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM market_events_inbound_trace_g04
+                    WHERE created_at >= ?
+                    """,
+                    (day_start,),
+                ).fetchone()["n"] or 0)
+            except Exception:
+                pass
+            try:
+                errors_today = int(conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM market_events_inbound_trace_g04
+                    WHERE created_at >= ? AND (error IS NOT NULL AND error != '')
+                    """,
+                    (day_start,),
+                ).fetchone()["n"] or 0)
+            except Exception:
+                pass
+    except Exception as exc:
+        lines.append(f"DB probe: {exc}")
+
+    lines.extend([
+        f"Last update: {last_update}",
+        f"Last command: {last_command}",
+        f"Errors today: {errors_today}",
+        f"Messages today: {messages_today}",
+        f"Queue: n/a (polling)",
+    ])
+
+    log_path = logs_dir() / svc.log_name
+    lines.append(f"Log: {log_path}")
+    return "\n".join(lines)
+
+
+def system_health_report() -> str:
+    """BUG-S5.0.1 — one-shot health across DB/workers/telegram/learning/paper."""
+    from bot.research.market_events.signal_intelligence.claude_channel_s50 import (
+        claude_call_allowed,
+        s50_automatic_enabled,
+        s50_telegram_only,
+    )
+
+    checks: list[tuple[str, bool, str]] = []
+    lines = ["MARKET EVENTS HEALTH", ""]
+
+    # DB
+    try:
+        from bot.research.market_events.db import market_events_readonly_connection
+        from bot.research.market_events.db_config import resolve_market_events_db_config
+        from bot.research.market_events.event_schema import SCHEMA_VERSION
+        cfg = resolve_market_events_db_config()
+        with market_events_readonly_connection() as conn:
+            conn.execute("SELECT 1")
+            max_v = None
+            try:
+                max_v = conn.execute(
+                    "SELECT MAX(version) FROM market_events_migrations",
+                ).fetchone()[0]
+            except Exception:
+                pass
+            detail = f"{cfg.backend} schema={SCHEMA_VERSION} migrated={max_v}"
+            ok = max_v is None or int(max_v) >= 52
+            checks.append(("DB", ok, detail))
+    except Exception as exc:
+        checks.append(("DB", False, str(exc)))
+
+    # Workers
+    worker_bits: list[str] = []
+    workers_ok = True
+    for svc in SERVICES:
+        procs = find_service_processes(svc)
+        if procs:
+            worker_bits.append(f"{svc.label}=PID{procs[0].pid}")
+        else:
+            worker_bits.append(f"{svc.label}=down")
+            if svc.key in {"g3-live", "learning", "telegram", "dashboard"}:
+                workers_ok = False
+    checks.append(("Workers", workers_ok, "; ".join(worker_bits)))
+
+    # Telegram
+    tg_procs = find_service_processes(_service_by_key("telegram"))
+    checks.append(("Telegram", bool(tg_procs), f"running={bool(tg_procs)}"))
+
+    # Dashboard
+    dash = find_service_processes(_service_by_key("dashboard"))
+    checks.append(("Dashboard", bool(dash), f"http://{DASHBOARD_API_HOST}:{DASHBOARD_API_PORT}"))
+
+    learning_detail = "—"
+    paper_detail = "—"
+    claude_detail = "—"
+    pattern_detail = "—"
+    decision_detail = "—"
+    market_detail = "—"
+    news_detail = "—"
+    queue_detail = "—"
+    errors_detail = "—"
+    try:
+        from bot.research.market_events.db import market_events_readonly_connection
+        with market_events_readonly_connection() as conn:
+            try:
+                from bot.research.market_events.signal_intelligence.signal_learning_s40 import (
+                    learning_review_analytics_s40,
+                    _count_pending_review_queue_s40,
+                )
+                an = learning_review_analytics_s40(conn)
+                pending = _count_pending_review_queue_s40(conn)
+                learning_detail = (
+                    f"claude={an['claude_reviews']} local={an['local_reviews']} "
+                    f"placeholder={an['placeholder_reviews']}"
+                )
+                queue_detail = f"pending_reviews={pending}"
+                errors_detail = (
+                    f"missing={an['missing_review']} worker_errors={an['worker_errors']}"
+                )
+                learning_ok = an["missing_review"] < 500 or an["local_reviews"] > 0
+                checks.append(("Learning", learning_ok, learning_detail))
+                checks.append(("Queue", pending < 2000, queue_detail))
+                checks.append(("Errors", an["missing_review"] < 5000, errors_detail))
+            except Exception as exc:
+                checks.append(("Learning", False, str(exc)))
+                checks.append(("Queue", False, str(exc)))
+                checks.append(("Errors", False, str(exc)))
+
+            try:
+                from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
+                    paper_performance_dashboard_s42,
+                )
+                paper = paper_performance_dashboard_s42(conn)
+                paper_detail = (
+                    f"equity=${paper.get('current_equity')} "
+                    f"open={paper.get('open_trades')} closed={paper.get('closed_trades')}"
+                )
+                checks.append(("Paper", True, paper_detail))
+            except Exception as exc:
+                checks.append(("Paper", False, str(exc)))
+
+            try:
+                from bot.research.market_events.signal_intelligence.decision_engine_s20 import (
+                    run_decision_engine_s20,
+                )
+                dec = run_decision_engine_s20(conn, "BTC", persist=False, force_fallback=True)
+                decision_detail = str(dec.get("telegram") or "")[:80].replace("\n", " ")
+                checks.append(("Decision", True, decision_detail or "ok"))
+            except Exception as exc:
+                checks.append(("Decision", False, str(exc)))
+
+            try:
+                from bot.research.market_events.signal_intelligence.pattern_agent_s31 import (
+                    run_pattern_agent_s31,
+                )
+                pat = run_pattern_agent_s31(conn, symbol="BTC", timeframe="60m")
+                pattern_detail = str(pat.get("pattern") or pat.get("label") or "ok")[:60]
+                checks.append(("Pattern", True, pattern_detail))
+            except Exception as exc:
+                checks.append(("Pattern", False, str(exc)))
+
+            try:
+                from bot.research.market_events.signal_intelligence.news_collector_n11 import (
+                    fetch_latest_news_n11,
+                )
+                news = fetch_latest_news_n11(conn, limit=1)
+                news_detail = f"latest={len(news)}"
+                checks.append(("News", True, news_detail))
+            except Exception as exc:
+                checks.append(("News", False, str(exc)))
+
+            try:
+                snap = conn.execute(
+                    "SELECT MAX(created_at) AS t FROM market_snapshots_g3",
+                ).fetchone()
+                market_detail = f"last_snapshot={snap['t'] if snap else '—'}"
+                checks.append(("Market", True, market_detail))
+            except Exception as exc:
+                checks.append(("Market", False, str(exc)))
+    except Exception as exc:
+        checks.append(("Learning", False, f"db {exc}"))
+
+    allowed, reason = claude_call_allowed()
+    claude_detail = (
+        f"automatic={s50_automatic_enabled()} telegram_only={s50_telegram_only()} "
+        f"auto_allowed={allowed}"
+    )
+    # Claude telegram-only is intentional PASS; failures only if misconfigured path crashes.
+    checks.append(("Claude", True, claude_detail + (f" ({reason})" if reason else "")))
+
+    overall = all(ok for _, ok, _ in checks)
+    for name, ok, detail in checks:
+        lines.append(f"{'PASS' if ok else 'FAIL'}  {name}: {detail}")
+    lines.extend(["", f"Overall: {'PASS' if overall else 'FAIL'}"])
     return "\n".join(lines)

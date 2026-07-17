@@ -46,6 +46,7 @@ HORIZONS_S40: tuple[tuple[str, int], ...] = (
 )
 
 MAX_REVIEWS_PER_CYCLE = 5
+MAX_LOCAL_REVIEWS_PER_CYCLE = 100
 QUEUE_NEWEST_PER_CYCLE = 2
 QUEUE_OLDEST_PER_CYCLE = 3
 CLAUDE_REVIEW_TIMEOUT_SEC = 15
@@ -1518,10 +1519,12 @@ def format_learning_cycle_report_s40(stats: dict[str, Any]) -> str:
     return "\n".join([
         "Cycle",
         "",
+        f"Mode: {stats.get('mode') or '—'}",
         f"Signals ingested: {int(stats.get('ingested') or 0)}",
         f"Checkpoints: {int(stats.get('checkpoints_written') or 0)}",
         "",
         f"Reviews completed: {int(stats.get('reviews_completed') or 0)}",
+        f"Local reviews: {int(stats.get('local_reviews_written') or 0)}",
         f"Skipped (timeout): {int(stats.get('skipped_timeout') or 0)}",
         f"Remaining queue: {int(stats.get('remaining_queue') or 0)}",
         "",
@@ -1539,9 +1542,18 @@ def run_learning_reviews_s40_once(
     """Background-only review generation. Report commands must stay readonly.
 
     Throughput: at most `limit` reviews per call (2 newest + 3 oldest by default).
+    When automatic Claude is disabled (S5.0), uses Local Review and a higher
+    per-cycle budget so Missing review drains without API calls.
     """
+    claude_ok, _ = claude_call_allowed()
+    use_claude = bool(is_claude_configured() and claude_ok)
     if limit <= 0:
-        limit = MAX_REVIEWS_PER_CYCLE
+        limit = MAX_REVIEWS_PER_CYCLE if use_claude else MAX_LOCAL_REVIEWS_PER_CYCLE
+    elif not use_claude and limit < MAX_LOCAL_REVIEWS_PER_CYCLE:
+        # BUG-S5.0.1: drain missing reviews with local analyzer, not 5/cycle.
+        limit = MAX_LOCAL_REVIEWS_PER_CYCLE
+        newest_n = max(newest_n, limit // 2)
+        oldest_n = max(oldest_n, limit - newest_n)
 
     with market_events_readonly_connection() as ro:
         remaining_before = _count_pending_review_queue_s40(ro)
@@ -1564,21 +1576,46 @@ def run_learning_reviews_s40_once(
     skipped_timeout = 0
     placeholders = 0
     completed = 0
+    local_n = 0
+    item_errors = 0
     review_secs: list[float] = []
 
     for row in enriched:
         st = str(row["signal_type"])
         sid = int(row["signal_id"])
         t0 = time.perf_counter()
-        analysis_text, outcome_fields, review_status, review_type, timed_out, placeholder_reason = (
-            _generate_review_text_s40(
-                signal_type=st,
-                signal_row=row,
-                snapshot=row.get("_snapshot") or {},
-                checkpoints=row.get("_checkpoints") or [],
-                timeout_sec=timeout_sec,
+        try:
+            analysis_text, outcome_fields, review_status, review_type, timed_out, placeholder_reason = (
+                _generate_review_text_s40(
+                    signal_type=st,
+                    signal_row=row,
+                    snapshot=row.get("_snapshot") or {},
+                    checkpoints=row.get("_checkpoints") or [],
+                    timeout_sec=timeout_sec,
+                )
             )
-        )
+        except Exception:
+            item_errors += 1
+            logger.exception("s40 review failed for %s/%s — writing local fallback", st, sid)
+            try:
+                analysis_text = _local_review_text_s40(
+                    signal_row=row,
+                    snapshot=row.get("_snapshot") or {},
+                    checkpoints=row.get("_checkpoints") or [],
+                )
+                outcome_fields = {
+                    "win_loss_be": _win_loss_be(_safe_float(row.get("pnl_pct"))),
+                    "pnl_pct": _safe_float(row.get("pnl_pct")),
+                    "rr_achieved": _safe_float(row.get("risk_reward") or row.get("rr")),
+                    "holding_time_seconds": row.get("holding_seconds"),
+                }
+                review_status = REVIEW_STATUS_COMPLETE
+                review_type = REVIEW_TYPE_LOCAL
+                timed_out = False
+                placeholder_reason = PLACEHOLDER_REASON_OTHER
+            except Exception:
+                logger.exception("s40 local fallback also failed for %s/%s", st, sid)
+                continue
         review_secs.append(time.perf_counter() - t0)
         if timed_out:
             skipped_timeout += 1
@@ -1587,6 +1624,8 @@ def run_learning_reviews_s40_once(
             placeholders += 1
         else:
             completed += 1
+            if review_type == REVIEW_TYPE_LOCAL:
+                local_n += 1
         reviews.append((
             st, sid, analysis_text, outcome_fields, review_status, review_type, placeholder_reason,
         ))
@@ -1597,6 +1636,11 @@ def run_learning_reviews_s40_once(
             apply_migrations(conn)
             _incr_ops_counter(conn, "total_skipped_timeout", skipped_timeout)
             conn.commit()
+    if item_errors:
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            _incr_ops_counter(conn, "total_worker_errors", item_errors)
+            conn.commit()
     avg_review_sec = round(sum(review_secs) / len(review_secs), 1) if review_secs else 0.0
 
     with market_events_readonly_connection() as ro:
@@ -1606,11 +1650,14 @@ def run_learning_reviews_s40_once(
         "review_candidates": len(enriched),
         "reviews_written": written,
         "reviews_completed": completed,
+        "local_reviews_written": local_n,
         "placeholders_written": placeholders,
         "skipped_timeout": skipped_timeout,
+        "item_errors": item_errors,
         "remaining_queue": remaining_after,
         "remaining_queue_before": remaining_before,
         "avg_review_sec": avg_review_sec,
+        "mode": "claude" if use_claude else "local",
     }
 
 
@@ -1845,9 +1892,11 @@ def run_learning_worker_s40(
                 "ingested": int(prep.get("ingested") or 0),
                 "checkpoints_written": int(prep.get("checkpoints_written") or 0),
                 "reviews_completed": int(rev.get("reviews_completed") or 0) + int(rev.get("placeholders_written") or 0),
+                "local_reviews_written": int(rev.get("local_reviews_written") or 0),
                 "skipped_timeout": int(rev.get("skipped_timeout") or 0),
                 "remaining_queue": int(rev.get("remaining_queue") or 0),
                 "duration_sec": duration_sec,
+                "mode": rev.get("mode") or "—",
             }
             _persist_worker_cycle_ops_s40(
                 duration_sec=duration_sec,
