@@ -227,8 +227,14 @@ def main(argv: list[str] | None = None) -> int:
             "signal-inbox",
             "review",
             "learning-status",
+            "learning-health",
             "learning-worker",
             "paper-performance",
+            "research-ai",
+            "research-cost",
+            "research-history",
+            "research-artifacts",
+            "research-compare",
             "pipeline-audit",
             "recorder-debug",
             "telegram-debug",
@@ -1101,6 +1107,62 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 1
             raise
+        return 0
+
+    if args.command == "learning-health":
+        if _audit_s42_db_path(command="learning-health") != 0:
+            return 1
+        from bot.research.market_events.signal_intelligence.signal_learning_s40 import (
+            learning_health_s40,
+        )
+        try:
+            print(learning_health_s40())
+        except sqlite3.OperationalError as exc:
+            if "review_status" in str(exc) or "review_type" in str(exc):
+                print(
+                    "Database schema is older than S4.2.\n"
+                    "Run:\n"
+                    "python -m bot.research.market_events market-event-migrate",
+                    file=sys.stderr,
+                )
+                return 1
+            raise
+        return 0
+
+    if args.command == "research-ai":
+        from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
+        from bot.research.market_events.signal_intelligence.research_terminal_s50 import run_ai_s50_cli
+        sym = (getattr(args, "symbol", None) or "BTC").upper().replace("USDT", "")
+        with telegram_claude_session():
+            print(run_ai_s50_cli(symbol=sym))
+        return 0
+
+    if args.command == "research-compare":
+        from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
+        from bot.research.market_events.signal_intelligence.research_terminal_s50 import run_compare_s50_cli
+        sym = (getattr(args, "symbol", None) or "BTC").upper().replace("USDT", "")
+        with telegram_claude_session():
+            print(run_compare_s50_cli(symbol=sym))
+        return 0
+
+    if args.command == "research-cost":
+        from bot.research.market_events.signal_intelligence.research_terminal_s50 import format_cost_s50_cli
+        print(format_cost_s50_cli())
+        return 0
+
+    if args.command == "research-history":
+        from bot.research.market_events.signal_intelligence.research_terminal_s50 import format_history_s50_cli
+        print(format_history_s50_cli(limit=int(getattr(args, "last", None) or 15)))
+        return 0
+
+    if args.command == "research-artifacts":
+        from bot.research.market_events.db import market_events_readonly_connection
+        from bot.research.market_events.signal_intelligence.research_artifacts_s50 import (
+            format_artifacts_report_s50,
+        )
+        sym = getattr(args, "symbol", None)
+        with market_events_readonly_connection() as conn:
+            print(format_artifacts_report_s50(conn, symbol=sym))
         return 0
 
     if args.command == "review":

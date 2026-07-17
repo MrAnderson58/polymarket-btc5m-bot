@@ -13,10 +13,14 @@ from bot.research.market_events.db_config import configure_unit_test_db_isolatio
 from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence.signal_learning_s40 import (
     MAX_REVIEWS_PER_CYCLE,
+    PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE,
+    PLACEHOLDER_REASON_TIMEOUT,
     REVIEW_STATUS_PENDING_AI,
     REVIEW_TYPE_PLACEHOLDER,
     _generate_review_text_s40,
+    _infer_placeholder_reason,
     _placeholder_review_text_s40,
+    learning_health_s40,
     run_learning_reviews_s40_once,
     run_learning_worker_s40,
 )
@@ -53,7 +57,7 @@ class TestLearningThroughputS42(unittest.TestCase):
             "bot.research.market_events.signal_intelligence.signal_learning_s40._call_claude_review_bounded_s40",
             side_effect=TimeoutError("timeout"),
         ):
-            text, _outcome, status, rtype, timed_out = _generate_review_text_s40(
+            text, _outcome, status, rtype, timed_out, reason = _generate_review_text_s40(
                 signal_type="g3_signal",
                 signal_row={
                     "symbol": "BTC",
@@ -72,13 +76,14 @@ class TestLearningThroughputS42(unittest.TestCase):
         self.assertEqual(text, "")
         self.assertEqual(status, REVIEW_STATUS_PENDING_AI)
         self.assertEqual(rtype, REVIEW_TYPE_PLACEHOLDER)
+        self.assertEqual(reason, PLACEHOLDER_REASON_TIMEOUT)
 
     def test_claude_unavailable_writes_placeholder(self) -> None:
         with patch(
             "bot.research.market_events.signal_intelligence.signal_learning_s40.is_claude_configured",
             return_value=False,
         ):
-            text, _outcome, status, rtype, timed_out = _generate_review_text_s40(
+            text, _outcome, status, rtype, timed_out, reason = _generate_review_text_s40(
                 signal_type="g3_signal",
                 signal_row={"symbol": "ETH", "direction": "SHORT"},
                 snapshot={"snapshot_news_impact": "Hack"},
@@ -87,6 +92,7 @@ class TestLearningThroughputS42(unittest.TestCase):
         self.assertFalse(timed_out)
         self.assertEqual(status, REVIEW_STATUS_PENDING_AI)
         self.assertEqual(rtype, REVIEW_TYPE_PLACEHOLDER)
+        self.assertEqual(reason, PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE)
         self.assertIn("Claude unavailable.", text)
 
     def test_worker_one_cycle_fast(self) -> None:
@@ -113,6 +119,27 @@ class TestLearningThroughputS42(unittest.TestCase):
             }
         self.assertIn("review_status", cols)
         self.assertIn("review_type", cols)
+        self.assertIn("placeholder_reason", cols)
+
+    def test_infer_placeholder_reason_legacy(self) -> None:
+        stub = _placeholder_review_text_s40(
+            signal_row={"direction": "LONG"},
+            snapshot={},
+        )
+        self.assertEqual(
+            _infer_placeholder_reason(stub),
+            PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE,
+        )
+        self.assertEqual(_infer_placeholder_reason(""), PLACEHOLDER_REASON_TIMEOUT)
+
+    def test_learning_health_smoke(self) -> None:
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            conn.commit()
+        text = learning_health_s40()
+        self.assertIn("Learning Health", text)
+        self.assertIn("Claude unavailable:", text)
+        self.assertIn("Open:", text)
 
 
 if __name__ == "__main__":

@@ -51,7 +51,12 @@ WORKER_RUNNING_WINDOW_SEC = 150
 REVIEW_STATUS_COMPLETE = "complete"
 REVIEW_STATUS_PENDING_AI = "pending_ai"
 REVIEW_TYPE_CLAUDE = "claude"
+REVIEW_TYPE_LOCAL = "local"
 REVIEW_TYPE_PLACEHOLDER = "placeholder"
+PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE = "claude_unavailable"
+PLACEHOLDER_REASON_TIMEOUT = "timeout"
+PLACEHOLDER_REASON_INVALID_JSON = "invalid_json"
+PLACEHOLDER_REASON_OTHER = "other"
 
 
 def _exec_sql(conn: Any, sql: str, params: tuple[Any, ...] | list[Any] = ()) -> Any:
@@ -166,6 +171,35 @@ def _set_ops_state(conn: Any, key: str, value: str) -> None:
         """,
         (key, value, now),
     )
+
+
+def _incr_ops_counter(conn: Any, key: str, delta: int = 1) -> None:
+    if delta <= 0:
+        return
+    prev_raw = _get_ops_state(conn, key) or "0"
+    try:
+        prev = int(prev_raw)
+    except (TypeError, ValueError):
+        prev = 0
+    _set_ops_state(conn, key, str(prev + delta))
+
+
+def _infer_placeholder_reason(
+    analysis_text: str | None,
+    *,
+    stored_reason: str | None = None,
+) -> str:
+    if stored_reason:
+        return stored_reason
+    text = (analysis_text or "").strip()
+    if not text:
+        return PLACEHOLDER_REASON_TIMEOUT
+    if text.startswith("Claude unavailable."):
+        return PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE
+    lowered = text.lower()
+    if "invalid json" in lowered or "jsondecodeerror" in lowered:
+        return PLACEHOLDER_REASON_INVALID_JSON
+    return PLACEHOLDER_REASON_OTHER
 
 
 def ingest_new_s40_signals(conn: Any, *, limit: int = 200) -> int:
@@ -1175,8 +1209,8 @@ def _generate_review_text_s40(
     snapshot: dict[str, Any],
     checkpoints: list[dict[str, Any]],
     timeout_sec: float = CLAUDE_REVIEW_TIMEOUT_SEC,
-) -> tuple[str, dict[str, Any], str, str, bool]:
-    """Return (analysis_text, outcome_fields, review_status, review_type, timed_out)."""
+) -> tuple[str, dict[str, Any], str, str, bool, str | None]:
+    """Return (analysis_text, outcome_fields, review_status, review_type, timed_out, placeholder_reason)."""
     symbol = str(signal_row["symbol"])
     direction = str(signal_row["direction"] or "LONG")
     entry = signal_row.get("entry")
@@ -1236,15 +1270,26 @@ def _generate_review_text_s40(
             REVIEW_STATUS_PENDING_AI,
             REVIEW_TYPE_PLACEHOLDER,
             False,
+            PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE,
         )
 
     try:
         text = _call_claude_review_bounded_s40(
             system=system, user=user, timeout_sec=timeout_sec,
         )
-        return text, outcome, REVIEW_STATUS_COMPLETE, REVIEW_TYPE_CLAUDE, False
+        return text, outcome, REVIEW_STATUS_COMPLETE, REVIEW_TYPE_CLAUDE, False, None
     except TimeoutError:
-        return "", outcome, REVIEW_STATUS_PENDING_AI, REVIEW_TYPE_PLACEHOLDER, True
+        return "", outcome, REVIEW_STATUS_PENDING_AI, REVIEW_TYPE_PLACEHOLDER, True, PLACEHOLDER_REASON_TIMEOUT
+    except json.JSONDecodeError as exc:
+        logger.warning("s40 claude review invalid json: %s", exc)
+        return (
+            _placeholder_review_text_s40(signal_row=signal_row, snapshot=snapshot),
+            outcome,
+            REVIEW_STATUS_PENDING_AI,
+            REVIEW_TYPE_PLACEHOLDER,
+            False,
+            PLACEHOLDER_REASON_INVALID_JSON,
+        )
     except (ClaudeClientError, OSError, ConnectionError) as exc:
         logger.warning("s40 claude unavailable for review: %s", exc)
         return (
@@ -1253,6 +1298,7 @@ def _generate_review_text_s40(
             REVIEW_STATUS_PENDING_AI,
             REVIEW_TYPE_PLACEHOLDER,
             False,
+            PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE,
         )
     except Exception as exc:
         logger.warning("s40 claude review failed: %s", exc)
@@ -1262,6 +1308,7 @@ def _generate_review_text_s40(
             REVIEW_STATUS_PENDING_AI,
             REVIEW_TYPE_PLACEHOLDER,
             False,
+            PLACEHOLDER_REASON_OTHER,
         )
 
 
@@ -1276,38 +1323,76 @@ def run_learning_pipeline_s40_once(*, limit_ingest: int = 200, limit_checkpoints
 
 
 def _persist_reviews_s40(
-    rows: list[tuple[str, int, str, dict[str, Any], str, str]],
+    rows: list[tuple[str, int, str, dict[str, Any], str, str, str | None]],
 ) -> int:
     if not rows:
         return 0
     written = 0
     with market_events_connection() as conn:
         apply_migrations(conn)
-        for st, sid, analysis_text, outcome_fields, review_status, review_type in rows:
+        has_reason_col = True
+        try:
+            cols = {
+                str(r[1])
+                for r in conn.execute(
+                    "PRAGMA table_info(market_events_signal_learning_s40_reviews)",
+                ).fetchall()
+            }
+            has_reason_col = "placeholder_reason" in cols
+        except Exception:
+            has_reason_col = False
+
+        for st, sid, analysis_text, outcome_fields, review_status, review_type, placeholder_reason in rows:
             now = int(time.time())
-            execute_with_retry(
-                conn,
-                """
-                INSERT OR REPLACE INTO market_events_signal_learning_s40_reviews (
-                    signal_type, signal_id, reviewed_at, analysis_text,
-                    win_loss_be, pnl_pct, rr_achieved, created_at, updated_at,
-                    review_status, review_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    st,
-                    sid,
-                    now,
-                    analysis_text,
-                    outcome_fields.get("win_loss_be"),
-                    outcome_fields.get("pnl_pct"),
-                    outcome_fields.get("rr_achieved"),
-                    now,
-                    now,
-                    review_status,
-                    review_type,
-                ),
-            )
+            if has_reason_col:
+                execute_with_retry(
+                    conn,
+                    """
+                    INSERT OR REPLACE INTO market_events_signal_learning_s40_reviews (
+                        signal_type, signal_id, reviewed_at, analysis_text,
+                        win_loss_be, pnl_pct, rr_achieved, created_at, updated_at,
+                        review_status, review_type, placeholder_reason
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        st,
+                        sid,
+                        now,
+                        analysis_text,
+                        outcome_fields.get("win_loss_be"),
+                        outcome_fields.get("pnl_pct"),
+                        outcome_fields.get("rr_achieved"),
+                        now,
+                        now,
+                        review_status,
+                        review_type,
+                        placeholder_reason,
+                    ),
+                )
+            else:
+                execute_with_retry(
+                    conn,
+                    """
+                    INSERT OR REPLACE INTO market_events_signal_learning_s40_reviews (
+                        signal_type, signal_id, reviewed_at, analysis_text,
+                        win_loss_be, pnl_pct, rr_achieved, created_at, updated_at,
+                        review_status, review_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        st,
+                        sid,
+                        now,
+                        analysis_text,
+                        outcome_fields.get("win_loss_be"),
+                        outcome_fields.get("pnl_pct"),
+                        outcome_fields.get("rr_achieved"),
+                        now,
+                        now,
+                        review_status,
+                        review_type,
+                    ),
+                )
             written += 1
         conn.commit()
     return written
@@ -1399,7 +1484,7 @@ def run_learning_reviews_s40_once(
                 "_checkpoints": cps,
             })
 
-    reviews: list[tuple[str, int, str, dict[str, Any], str, str]] = []
+    reviews: list[tuple[str, int, str, dict[str, Any], str, str, str | None]] = []
     skipped_timeout = 0
     placeholders = 0
     completed = 0
@@ -1409,12 +1494,14 @@ def run_learning_reviews_s40_once(
         st = str(row["signal_type"])
         sid = int(row["signal_id"])
         t0 = time.perf_counter()
-        analysis_text, outcome_fields, review_status, review_type, timed_out = _generate_review_text_s40(
-            signal_type=st,
-            signal_row=row,
-            snapshot=row.get("_snapshot") or {},
-            checkpoints=row.get("_checkpoints") or [],
-            timeout_sec=timeout_sec,
+        analysis_text, outcome_fields, review_status, review_type, timed_out, placeholder_reason = (
+            _generate_review_text_s40(
+                signal_type=st,
+                signal_row=row,
+                snapshot=row.get("_snapshot") or {},
+                checkpoints=row.get("_checkpoints") or [],
+                timeout_sec=timeout_sec,
+            )
         )
         review_secs.append(time.perf_counter() - t0)
         if timed_out:
@@ -1424,9 +1511,16 @@ def run_learning_reviews_s40_once(
             placeholders += 1
         else:
             completed += 1
-        reviews.append((st, sid, analysis_text, outcome_fields, review_status, review_type))
+        reviews.append((
+            st, sid, analysis_text, outcome_fields, review_status, review_type, placeholder_reason,
+        ))
 
     written = _persist_reviews_s40(reviews)
+    if skipped_timeout:
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            _incr_ops_counter(conn, "total_skipped_timeout", skipped_timeout)
+            conn.commit()
     avg_review_sec = round(sum(review_secs) / len(review_secs), 1) if review_secs else 0.0
 
     with market_events_readonly_connection() as ro:
@@ -1668,6 +1762,13 @@ def run_learning_worker_s40(
         except Exception:
             errors += 1
             logger.exception("s40 worker cycle failed")
+            try:
+                with market_events_connection() as conn:
+                    apply_migrations(conn)
+                    _incr_ops_counter(conn, "total_worker_errors", 1)
+                    conn.commit()
+            except Exception:
+                logger.exception("s40 worker error counter failed")
 
         if max_cycles is not None and cycles >= max_cycles:
             break
@@ -1812,6 +1913,203 @@ def learning_status_s40() -> str:
     ])
 
 
+def _count_closed_signals_missing_review_s40(conn: Any) -> int:
+    """Closed source signals with no review row at all."""
+    g3 = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM market_events_signal_learning_s40_signals s
+        JOIN market_live_signals_g3 g ON g.id = s.signal_id
+        LEFT JOIN market_events_signal_learning_s40_reviews r
+          ON r.signal_type = 'g3_signal' AND r.signal_id = s.signal_id
+        WHERE s.signal_type = 'g3_signal'
+          AND (lower(g.status) = 'closed' OR g.closed_at IS NOT NULL OR g.holding_seconds IS NOT NULL)
+          AND r.signal_id IS NULL
+        """,
+    ).fetchone()["n"]
+    tel = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM market_events_signal_learning_s40_signals s
+        JOIN market_events_signal_outcomes_f72 f ON f.event_id = s.signal_id
+        LEFT JOIN market_events_signal_learning_s40_reviews r
+          ON r.signal_type = 'telegram_signal' AND r.signal_id = s.signal_id
+        WHERE s.signal_type = 'telegram_signal'
+          AND lower(f.status) = 'closed'
+          AND r.signal_id IS NULL
+        """,
+    ).fetchone()["n"]
+    val = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM market_events_signal_learning_s40_signals s
+        JOIN market_validation_records_g4 v ON v.id = s.signal_id
+        LEFT JOIN market_events_signal_learning_s40_reviews r
+          ON r.signal_type = 'validation_signal' AND r.signal_id = s.signal_id
+        WHERE s.signal_type = 'validation_signal'
+          AND r.signal_id IS NULL
+        """,
+    ).fetchone()["n"]
+    return int(g3 or 0) + int(tel or 0) + int(val or 0)
+
+
+def learning_review_analytics_s40(conn: Any) -> dict[str, Any]:
+    """Aggregate review source counts and placeholder reason breakdown."""
+    claude_n = conn.execute(
+        """
+        SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_reviews
+        WHERE COALESCE(review_type, 'claude') = ?
+          AND COALESCE(review_status, 'complete') = ?
+        """,
+        (REVIEW_TYPE_CLAUDE, REVIEW_STATUS_COMPLETE),
+    ).fetchone()["n"]
+    local_n = conn.execute(
+        """
+        SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_reviews
+        WHERE COALESCE(review_type, 'claude') = ?
+        """,
+        (REVIEW_TYPE_LOCAL,),
+    ).fetchone()["n"]
+    placeholder_n = conn.execute(
+        """
+        SELECT COUNT(*) AS n FROM market_events_signal_learning_s40_reviews
+        WHERE COALESCE(review_type, 'claude') = ?
+        """,
+        (REVIEW_TYPE_PLACEHOLDER,),
+    ).fetchone()["n"]
+
+    reason_counts = {
+        PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE: 0,
+        PLACEHOLDER_REASON_TIMEOUT: 0,
+        PLACEHOLDER_REASON_INVALID_JSON: 0,
+        PLACEHOLDER_REASON_OTHER: 0,
+    }
+    has_reason_col = False
+    try:
+        cols = {
+            str(r[1])
+            for r in conn.execute(
+                "PRAGMA table_info(market_events_signal_learning_s40_reviews)",
+            ).fetchall()
+        }
+        has_reason_col = "placeholder_reason" in cols
+    except Exception:
+        has_reason_col = False
+
+    if has_reason_col:
+        rows = conn.execute(
+            """
+            SELECT analysis_text, placeholder_reason
+            FROM market_events_signal_learning_s40_reviews
+            WHERE COALESCE(review_type, 'claude') = ?
+            """,
+            (REVIEW_TYPE_PLACEHOLDER,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT analysis_text, NULL AS placeholder_reason
+            FROM market_events_signal_learning_s40_reviews
+            WHERE COALESCE(review_type, 'claude') = ?
+            """,
+            (REVIEW_TYPE_PLACEHOLDER,),
+        ).fetchall()
+
+    for row in rows:
+        reason = _infer_placeholder_reason(
+            row["analysis_text"],
+            stored_reason=row["placeholder_reason"] if has_reason_col else None,
+        )
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+    skipped_timeout_ops = 0
+    worker_errors_ops = 0
+    try:
+        skipped_timeout_ops = int(_get_ops_state(conn, "total_skipped_timeout") or 0)
+    except (TypeError, ValueError):
+        skipped_timeout_ops = 0
+    try:
+        worker_errors_ops = int(_get_ops_state(conn, "total_worker_errors") or 0)
+    except (TypeError, ValueError):
+        worker_errors_ops = 0
+
+    reason_counts[PLACEHOLDER_REASON_TIMEOUT] += skipped_timeout_ops
+
+    missing_review = _count_closed_signals_missing_review_s40(conn)
+
+    return {
+        "claude_reviews": int(claude_n or 0),
+        "local_reviews": int(local_n or 0),
+        "placeholder_reviews": int(placeholder_n or 0),
+        "errors": int(missing_review or 0) + worker_errors_ops,
+        "missing_review": int(missing_review or 0),
+        "worker_errors": worker_errors_ops,
+        "skipped_timeout_ops": skipped_timeout_ops,
+        "placeholder_reasons": reason_counts,
+    }
+
+
+def learning_health_s40() -> str:
+    """FIX-S4.4A — validate accumulated learning + paper analytics."""
+    with market_events_readonly_connection() as conn:
+        analytics = learning_review_analytics_s40(conn)
+        from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
+            paper_performance_dashboard_s42,
+            paper_trade_counts_s42,
+        )
+        paper = paper_performance_dashboard_s42(conn)
+        counts = paper_trade_counts_s42(conn)
+
+        closed_rows = conn.execute(
+            """
+            SELECT pnl_usd, closed_at, created_at
+            FROM market_events_paper_trades_s42
+            WHERE status = 'CLOSED' AND closed_at IS NOT NULL
+            ORDER BY closed_at ASC
+            """,
+        ).fetchall()
+        from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
+            _max_drawdown_pct_from_pnl_usd,
+        )
+        pnls = [float(r["pnl_usd"] or 0) for r in closed_rows]
+        max_dd = _max_drawdown_pct_from_pnl_usd(pnls)
+
+    reasons = analytics.get("placeholder_reasons") or {}
+    lines = [
+        "Learning Health (S4.4A)",
+        "",
+        "Reviews by source:",
+        f"  Claude:      {analytics['claude_reviews']}",
+        f"  Local:       {analytics['local_reviews']}",
+        f"  Placeholder: {analytics['placeholder_reviews']}",
+        f"  Errors:      {analytics['errors']}",
+        "",
+        "Placeholder reasons:",
+        f"  Claude unavailable: {reasons.get(PLACEHOLDER_REASON_CLAUDE_UNAVAILABLE, 0)}",
+        f"  Timeout:            {reasons.get(PLACEHOLDER_REASON_TIMEOUT, 0)}",
+        f"  Invalid JSON:       {reasons.get(PLACEHOLDER_REASON_INVALID_JSON, 0)}",
+        f"  Other fallback:     {reasons.get(PLACEHOLDER_REASON_OTHER, 0)}",
+        "",
+        "Paper trades:",
+        f"  Open:               {counts['open_trades']}",
+        f"  Closed:             {counts['closed_trades']}",
+        f"  Pending Settlement: {counts['pending_settlement']}",
+        f"  Breakeven:          {counts['breakeven_trades']}",
+        "",
+        "Paper account:",
+        f"  Equity:   ${paper.get('current_equity', 0):.2f}",
+        f"  Max DD:   {max_dd:.1f}%",
+    ]
+    if analytics.get("missing_review"):
+        lines.extend([
+            "",
+            f"Missing review (closed, no row): {analytics['missing_review']}",
+        ])
+    if analytics.get("worker_errors"):
+        lines.append(f"Worker cycle errors (ops): {analytics['worker_errors']}")
+    return "\n".join(lines)
+
+
 def run_review_s40_cli(*, symbol: str | None = None, last: int = 20) -> str:
     symbol = symbol.upper().replace("USDT", "") if symbol else None
     if last <= 0:
@@ -1858,6 +2156,8 @@ def run_review_s40_cli(*, symbol: str | None = None, last: int = 20) -> str:
 __all__ = [
     "MAX_REVIEWS_PER_CYCLE",
     "format_learning_cycle_report_s40",
+    "learning_health_s40",
+    "learning_review_analytics_s40",
     "learning_status_s40",
     "maybe_emit_daily_performance_s43",
     "run_review_s40_cli",

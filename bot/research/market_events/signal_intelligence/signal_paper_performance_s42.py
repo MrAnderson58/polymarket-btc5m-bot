@@ -68,6 +68,28 @@ def _result_from_pnl(price_pnl_pct: float) -> str:
     return "BE"
 
 
+def _max_drawdown_pct_from_pnl_usd(
+    pnls: list[float],
+    *,
+    initial_equity: float = INITIAL_CAPITAL_USD,
+) -> float:
+    """Peak-to-trough drawdown as % of running equity peak (not per-trade margin)."""
+    if not pnls:
+        return 0.0
+    equity = float(initial_equity)
+    peak = float(initial_equity)
+    max_dd_pct = 0.0
+    for pnl in pnls:
+        equity += pnl
+        peak = max(peak, equity)
+        if peak > 0:
+            max_dd_pct = max(max_dd_pct, min(100.0, (peak - equity) / peak * 100.0))
+        if equity <= 0:
+            max_dd_pct = 100.0
+            break
+    return round(max_dd_pct, 1)
+
+
 def _current_price(conn: Any, symbol: str) -> float | None:
     bars = load_recent_candles(conn, symbol=symbol, venue="binance_futures", timeframe="5m", limit=2)
     if not bars:
@@ -350,14 +372,8 @@ def _aggregate_trades(rows: list[Any]) -> dict[str, Any]:
     best_row = max(rows, key=lambda r: float(r["pnl_pct"] or 0))
     worst_row = min(rows, key=lambda r: float(r["pnl_pct"] or 0))
 
-    # equity curve drawdown from cumulative pnl
-    cum = 0.0
-    peak = 0.0
-    max_dd = 0.0
-    for p in pnls:
-        cum += p
-        peak = max(peak, cum)
-        max_dd = min(max_dd, cum - peak)
+    ordered = sorted(rows, key=lambda r: int(r.get("closed_at") or r.get("created_at") or 0))
+    ordered_pnls = [float(r["pnl_usd"] or 0) for r in ordered if r.get("closed_at") is not None]
 
     return {
         "signals": len(rows),
@@ -388,8 +404,44 @@ def _aggregate_trades(rows: list[Any]) -> dict[str, Any]:
         "worst_pattern": min(pattern_pnl.items(), key=lambda x: x[1])[0] if pattern_pnl else None,
         "best_news_category": max(news_pnl.items(), key=lambda x: x[1])[0] if news_pnl else None,
         "worst_news_category": min(news_pnl.items(), key=lambda x: x[1])[0] if news_pnl else None,
-        "largest_drawdown_pct": round(max_dd / CAPITAL_PER_TRADE_USD * 100, 1) if max_dd else 0.0,
+        "largest_drawdown_pct": _max_drawdown_pct_from_pnl_usd(ordered_pnls),
         "pnl_pcts": pnl_pcts,
+    }
+
+
+def paper_trade_counts_s42(conn: Any) -> dict[str, int]:
+    """Trade bucket counts for paper-performance / learning-health."""
+    open_n = conn.execute(
+        f"SELECT COUNT(*) AS n FROM {_TRADES} WHERE status = ?",
+        (STATUS_OPEN,),
+    ).fetchone()["n"]
+    closed_n = conn.execute(
+        f"SELECT COUNT(*) AS n FROM {_TRADES} WHERE status = ?",
+        (STATUS_CLOSED,),
+    ).fetchone()["n"]
+    breakeven_n = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n FROM {_TRADES}
+        WHERE status = ? AND result = 'BE'
+        """,
+        (STATUS_CLOSED,),
+    ).fetchone()["n"]
+    pending_settlement = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM market_events_signal_learning_s40_signals s
+        LEFT JOIN market_events_paper_trades_s42 p
+          ON p.s40_signal_type = s.signal_type AND p.s40_signal_id = s.signal_id
+        WHERE p.id IS NULL
+          AND s.entry IS NOT NULL AND s.entry > 0
+          AND s.direction IN ('LONG', 'SHORT')
+        """,
+    ).fetchone()["n"]
+    return {
+        "open_trades": int(open_n or 0),
+        "closed_trades": int(closed_n or 0),
+        "breakeven_trades": int(breakeven_n or 0),
+        "pending_settlement": int(pending_settlement or 0),
     }
 
 
@@ -644,6 +696,7 @@ def paper_performance_dashboard_s42(conn: Any) -> dict[str, Any]:
         "winrate_pct": round(100.0 * wins / total, 1) if total else 0.0,
         "capital_per_trade": CAPITAL_PER_TRADE_USD,
         "leverage": LEVERAGE,
+        **paper_trade_counts_s42(conn),
     }
 
 
@@ -707,7 +760,10 @@ def format_paper_performance_s42(
         f"Current Equity  ${dash['current_equity']:.2f}",
         f"Today's PnL     ${dash['today_pnl_usd']:+.2f}",
         f"Weekly PnL      ${dash['weekly_pnl_usd']:+.2f}",
-        f"Trades          {dash['trades']}",
+        f"Open Trades     {dash['open_trades']}",
+        f"Closed Trades   {dash['closed_trades']}",
+        f"Pending Settlement {dash['pending_settlement']}",
+        f"Breakeven Trades {dash['breakeven_trades']}",
         f"Winrate         {dash['winrate_pct']:.1f}%",
         f"Margin/trade    ${CAPITAL_PER_TRADE_USD:.0f} @ {LEVERAGE}x",
     ]
@@ -731,5 +787,7 @@ __all__ = [
     "format_paper_performance_s42",
     "paper_day_stats_s42",
     "paper_performance_dashboard_s42",
+    "paper_trade_counts_s42",
     "run_paper_performance_cycle_s42",
+    "_max_drawdown_pct_from_pnl_usd",
 ]

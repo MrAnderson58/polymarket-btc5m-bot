@@ -27,6 +27,11 @@ SUPPORTED_COMMANDS = frozenset({
     "/dataset",
     "/vision",
     "/analyze",
+    "/ai",
+    "/compare",
+    "/cost",
+    "/history",
+    "/artifacts",
     "/watch",
     "/watchlist",
     "/why-not",
@@ -51,6 +56,9 @@ SUPPORTED_COMMANDS = frozenset({
 _WRITE_COMMANDS = frozenset({
     "/watch",
     "/history-backfill",
+    "/ai",
+    "/compare",
+    "/analyze",
 })
 
 # No DB required (still open RO if file exists; fall back to in-memory reply).
@@ -121,7 +129,8 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
             "G3.6 Commands",
             "",
             "/status  /health",
-            "/market  /analyze BTC",
+            "/market  /ai BTC  /analyze BTC",
+            "/compare BTC  /cost  /history  /artifacts BTC",
             "/candidates  /top",
             "/replay  /score",
             "/vision  (send chart photo)",
@@ -196,10 +205,42 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
     if cmd == "/vision":
         return "Send a chart screenshot (TradingView, Bybit, Binance, OKX, Hyperliquid, CoinGlass)."
     if cmd == "/analyze":
-        from bot.research.market_events.signal_intelligence.analyze_symbol_g36 import (
-            format_analyze_symbol_g36,
+        from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
+        from bot.research.market_events.signal_intelligence.research_terminal_s50 import (
+            dispatch_analyze_command_s50,
         )
-        return format_analyze_symbol_g36(conn, args[0] if args else "BTC")
+        with telegram_claude_session():
+            return dispatch_analyze_command_s50(args)
+    if cmd == "/ai":
+        from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
+        from bot.research.market_events.signal_intelligence.research_terminal_s50 import run_ai_s50_cli
+        sym = args[0] if args else "BTC"
+        with telegram_claude_session():
+            return run_ai_s50_cli(symbol=sym)
+    if cmd == "/compare":
+        from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
+        from bot.research.market_events.signal_intelligence.research_terminal_s50 import run_compare_s50_cli
+        sym = args[0] if args else "BTC"
+        with telegram_claude_session():
+            return run_compare_s50_cli(symbol=sym)
+    if cmd == "/cost":
+        from bot.research.market_events.signal_intelligence.research_terminal_s50 import format_cost_s50_cli
+        return format_cost_s50_cli()
+    if cmd == "/history":
+        from bot.research.market_events.signal_intelligence.research_terminal_s50 import format_history_s50_cli
+        limit = 15
+        if args:
+            try:
+                limit = max(1, int(args[0]))
+            except ValueError:
+                limit = 15
+        return format_history_s50_cli(limit=limit)
+    if cmd == "/artifacts":
+        from bot.research.market_events.signal_intelligence.research_artifacts_s50 import (
+            format_artifacts_report_s50,
+        )
+        sym = args[0] if args else None
+        return format_artifacts_report_s50(conn, symbol=sym)
     if cmd == "/watch":
         from bot.research.market_events.signal_intelligence.watchlist_g36 import (
             add_watchlist_symbol_g36,

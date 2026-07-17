@@ -13,6 +13,8 @@ from typing import Any
 
 import requests
 
+from bot.research.market_events.signal_intelligence.claude_channel_s50 import claude_call_allowed
+
 logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
@@ -128,6 +130,10 @@ def call_claude_g2(
     label: str = "research",
 ) -> ClaudeResponseG2:
     """Call Anthropic Messages API with retries on transient errors."""
+    allowed, block_reason = claude_call_allowed()
+    if not allowed:
+        raise ClaudeClientError("telegram_only", block_reason or "Claude blocked")
+
     model = model or default_model()
     if isinstance(user_content, str):
         content: list[dict[str, Any]] = [{"type": "text", "text": user_content}]

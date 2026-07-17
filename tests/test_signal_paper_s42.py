@@ -14,9 +14,11 @@ from bot.research.market_events.signal_intelligence.signal_paper_performance_s42
     STATUS_CLOSED,
     _close_trade,
     _margin_pnl_usd,
+    _max_drawdown_pct_from_pnl_usd,
     format_paper_performance_s42,
     open_paper_trades_from_s40,
     paper_performance_dashboard_s42,
+    paper_trade_counts_s42,
     run_paper_performance_cycle_s42,
 )
 
@@ -32,6 +34,55 @@ class TestPaperPerformanceS42(unittest.TestCase):
     def test_margin_pnl_usd_leverage(self) -> None:
         # +1% price move on $100 margin @ 20x => $20
         self.assertEqual(_margin_pnl_usd(1.0), 20.0)
+
+    def test_max_drawdown_pct_equity_based(self) -> None:
+        # Start $100, +$50 peak $150, then -$75 => equity $75 => 50% DD from peak
+        dd = _max_drawdown_pct_from_pnl_usd([50.0, -75.0], initial_equity=100.0)
+        self.assertEqual(dd, 50.0)
+        # Catastrophic streak caps at 100% (not thousands of %)
+        dd_many = _max_drawdown_pct_from_pnl_usd([-20.0] * 100, initial_equity=100.0)
+        self.assertEqual(dd_many, 100.0)
+
+    def test_paper_trade_counts(self) -> None:
+        conn = _mem_conn()
+        now = int(time.time())
+        conn.execute(
+            """
+            INSERT INTO market_events_signal_learning_s40_signals (
+              signal_type, signal_id, symbol, direction, entry, stop, tp1, tp2,
+              timestamp, created_at, updated_at
+            ) VALUES ('g3', 99, 'BTC', 'LONG', 100.0, 95.0, 105.0, 110.0, ?, ?, ?)
+            """,
+            (now, now, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO market_events_paper_trades_s42 (
+              s40_signal_type, s40_signal_id, symbol, direction,
+              entry, stop, tp1, tp2, created_at, status,
+              mfe_pct, mae_pct, capital_usd, leverage, updated_at
+            ) VALUES ('g3', 1, 'BTC', 'LONG', 100, 95, 105, 110, ?, 'OPEN', 0, 0, 100, 20, ?)
+            """,
+            (now, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO market_events_paper_trades_s42 (
+              s40_signal_type, s40_signal_id, symbol, direction,
+              entry, stop, tp1, tp2, created_at, closed_at, holding_seconds,
+              mfe_pct, mae_pct, pnl_pct, pnl_usd, result, exit_reason,
+              status, capital_usd, leverage, updated_at
+            ) VALUES ('g3', 2, 'ETH', 'LONG', 100, 95, 105, 110, ?, ?, 3600,
+              0, 0, 0, 0, 'BE', 'TIMEOUT', ?, 100, 20, ?)
+            """,
+            (now - 3600, now, STATUS_CLOSED, now),
+        )
+        conn.commit()
+        counts = paper_trade_counts_s42(conn)
+        self.assertEqual(counts["open_trades"], 1)
+        self.assertEqual(counts["closed_trades"], 1)
+        self.assertEqual(counts["breakeven_trades"], 1)
+        self.assertEqual(counts["pending_settlement"], 1)
 
     def test_open_from_s40_signal(self) -> None:
         conn = _mem_conn()
@@ -115,6 +166,8 @@ class TestPaperPerformanceS42(unittest.TestCase):
         text = format_paper_performance_s42(conn)
         self.assertIn("Paper Performance", text)
         self.assertIn("Current Equity", text)
+        self.assertIn("Open Trades", text)
+        self.assertIn("Pending Settlement", text)
 
     @patch(
         "bot.research.market_events.signal_intelligence.signal_paper_performance_s42.open_paper_trades_from_s40",

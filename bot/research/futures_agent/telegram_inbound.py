@@ -307,7 +307,9 @@ def handle_update(
             return result
 
         try:
-            route = route_telegram_command(text.strip(), message_id=message_id, chat_id=chat_id)
+            from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
+            with telegram_claude_session():
+                route = route_telegram_command(text.strip(), message_id=message_id, chat_id=chat_id)
             reply = route.reply_text if route else "Unknown command. Use /help."
             trace.command = route.command if route else "—"
             trace.parser = "SKIPPED"
@@ -348,6 +350,12 @@ def handle_update(
         return result
 
     from bot.research.market_events.signal_intelligence.telegram_photo_g36 import is_image_message
+    from bot.research.market_events.signal_intelligence.research_intake_s50 import (
+        handle_research_document_message,
+        handle_research_image_message,
+        handle_research_url_message,
+        is_research_document_message,
+    )
     if is_image_message(message):
         t0 = time.perf_counter()
         chat = message.get("chat") or {}
@@ -366,10 +374,11 @@ def handle_update(
 
         try:
             from bot.research.futures_agent.telegram_config import get_telegram_bot_token
-            from bot.research.market_events.signal_intelligence.telegram_vision_g36 import (
-                handle_telegram_photo_message,
+            from bot.research.market_events.signal_intelligence.claude_channel_s50 import (
+                telegram_claude_session,
             )
-            reply = handle_telegram_photo_message(message, token=get_telegram_bot_token())
+            with telegram_claude_session():
+                reply = handle_research_image_message(message, token=get_telegram_bot_token())
             result = InboundResult(
                 chat_id, message_id, reply,
                 processed=True,
@@ -389,6 +398,43 @@ def handle_update(
             result.reply_failed = not sent
             if stats is not None:
                 stats.record_reply(sent=sent)
+        _record_last_message(chat_id, message_id)
+        if stats is not None:
+            save_poll_stats(stats)
+        return result
+
+    if is_research_document_message(message):
+        t0 = time.perf_counter()
+        chat = message.get("chat") or {}
+        chat_id = int(chat.get("id", 0))
+        message_id = int(message.get("message_id", 0))
+        if not is_chat_allowed(chat_id):
+            result = InboundResult(
+                chat_id, message_id, None,
+                unauthorized=True, skipped=True,
+                ignore_reason=IGNORE_CHAT_NOT_ALLOWED,
+                processing_ms=int((time.perf_counter() - t0) * 1000),
+            )
+            _apply_inbound_stats(result, stats)
+            return result
+        try:
+            from bot.research.futures_agent.telegram_config import get_telegram_bot_token
+            reply = handle_research_document_message(message, token=get_telegram_bot_token())
+            result = InboundResult(
+                chat_id, message_id, reply,
+                processed=True,
+                processing_ms=int((time.perf_counter() - t0) * 1000),
+            )
+        except Exception as exc:
+            result = InboundResult(
+                chat_id, message_id, f"Document intake failed: {exc}",
+                skipped=True, processing_ms=int((time.perf_counter() - t0) * 1000),
+            )
+        _apply_inbound_stats(result, stats)
+        if result.reply_text:
+            sent = send_telegram_reply(result.chat_id, result.reply_text)
+            result.reply_sent = sent
+            result.reply_failed = not sent
         _record_last_message(chat_id, message_id)
         if stats is not None:
             save_poll_stats(stats)
@@ -428,9 +474,29 @@ def handle_update(
             save_poll_stats(stats)
         return result
 
+    # URL-only messages → S5 research intake
+    from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
+    with telegram_claude_session():
+        url_reply = handle_research_url_message(message, text=text.strip())
+    if url_reply is not None:
+        result = InboundResult(
+            chat_id_pre, message_id_pre, url_reply,
+            processed=True,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+        )
+        _apply_inbound_stats(result, stats)
+        sent = send_telegram_reply(result.chat_id, result.reply_text)
+        result.reply_sent = sent
+        result.reply_failed = not sent
+        _record_last_message(chat_id_pre, message_id_pre)
+        if stats is not None:
+            save_poll_stats(stats)
+        return result
+
     # S2.3: Signal Inbox — always persist raw_text; Decision Engine READ ONLY.
     # Avoid heavy futures_agent write path (primary source of database is locked).
     try:
+        from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
         from bot.research.market_events.signal_intelligence.signal_inbox_s23 import (
             process_telegram_signal_inbox_s23,
         )
@@ -440,12 +506,13 @@ def handle_update(
             user = str(frm["username"])
         elif frm.get("id"):
             user = str(frm["id"])
-        reply, _inbox_id = process_telegram_signal_inbox_s23(
-            raw_text=text,
-            chat_id=chat_id_pre,
-            message_id=message_id_pre,
-            telegram_user=user,
-        )
+        with telegram_claude_session():
+            reply, _inbox_id = process_telegram_signal_inbox_s23(
+                raw_text=text,
+                chat_id=chat_id_pre,
+                message_id=message_id_pre,
+                telegram_user=user,
+            )
         result = InboundResult(
             chat_id_pre, message_id_pre, reply,
             processed=True,

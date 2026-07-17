@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 53
+SCHEMA_VERSION = 55
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -869,6 +869,32 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v53")
             current = 53
+
+        if current < 54:
+            conn.executescript(S44A_LEARNING_PLACEHOLDER_REASON_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (54, now, "FIX-S4.4A Learning analytics validation (placeholder_reason)"),
+            )
+            applied.append("v54")
+            current = 54
+
+        if current < 55:
+            conn.executescript(S50_RESEARCH_TERMINAL_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (55, now, "Phase S5.0 AI Research Terminal (artifacts + manual Claude)"),
+            )
+            applied.append("v55")
+            current = 55
 
     if not applied:
         conn.commit()
@@ -3094,6 +3120,52 @@ CREATE TABLE IF NOT EXISTS market_events_learning_daily_s43 (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
+"""
+
+S44A_LEARNING_PLACEHOLDER_REASON_DDL = """
+ALTER TABLE market_events_signal_learning_s40_reviews
+    ADD COLUMN placeholder_reason TEXT;
+"""
+
+S50_RESEARCH_TERMINAL_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_research_artifacts_s50 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    artifact_type TEXT NOT NULL,
+    symbol TEXT,
+    telegram_user TEXT,
+    chat_id INTEGER,
+    message_id INTEGER,
+    caption TEXT,
+    content_text TEXT,
+    url TEXT,
+    file_path TEXT,
+    mime_type TEXT,
+    source_domain TEXT,
+    metadata_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_s50_artifacts_symbol ON market_events_research_artifacts_s50(symbol, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_s50_artifacts_type ON market_events_research_artifacts_s50(artifact_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_events_claude_requests_s50 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    command TEXT NOT NULL,
+    symbol TEXT,
+    prompt_chars INTEGER NOT NULL DEFAULT 0,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    duration_ms REAL,
+    estimated_cost_usd REAL,
+    artifacts_used_json TEXT,
+    model TEXT,
+    telegram_user TEXT,
+    status TEXT NOT NULL DEFAULT 'ok',
+    error TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_s50_claude_requests_day ON market_events_claude_requests_s50(created_at DESC);
 """
 
 S42_PAPER_PERFORMANCE_OBSERVE_ONLY_DDL = """
