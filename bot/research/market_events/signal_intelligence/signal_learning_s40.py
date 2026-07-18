@@ -208,7 +208,6 @@ def _infer_placeholder_reason(
 
 def ingest_new_s40_signals(conn: Any, *, limit: int = 200) -> int:
     """Populate market_events_signal_learning_s40_signals for new signals."""
-    _ensure_ops_state(conn)
     now = int(time.time())
 
     last_ingest_raw = _get_ops_state(conn, "last_ingest_ts") or "0"
@@ -1862,6 +1861,10 @@ def run_learning_worker_s40(
     paper_ticked = 0
     errors = 0
     last_cycle: dict[str, Any] = {}
+
+    with market_events_connection() as conn:
+        apply_migrations(conn)
+        _ensure_ops_state(conn)
 
     while True:
         cycles += 1
