@@ -19,7 +19,11 @@ from bot.research.futures_agent.db import AgentDbError, agent_connection
 from bot.research.futures_agent.env_bootstrap import project_root, resolve_agent_db_config
 from bot.research.futures_agent.ingestion import ingest_from_telegram
 from bot.research.futures_agent.pipeline import ProcessResult, process_input
-from bot.research.futures_agent.responses import send_telegram_reply
+from bot.research.futures_agent.responses import (
+    answer_telegram_callback,
+    edit_telegram_message,
+    send_telegram_reply,
+)
 from bot.research.futures_agent.schema import apply_migrations
 from bot.research.futures_agent.snapshot import SnapshotResult, snapshot_signal
 from bot.research.futures_agent.telegram_config import (
@@ -73,6 +77,8 @@ class InboundResult:
     reply_sent: bool = False
     reply_failed: bool = False
     processing_ms: int | None = None
+    reply_markup: dict[str, Any] | None = None
+    edited: bool = False
 
 
 def extract_message_text(message: dict[str, Any]) -> str | None:
@@ -241,12 +247,152 @@ def _apply_inbound_stats(result: InboundResult, stats: PollSessionStats | None) 
         stats.record_reply(sent=False)
 
 
+def _handle_terminal_slash(
+    message: dict[str, Any],
+    text: str,
+    *,
+    stats: PollSessionStats | None = None,
+) -> InboundResult:
+    """V6.1 Terminal slash navigation — sendMessage with inline keyboard."""
+    from bot.terminal.telegram.terminal_router import dispatch_terminal_command
+
+    t0 = time.perf_counter()
+    chat = message.get("chat") or {}
+    chat_id = int(chat.get("id", 0))
+    message_id = int(message.get("message_id", 0))
+
+    if stats is not None:
+        stats.record_received()
+
+    if not is_chat_allowed(chat_id):
+        result = InboundResult(
+            chat_id, message_id, None,
+            unauthorized=True, skipped=True,
+            ignore_reason=IGNORE_CHAT_NOT_ALLOWED,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+        )
+        _apply_inbound_stats(result, stats)
+        log_ignored(result.ignore_reason, logger=logger)
+        if stats is not None:
+            save_poll_stats(stats)
+        return result
+
+    try:
+        reply = dispatch_terminal_command(text, from_callback=False, user_id=chat_id)
+        body = reply.text if reply else "Terminal unavailable."
+        markup = reply.reply_markup if reply else None
+        result = InboundResult(
+            chat_id, message_id, body,
+            processed=True,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+            reply_markup=markup,
+        )
+        sent = send_telegram_reply(chat_id, body, reply_markup=markup)
+        result.reply_sent = sent
+        result.reply_failed = not sent
+    except Exception as exc:
+        logger.warning("terminal slash failed: %s", exc)
+        result = InboundResult(
+            chat_id, message_id, f"Terminal failed: {exc}",
+            processed=True,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+        )
+        _apply_inbound_stats(result, stats)
+        if stats is not None:
+            save_poll_stats(stats)
+        return result
+
+    _apply_inbound_stats(result, stats)
+    if stats is not None:
+        stats.record_reply(sent=bool(result.reply_sent))
+        save_poll_stats(stats)
+    _record_last_message(chat_id, message_id)
+    return result
+
+
+def _handle_terminal_callback(
+    callback: dict[str, Any],
+    *,
+    stats: PollSessionStats | None = None,
+) -> InboundResult | None:
+    """V6.1 Terminal inline buttons — editMessageText (no new messages)."""
+    from bot.terminal.telegram.keyboards import is_terminal_callback
+    from bot.terminal.telegram.terminal_router import handle_terminal_callback
+
+    t0 = time.perf_counter()
+    data = str(callback.get("data") or "")
+    cq_id = str(callback.get("id") or "")
+    message = callback.get("message") or {}
+    chat = message.get("chat") or {}
+    chat_id = int(chat.get("id", 0))
+    message_id = int(message.get("message_id", 0))
+
+    if stats is not None:
+        stats.record_received()
+
+    if not is_terminal_callback(data):
+        if stats is not None:
+            stats.record_ignored()
+            save_poll_stats(stats)
+        log_ignored("non-terminal callback", logger=logger)
+        answer_telegram_callback(cq_id)
+        return None
+
+    if not is_chat_allowed(chat_id):
+        answer_telegram_callback(cq_id)
+        result = InboundResult(
+            chat_id, message_id, None,
+            unauthorized=True, skipped=True,
+            ignore_reason=IGNORE_CHAT_NOT_ALLOWED,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+        )
+        _apply_inbound_stats(result, stats)
+        if stats is not None:
+            save_poll_stats(stats)
+        return result
+
+    try:
+        reply = handle_terminal_callback(data, user_id=chat_id)
+        body = reply.text if reply else "Terminal unavailable."
+        markup = reply.reply_markup if reply else None
+        edited = edit_telegram_message(chat_id, message_id, body, reply_markup=markup)
+        answer_telegram_callback(cq_id)
+        result = InboundResult(
+            chat_id, message_id, body,
+            processed=True,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+            reply_markup=markup,
+            edited=edited,
+            reply_sent=edited,
+            reply_failed=not edited,
+        )
+    except Exception as exc:
+        logger.warning("terminal callback failed: %s", exc)
+        answer_telegram_callback(cq_id)
+        result = InboundResult(
+            chat_id, message_id, f"Terminal failed: {exc}",
+            processed=True,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+        )
+
+    _apply_inbound_stats(result, stats)
+    if stats is not None:
+        stats.record_reply(sent=bool(result.reply_sent))
+        save_poll_stats(stats)
+    return result
+
+
 def handle_update(
     update: dict[str, Any],
     *,
     db_url: str | None = None,
     stats: PollSessionStats | None = None,
 ) -> InboundResult | None:
+    # V6.1 — Terminal inline navigation (editMessageText); no trading actions.
+    callback = update.get("callback_query")
+    if callback:
+        return _handle_terminal_callback(callback, stats=stats)
+
     message = update.get("message") or update.get("edited_message")
     if not message:
         if stats is not None:
@@ -257,6 +403,11 @@ def handle_update(
 
     text = extract_message_text(message)
     if text and text.strip().startswith("/"):
+        from bot.terminal.telegram.terminal_router import is_terminal_command
+
+        if is_terminal_command(text.strip()):
+            return _handle_terminal_slash(message, text.strip(), stats=stats)
+
         t0 = time.perf_counter()
         chat = message.get("chat") or {}
         chat_id = int(chat.get("id", 0))
@@ -566,7 +717,10 @@ def poll_once(*, offset: int | None = None, db_url: str | None = None) -> int:
 
 
 def _fetch_updates(token: str, *, offset: int | None = None) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"timeout": POLL_TIMEOUT_SEC, "allowed_updates": ["message"]}
+    params: dict[str, Any] = {
+        "timeout": POLL_TIMEOUT_SEC,
+        "allowed_updates": ["message", "edited_message", "callback_query"],
+    }
     if offset is not None:
         params["offset"] = offset
     data = _api_call(token, "getUpdates", params, timeout=POLL_TIMEOUT_SEC + 10)

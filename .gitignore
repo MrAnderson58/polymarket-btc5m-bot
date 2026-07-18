@@ -24,12 +24,19 @@ venv/
 # macOS
 .DS_Store
 
+.coverage
+.coverage.*
+htmlcov/
+
+.pytest_cache/
+
+.mypy_cache/
+
+
 # Python
-__pycache__/
 *.pyc
 
 # Virtual environment
-.venv/
 
 # SQLite
 *.db-shm

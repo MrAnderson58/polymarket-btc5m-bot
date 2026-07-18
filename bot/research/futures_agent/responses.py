@@ -66,17 +66,75 @@ def format_signal_received(conn: Any, input_id: int) -> str:
 from bot.research.futures_agent.telegram_config import get_telegram_bot_token
 
 
-def send_telegram_reply(chat_id: int | str, text: str) -> bool:
+def send_telegram_reply(
+    chat_id: int | str,
+    text: str,
+    *,
+    reply_markup: dict[str, Any] | None = None,
+) -> bool:
     """Send reply to a specific chat (inbound ack). Never logs token."""
     token = get_telegram_bot_token()
     if not token:
         return False
     url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload: dict[str, Any] = {
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": True,
+    }
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+    try:
+        resp = requests.post(url, json=payload, timeout=15)
+        return resp.ok and resp.json().get("ok", False)
+    except requests.RequestException:
+        return False
+
+
+def edit_telegram_message(
+    chat_id: int | str,
+    message_id: int,
+    text: str,
+    *,
+    reply_markup: dict[str, Any] | None = None,
+) -> bool:
+    """Edit an existing Telegram message (inline navigation). Never logs token."""
+    token = get_telegram_bot_token()
+    if not token:
+        return False
+    url = f"https://api.telegram.org/bot{token}/editMessageText"
+    payload: dict[str, Any] = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+        "disable_web_page_preview": True,
+    }
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+    try:
+        resp = requests.post(url, json=payload, timeout=15)
+        if not resp.ok:
+            return False
+        data = resp.json()
+        # "message is not modified" still counts as success for navigation UX
+        if data.get("ok"):
+            return True
+        desc = str((data.get("description") or "")).lower()
+        return "message is not modified" in desc
+    except requests.RequestException:
+        return False
+
+
+def answer_telegram_callback(callback_query_id: str) -> bool:
+    token = get_telegram_bot_token()
+    if not token or not callback_query_id:
+        return False
+    url = f"https://api.telegram.org/bot{token}/answerCallbackQuery"
     try:
         resp = requests.post(
             url,
-            json={"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
-            timeout=15,
+            json={"callback_query_id": callback_query_id},
+            timeout=10,
         )
         return resp.ok and resp.json().get("ok", False)
     except requests.RequestException:
