@@ -230,6 +230,28 @@ def load_n11_articles(conn: Any, *, since_ts: int, limit: int = 2000) -> list[di
     return out
 
 
+def load_all_source_articles(
+    conn: Any, *, since_ts: int, limit: int = 2500,
+) -> list[dict[str, Any]]:
+    """Merge RSS/Telegram/X feed rows with Polymarket + Macro snapshots."""
+    articles = load_n11_articles(conn, since_ts=since_ts, limit=limit)
+    try:
+        from bot.research.market_events.signal_intelligence.multi_source.polymarket_collector import (
+            load_recent_polymarket_as_articles,
+        )
+        articles.extend(load_recent_polymarket_as_articles(conn, since_ts=since_ts))
+    except Exception:
+        logger.exception("failed loading polymarket articles for event merge")
+    try:
+        from bot.research.market_events.signal_intelligence.multi_source.macro_collector import (
+            load_recent_macro_as_articles,
+        )
+        articles.extend(load_recent_macro_as_articles(conn, since_ts=since_ts))
+    except Exception:
+        logger.exception("failed loading macro articles for event merge")
+    return articles
+
+
 def upsert_events(conn: Any, events: list[dict[str, Any]]) -> dict[str, int]:
     created = 0
     merged = 0
@@ -321,7 +343,7 @@ def run_event_engine_cycle_s43(
 
     with market_events_connection() as conn:
         if articles is None:
-            raw = load_n11_articles(conn, since_ts=since)
+            raw = load_all_source_articles(conn, since_ts=since)
         else:
             raw = articles
         clusters = cluster_articles(raw)

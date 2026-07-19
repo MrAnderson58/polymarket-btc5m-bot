@@ -307,24 +307,41 @@ def run_news_update_n11(
     limit_per_feed: int = 20,
     commit: bool = True,
 ) -> dict[str, Any]:
-    """Fetch 5 RSS feeds and INSERT new items (dedup by title ≥90%)."""
+    """Fetch RSS feeds from config (fallback to built-in list) and INSERT."""
     _ensure_table(conn)
-    fetched = fetch_all_rss_n11(limit_per_feed=limit_per_feed)
+    try:
+        from bot.research.market_events.signal_intelligence.multi_source.rss_collector import (
+            load_rss_feeds_from_config,
+        )
+        feeds = load_rss_feeds_from_config() or list(RSS_FEEDS_N11)
+    except Exception:
+        feeds = list(RSS_FEEDS_N11)
+
+    fetched_items: list[dict[str, Any]] = []
+    for source, url in feeds:
+        try:
+            body = _http_get(url)
+            items = _parse_rss_items(body, source=source, limit=limit_per_feed)
+            fetched_items.extend(items)
+            logger.info("n11 RSS %s: %d items", source, len(items))
+        except Exception as exc:
+            logger.warning("n11 RSS %s failed: %s", source, exc)
+
     existing = _load_recent_titles(conn)
-    # Prefer newest first when deciding inserts in-batch
-    fetched.sort(key=lambda x: int(x.get("published_at") or 0), reverse=True)
+    fetched_items.sort(key=lambda x: int(x.get("published_at") or 0), reverse=True)
 
     inserted = 0
     skipped_dup = 0
     batch_titles: list[str] = list(existing)
     now = int(time.time())
-    for item in fetched:
+    for item in fetched_items:
         title = item.get("title") or ""
         if is_duplicate_title_n11(title, batch_titles):
             skipped_dup += 1
             continue
         item["symbols"] = extract_symbols_n11(title, item.get("summary") or "")
         item["category"] = extract_category_n11(title, item.get("summary") or "")
+        item["source_type"] = "rss"
         insert_news_item_n11(conn, item, now=now)
         batch_titles.insert(0, title)
         inserted += 1
@@ -334,11 +351,11 @@ def run_news_update_n11(
 
     total = conn.execute("SELECT COUNT(*) AS n FROM market_news_feed_n11").fetchone()["n"]
     return {
-        "fetched": len(fetched),
+        "fetched": len(fetched_items),
         "inserted": inserted,
         "skipped_duplicates": skipped_dup,
         "total": int(total),
-        "sources": [name for name, _ in RSS_FEEDS_N11],
+        "sources": [name for name, _ in feeds],
     }
 
 

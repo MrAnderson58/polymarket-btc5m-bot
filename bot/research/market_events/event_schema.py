@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 58
+SCHEMA_VERSION = 59
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -937,6 +937,19 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v58")
             current = 58
+
+        if current < 59:
+            conn.executescript(S44_MULTI_SOURCE_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (59, now, "Phase S4.4 Multi-Source Intelligence Platform"),
+            )
+            applied.append("v59")
+            current = 59
 
     if not applied:
         conn.commit()
@@ -3436,4 +3449,58 @@ CREATE INDEX IF NOT EXISTS idx_intel_events_confidence
     ON market_intel_events(confidence DESC, last_seen DESC);
 CREATE INDEX IF NOT EXISTS idx_intel_events_importance
     ON market_intel_events(importance DESC, last_seen DESC);
+"""
+
+# S4.4 Multi-Source Intelligence Platform
+S44_MULTI_SOURCE_DDL = """
+CREATE TABLE IF NOT EXISTS market_polymarket_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    query TEXT,
+    question TEXT,
+    probability REAL,
+    condition_id TEXT,
+    tags_json TEXT,
+    raw_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_poly_signals_created
+    ON market_polymarket_signals(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_poly_signals_name
+    ON market_polymarket_signals(name, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_macro_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT,
+    value REAL,
+    unit TEXT,
+    tags_json TEXT,
+    raw_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_macro_events_created
+    ON market_macro_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_macro_events_name
+    ON market_macro_events(name, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_source_health (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_type TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    last_update INTEGER NOT NULL,
+    error TEXT,
+    latency_ms REAL,
+    items INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(source_type, source_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_health_type
+    ON market_source_health(source_type, source_name);
 """

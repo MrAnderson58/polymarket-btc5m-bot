@@ -1,0 +1,43 @@
+# X / Twitter whitelist for Intelligence Layer (S44)
+sources:
+  - username: lookonchain
+    enabled: true
+    priority: 10
+    trust_score: 0.86
+    language: en
+    tags: [whales, onchain]
+
+  - username: WuBlockchain
+    enabled: true
+    priority: 20
+    trust_score: 0.91
+    language: en
+    tags: [crypto, news]
+
+  - username: DocumentingBTC
+    enabled: true
+    priority: 30
+    trust_score: 0.80
+    language: en
+    tags: [btc]
+
+  - username: BitcoinMagazine
+    enabled: true
+    priority: 40
+    trust_score: 0.88
+    language: en
+    tags: [btc, news]
+
+  - username: TheBlock__
+    enabled: true
+    priority: 50
+    trust_score: 0.90
+    language: en
+    tags: [crypto, research]
+
+  - username: federalreserve
+    enabled: true
+    priority: 60
+    trust_score: 0.98
+    language: en
+    tags: [macro, fed]

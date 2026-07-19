@@ -1,0 +1,82 @@
+# RSS sources for Intelligence Layer (S44)
+# enabled: false disables the feed without removing it.
+sources:
+  - name: CoinDesk
+    url: https://www.coindesk.com/arc/outboundfeeds/rss/
+    enabled: true
+    priority: 10
+    trust_score: 0.96
+    language: en
+    tags: [crypto, news]
+
+  - name: The Block
+    url: https://www.theblock.co/rss.xml
+    enabled: true
+    priority: 20
+    trust_score: 0.95
+    language: en
+    tags: [crypto, research]
+
+  - name: Blockworks
+    url: https://blockworks.co/feed
+    enabled: true
+    priority: 30
+    trust_score: 0.94
+    language: en
+    tags: [crypto, news]
+
+  - name: Decrypt
+    url: https://decrypt.co/feed
+    enabled: true
+    priority: 40
+    trust_score: 0.92
+    language: en
+    tags: [crypto, news]
+
+  - name: Cointelegraph
+    url: https://cointelegraph.com/rss
+    enabled: true
+    priority: 50
+    trust_score: 0.89
+    language: en
+    tags: [crypto, news]
+
+  - name: CryptoSlate
+    url: https://cryptoslate.com/feed/
+    enabled: true
+    priority: 60
+    trust_score: 0.85
+    language: en
+    tags: [crypto, news]
+
+  - name: Reuters Crypto
+    url: https://www.reutersagency.com/feed/?taxonomy=best-topics&post_type=best
+    enabled: false
+    priority: 15
+    trust_score: 1.00
+    language: en
+    tags: [macro, crypto]
+
+  - name: Bitcoin Magazine
+    url: https://bitcoinmagazine.com/.rss/full/
+    enabled: true
+    priority: 70
+    trust_score: 0.88
+    language: en
+    tags: [btc, news]
+
+  - name: The Defiant
+    url: https://thedefiant.io/feed
+    enabled: true
+    priority: 80
+    trust_score: 0.90
+    language: en
+    tags: [defi, news]
+
+  - name: DL News
+    url: https://www.dlnews.com/arc/outboundfeeds/rss/
+    enabled: true
+    priority: 85
+    trust_score: 0.91
+    language: en
+    tags: [crypto, news]

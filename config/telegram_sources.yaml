@@ -1,0 +1,49 @@
+# Telegram intelligence channels (S44) — not trading telegram-poll.
+sources:
+  - name: kopeechkav
+    channel: kopeechkav
+    enabled: true
+    priority: 10
+    trust_score: 0.78
+    language: ru
+    tags: [crypto, alerts]
+
+  - name: WuBlockchain
+    channel: wublockchainenglish
+    enabled: true
+    priority: 20
+    trust_score: 0.91
+    language: en
+    tags: [crypto, news]
+
+  - name: DBNews
+    channel: dbnews
+    enabled: true
+    priority: 30
+    trust_score: 0.80
+    language: en
+    tags: [crypto, news]
+
+  - name: TreeNews
+    channel: TreeNewsFeed
+    enabled: true
+    priority: 40
+    trust_score: 0.82
+    language: en
+    tags: [crypto, news]
+
+  - name: Lookonchain
+    channel: lookonchain
+    enabled: true
+    priority: 50
+    trust_score: 0.86
+    language: en
+    tags: [whales, onchain]
+
+  - name: ETFNews
+    channel: etfnews
+    enabled: true
+    priority: 60
+    trust_score: 0.84
+    language: en
+    tags: [etf, btc]

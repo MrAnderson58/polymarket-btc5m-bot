@@ -1,0 +1,72 @@
+# Polymarket markets to track (S44)
+# query: search term for Gamma API; slug optional exact market slug.
+sources:
+  - name: BTC Today
+    query: bitcoin up or down
+    tags: [btc, short_term]
+    enabled: true
+    priority: 10
+    trust_score: 0.90
+
+  - name: BTC Tomorrow
+    query: bitcoin tomorrow
+    tags: [btc, short_term]
+    enabled: true
+    priority: 20
+    trust_score: 0.90
+
+  - name: BTC Week
+    query: bitcoin this week
+    tags: [btc]
+    enabled: true
+    priority: 30
+    trust_score: 0.90
+
+  - name: ETH Week
+    query: ethereum this week
+    tags: [eth]
+    enabled: true
+    priority: 40
+    trust_score: 0.88
+
+  - name: Fed
+    query: fed rate
+    tags: [macro, fed]
+    enabled: true
+    priority: 50
+    trust_score: 0.95
+
+  - name: Inflation
+    query: inflation
+    tags: [macro, inflation]
+    enabled: true
+    priority: 60
+    trust_score: 0.93
+
+  - name: ETF
+    query: bitcoin etf
+    tags: [etf, btc]
+    enabled: true
+    priority: 70
+    trust_score: 0.92
+
+  - name: Recession
+    query: recession
+    tags: [macro]
+    enabled: true
+    priority: 80
+    trust_score: 0.90
+
+  - name: Election
+    query: election
+    tags: [macro, politics]
+    enabled: true
+    priority: 90
+    trust_score: 0.88
+
+  - name: War
+    query: war
+    tags: [geo, risk]
+    enabled: true
+    priority: 100
+    trust_score: 0.85

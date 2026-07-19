@@ -1,0 +1,74 @@
+# Macro intelligence sources (S44)
+# type: rss | series
+sources:
+  - name: Fed
+    type: rss
+    url: https://www.federalreserve.gov/feeds/press_all.xml
+    enabled: true
+    priority: 10
+    trust_score: 0.99
+    language: en
+    tags: [fed, rates]
+
+  - name: CPI
+    type: series
+    series_id: CPI
+    enabled: true
+    priority: 20
+    trust_score: 0.98
+    language: en
+    tags: [inflation, cpi]
+
+  - name: PPI
+    type: series
+    series_id: PPI
+    enabled: true
+    priority: 30
+    trust_score: 0.97
+    language: en
+    tags: [inflation, ppi]
+
+  - name: NFP
+    type: series
+    series_id: NFP
+    enabled: true
+    priority: 40
+    trust_score: 0.97
+    language: en
+    tags: [jobs, nfp]
+
+  - name: DXY
+    type: series
+    series_id: DXY
+    enabled: true
+    priority: 50
+    trust_score: 0.95
+    language: en
+    tags: [fx, dxy]
+
+  - name: US10Y
+    type: series
+    series_id: US10Y
+    enabled: true
+    priority: 60
+    trust_score: 0.96
+    language: en
+    tags: [rates, yields]
+
+  - name: Gold
+    type: series
+    series_id: GOLD
+    enabled: true
+    priority: 70
+    trust_score: 0.93
+    language: en
+    tags: [commodities, gold]
+
+  - name: Oil
+    type: series
+    series_id: OIL
+    enabled: true
+    priority: 80
+    trust_score: 0.93
+    language: en
+    tags: [commodities, oil]

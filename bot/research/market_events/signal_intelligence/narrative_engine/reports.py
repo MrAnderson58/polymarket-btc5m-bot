@@ -89,6 +89,51 @@ def _render_top_events(events: list[dict[str, Any]], *, limit: int = 8) -> str:
     return "\n\n------------------------------------------------\n\n".join(blocks)
 
 
+def _source_sections() -> tuple[str, str, str]:
+    """Build Source Distribution / Top Sources / Source Health markdown blocks."""
+    try:
+        from bot.research.market_events.signal_intelligence.multi_source.health import (
+            fetch_source_health,
+        )
+        rows = fetch_source_health()
+    except Exception:
+        rows = []
+    if not rows:
+        empty = "—"
+        return empty, empty, empty
+
+    by_type: dict[str, int] = {}
+    ok_count = 0
+    err_count = 0
+    for r in rows:
+        t = str(r.get("source_type") or "unknown")
+        by_type[t] = by_type.get(t, 0) + 1
+        if str(r.get("status") or "") == "ok":
+            ok_count += 1
+        elif str(r.get("status") or "") == "error":
+            err_count += 1
+
+    dist = "\n".join(f"- **{k}**: {v} sources" for k, v in sorted(by_type.items())) or "—"
+    top = sorted(
+        rows,
+        key=lambda r: (0 if r.get("status") == "ok" else 1, -(r.get("items") or 0)),
+    )[:8]
+    top_md = "\n".join(
+        f"- {r.get('source_name')} ({r.get('source_type')}) "
+        f"status={r.get('status')} items={r.get('items') or 0}"
+        for r in top
+    ) or "—"
+    health_lines = [
+        f"- {r.get('source_name')} | {r.get('source_type')} | "
+        f"{r.get('status')} | latency={r.get('latency_ms')}ms | "
+        f"err={(r.get('error') or '—')[:60]}"
+        for r in rows[:20]
+    ]
+    health = "\n".join(health_lines) or "—"
+    _ = (ok_count, err_count)
+    return dist, top_md, health
+
+
 def render_claude_market_context(
     *,
     assets: list[dict[str, Any]],
@@ -127,6 +172,7 @@ def render_claude_market_context(
         "HIGH" if any(a["risk_level"] == "HIGH" for a in active) else "MEDIUM"
         if any(a["risk_level"] == "MEDIUM" for a in active) else "LOW"
     )
+    dist, top_sources, health = _source_sections()
 
     dt = datetime.fromtimestamp(now).isoformat(timespec="seconds")
     lines = [
@@ -139,6 +185,15 @@ def render_claude_market_context(
         "",
         "## Top Events",
         _render_top_events(events),
+        "",
+        "## Source Distribution",
+        dist,
+        "",
+        "## Top Sources",
+        top_sources,
+        "",
+        "## Source Health",
+        health,
         "",
         "## Top Bullish Assets",
         _bullets_assets(top_bullish),

@@ -231,6 +231,8 @@ def main(argv: list[str] | None = None) -> int:
             "news-intel-brief",
             "news-intel-reports",
             "event-engine-run",
+            "multi-source-run",
+            "source-health",
             "narrative-engine-run",
             "reversal-diagnostics",
             "signal-inbox",
@@ -291,6 +293,11 @@ def main(argv: list[str] | None = None) -> int:
         "--debug",
         action="store_true",
         help="narrative-engine-run: print load/skip diagnostics (implies one-shot if no --max-cycles)",
+    )
+    parser.add_argument(
+        "--source",
+        default=None,
+        help="multi-source-run: limit to one collector (rss|telegram|twitter|polymarket|macro)",
     )
     parser.add_argument(
         "--max-reviews-per-cycle",
@@ -1175,6 +1182,45 @@ def main(argv: list[str] | None = None) -> int:
         stats = run_event_intelligence_worker_s43(max_cycles=None)
         print(json.dumps(stats, indent=2) if args.json else stats)
         return 1 if stats.get("errors") and not stats.get("runs") else 0
+
+    if args.command == "multi-source-run":
+        from bot.research.market_events.signal_intelligence.multi_source.worker import (
+            _configure_logging,
+            run_multi_source_worker_s44,
+        )
+        _configure_logging()
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+        if args.max_cycles is not None or bool(getattr(args, "debug", False)):
+            from bot.research.market_events.signal_intelligence.multi_source.orchestrator import (
+                run_multi_source_cycle_s44,
+            )
+            only = None
+            if getattr(args, "source", None):
+                only = [str(args.source).strip().lower()]
+            last = None
+            cycles = max(1, int(args.max_cycles or 1))
+            for _ in range(cycles):
+                last = run_multi_source_cycle_s44(only=only, run_events=True)
+            print(json.dumps(last, indent=2, default=str) if args.json else last)
+            return 0
+        stats = run_multi_source_worker_s44(max_cycles=None)
+        print(json.dumps(stats, indent=2) if args.json else stats)
+        return 1 if stats.get("errors") and not stats.get("runs") else 0
+
+    if args.command == "source-health":
+        from bot.research.market_events.signal_intelligence.multi_source.health import (
+            fetch_source_health,
+            format_source_health_report,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+        rows = fetch_source_health()
+        if args.json:
+            print(json.dumps(rows, indent=2, default=str))
+        else:
+            print(format_source_health_report(rows))
+        return 0
 
     if args.command == "narrative-engine-run":
         from bot.research.market_events.signal_intelligence.narrative_engine.worker import (

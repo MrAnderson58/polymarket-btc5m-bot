@@ -108,6 +108,13 @@ SERVICES: tuple[ManagedService, ...] = (
         markers=("bot.research.market_events event-engine-run",),
     ),
     ManagedService(
+        key="multi-source",
+        label="multi-source",
+        module_args=("-m", "bot.research.market_events", "multi-source-run"),
+        log_name="multi-source.log",
+        markers=("bot.research.market_events multi-source-run",),
+    ),
+    ManagedService(
         key="narrative-engine",
         label="narrative-engine",
         module_args=("-m", "bot.research.market_events", "narrative-engine-run"),

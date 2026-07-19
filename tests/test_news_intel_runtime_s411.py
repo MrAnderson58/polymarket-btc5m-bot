@@ -43,7 +43,8 @@ class TestNewsIntelRegisteredS411(unittest.TestCase):
         keys = [s.key for s in SERVICES]
         self.assertIn("news-intel", keys)
         self.assertIn("event-engine", keys)
-        # News → events → narrative
+        self.assertIn("multi-source", keys)
+        # News → events → multi-source → narrative
         self.assertLess(keys.index("news-intel"), keys.index("event-engine"))
         self.assertLess(keys.index("event-engine"), keys.index("narrative-engine"))
         svc = next(s for s in SERVICES if s.key == "news-intel")
