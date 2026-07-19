@@ -150,10 +150,8 @@ def persist_inbound_trace_g04(trace: InboundTraceG04) -> None:
     """Short-lived write connection — never share with report builders."""
     try:
         from bot.research.market_events.db import market_events_connection
-        from bot.research.market_events.event_schema import apply_migrations
 
         with market_events_connection() as conn:
-            apply_migrations(conn)
             conn.execute(
                 """
                 INSERT INTO market_events_inbound_trace_g04 (
@@ -194,10 +192,8 @@ def record_command_trace_write_g04(
     """Write command stage on a short-lived writer (outside RO report conn)."""
     try:
         from bot.research.market_events.db import insert_returning_id, market_events_connection
-        from bot.research.market_events.event_schema import apply_migrations
 
         with market_events_connection() as conn:
-            apply_migrations(conn)
             insert_returning_id(
                 conn,
                 """
@@ -411,7 +407,6 @@ def format_telegram_self_test_g04() -> str:
         market_events_connection,
         market_events_readonly_connection,
     )
-    from bot.research.market_events.event_schema import apply_migrations
     from bot.research.market_events.signal_intelligence.telegram_command_router_g351 import (
         handle_market_events_command,
         is_slash_command,
@@ -441,7 +436,6 @@ def format_telegram_self_test_g04() -> str:
     db_detail = ""
     try:
         with market_events_connection() as conn:
-            apply_migrations(conn)
             conn.execute("SELECT 1")
             conn.commit()
         with market_events_readonly_connection() as ro:

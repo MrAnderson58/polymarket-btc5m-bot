@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 55
+SCHEMA_VERSION = 56
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -895,6 +895,24 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v55")
             current = 55
+
+        if current < 56:
+            conn.executescript(S411_NEWS_INTEL_DDL)
+            for stmt in S411_NEWS_FEED_ALTER:
+                try:
+                    conn.execute(stmt)
+                except Exception:
+                    pass
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (56, now, "Phase S4.1 News Intelligence Layer (summaries + daily briefs)"),
+            )
+            applied.append("v56")
+            current = 56
 
     if not applied:
         conn.commit()
@@ -3244,3 +3262,54 @@ CREATE INDEX IF NOT EXISTS idx_news_feed_n11_published ON market_news_feed_n11(p
 CREATE INDEX IF NOT EXISTS idx_news_feed_n11_source ON market_news_feed_n11(source, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_news_feed_n11_created ON market_news_feed_n11(created_at DESC);
 """
+
+# S4.1 Intelligence Layer (version 56) — avoid S41_ prefix (taken by learning review status).
+S411_NEWS_INTEL_DDL = """
+CREATE TABLE IF NOT EXISTS market_news_summary (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_start INTEGER NOT NULL,
+    period_end INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    bullish_score REAL NOT NULL DEFAULT 0,
+    bearish_score REAL NOT NULL DEFAULT 0,
+    neutral_score REAL NOT NULL DEFAULT 0,
+    importance REAL NOT NULL DEFAULT 0,
+    sources TEXT,
+    headline_count INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_summary_period
+    ON market_news_summary(period_end DESC, symbol);
+CREATE INDEX IF NOT EXISTS idx_news_summary_symbol
+    ON market_news_summary(symbol, period_end DESC);
+
+CREATE TABLE IF NOT EXISTS market_daily_briefs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_start INTEGER NOT NULL,
+    period_end INTEGER NOT NULL,
+    global_narrative TEXT NOT NULL,
+    top_bullish_json TEXT,
+    top_bearish_json TEXT,
+    macro_events_json TEXT,
+    fed_json TEXT,
+    etf_json TEXT,
+    whales_json TEXT,
+    polymarket_json TEXT,
+    risk_level TEXT NOT NULL,
+    risk_score REAL NOT NULL DEFAULT 0,
+    headline_count INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_briefs_created
+    ON market_daily_briefs(created_at DESC);
+"""
+
+S411_NEWS_FEED_ALTER = (
+    "ALTER TABLE market_news_feed_n11 ADD COLUMN source_type TEXT",
+    "ALTER TABLE market_news_feed_n11 ADD COLUMN importance REAL",
+    "ALTER TABLE market_news_feed_n11 ADD COLUMN language TEXT",
+    "ALTER TABLE market_news_feed_n11 ADD COLUMN body TEXT",
+)

@@ -208,7 +208,6 @@ def _infer_placeholder_reason(
 
 def ingest_new_s40_signals(conn: Any, *, limit: int = 200) -> int:
     """Populate market_events_signal_learning_s40_signals for new signals."""
-    _ensure_ops_state(conn)
     now = int(time.time())
 
     last_ingest_raw = _get_ops_state(conn, "last_ingest_ts") or "0"
@@ -1392,7 +1391,6 @@ def _generate_review_text_s40(
 def run_learning_pipeline_s40_once(*, limit_ingest: int = 200, limit_checkpoints: int = 200) -> dict[str, Any]:
     """Populate s40_signals + s40_checkpoints (no Claude)."""
     with market_events_connection() as conn:
-        apply_migrations(conn)
         n_ingest = ingest_new_s40_signals(conn, limit=limit_ingest)
         n_cp = ingest_checkpoints_s40(conn, signal_limit=limit_checkpoints)
         conn.commit()
@@ -1406,7 +1404,6 @@ def _persist_reviews_s40(
         return 0
     written = 0
     with market_events_connection() as conn:
-        apply_migrations(conn)
         has_reason_col = True
         try:
             cols = {
@@ -1633,12 +1630,10 @@ def run_learning_reviews_s40_once(
     written = _persist_reviews_s40(reviews)
     if skipped_timeout:
         with market_events_connection() as conn:
-            apply_migrations(conn)
             _incr_ops_counter(conn, "total_skipped_timeout", skipped_timeout)
             conn.commit()
     if item_errors:
         with market_events_connection() as conn:
-            apply_migrations(conn)
             _incr_ops_counter(conn, "total_worker_errors", item_errors)
             conn.commit()
     avg_review_sec = round(sum(review_secs) / len(review_secs), 1) if review_secs else 0.0
@@ -1669,7 +1664,6 @@ def _persist_worker_cycle_ops_s40(
 ) -> None:
     now = int(time.time())
     with market_events_connection() as conn:
-        apply_migrations(conn)
         _set_ops_state(conn, "last_cycle_ended_at", str(now))
         _set_ops_state(conn, "last_cycle_duration_sec", str(duration_sec))
         _set_ops_state(conn, "last_remaining_queue", str(remaining_queue))
@@ -1788,7 +1782,6 @@ def maybe_emit_daily_performance_s43() -> dict[str, Any]:
         return result
 
     with market_events_connection() as conn:
-        apply_migrations(conn)
         if _get_ops_state(conn, "last_daily_performance_s43") == day_key:
             conn.commit()
             return result
@@ -1802,7 +1795,6 @@ def maybe_emit_daily_performance_s43() -> dict[str, Any]:
     review_text, review_status = _generate_daily_claude_review_s43(stats)
 
     with market_events_connection() as conn:
-        apply_migrations(conn)
         execute_with_retry(
             conn,
             """
@@ -1863,6 +1855,10 @@ def run_learning_worker_s40(
     errors = 0
     last_cycle: dict[str, Any] = {}
 
+    with market_events_connection() as conn:
+        apply_migrations(conn)
+        _ensure_ops_state(conn)
+
     while True:
         cycles += 1
         t0 = time.perf_counter()
@@ -1909,7 +1905,6 @@ def run_learning_worker_s40(
             logger.exception("s40 worker cycle failed")
             try:
                 with market_events_connection() as conn:
-                    apply_migrations(conn)
                     _incr_ops_counter(conn, "total_worker_errors", 1)
                     conn.commit()
             except Exception:

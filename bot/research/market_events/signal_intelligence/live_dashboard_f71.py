@@ -164,10 +164,11 @@ def render_live_dashboard(conn: Any) -> str:
 
 def run_live_dashboard(*, interval_sec: float = 5.0) -> None:
     print("Starting live dashboard…")
+    with market_events_connection() as conn:
+        apply_migrations(conn)
     try:
         while True:
             with market_events_connection() as conn:
-                apply_migrations(conn)
                 text = render_live_dashboard(conn)
             _clear_screen()
             print(text)

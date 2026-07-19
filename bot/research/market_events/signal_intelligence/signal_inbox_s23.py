@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from bot.research.futures.parser import _normalize_side, _parse_entry_range, _parse_take_profits
 from bot.research.futures.parser_v2 import SL_RE, extract_symbol_v2, parse_signal_v2
@@ -264,6 +267,67 @@ def persist_signal_inbox_s23(
     return int(cur.lastrowid)
 
 
+def persist_signal_inbox_with_retry_s23(
+    *,
+    raw_text: str,
+    telegram_user: str | None,
+    chat_id: int | None,
+    parsed: ParsedInboxSignalS23,
+    decision_label: str | None = None,
+    decision_probability: int | None = None,
+    decision_summary: str | None = None,
+    decision_run_id: int | None = None,
+    source: str = "telegram",
+    status: str | None = None,
+) -> int:
+    """Short write transaction for inbox INSERT — retry on lock with S5.0.2 backoff."""
+    from bot.research.market_events.db import (
+        is_database_locked,
+        lock_retry_sleep_schedule,
+        market_events_connection,
+    )
+    from bot.research.market_events.sqlite_manager_g05 import maybe_log_database_locked
+
+    schedule = lock_retry_sleep_schedule()
+    last_exc: BaseException | None = None
+    attempts = len(schedule) + 1
+    for attempt in range(attempts):
+        if attempt > 0:
+            time.sleep(schedule[attempt - 1])
+        try:
+            t0 = time.perf_counter()
+            with market_events_connection() as conn:
+                inbox_id = persist_signal_inbox_s23(
+                    conn,
+                    raw_text=raw_text,
+                    telegram_user=telegram_user,
+                    chat_id=chat_id,
+                    parsed=parsed,
+                    decision_label=decision_label,
+                    decision_probability=decision_probability,
+                    decision_summary=decision_summary,
+                    decision_run_id=decision_run_id,
+                    source=source,
+                    status=status,
+                )
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            if elapsed_ms > 100:
+                logger.warning(
+                    "inbox persist slow: %.1fms id=%s attempt=%s",
+                    elapsed_ms,
+                    inbox_id,
+                    attempt + 1,
+                )
+            return inbox_id
+        except Exception as exc:
+            if not is_database_locked(exc):
+                raise
+            last_exc = exc
+    assert last_exc is not None
+    maybe_log_database_locked(last_exc, emit_log=True)
+    raise last_exc
+
+
 def run_inbox_decision_ro_s23(conn: Any, symbol: str) -> dict[str, Any]:
     """Call Decision Engine READ ONLY — never INSERT decision runs."""
     from bot.research.market_events.signal_intelligence.decision_engine_s20 import (
@@ -295,6 +359,38 @@ def _reason_lines_from_decision(result: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _run_inbox_decision_phase_s23(
+    parsed: ParsedInboxSignalS23,
+) -> tuple[str, int | None, str | None, list[str]]:
+    """Decision Engine on READ ONLY connection — no write lock held."""
+    decision_label = "WAIT"
+    probability: int | None = None
+    summary: str | None = None
+    reason_lines: list[str] = []
+
+    if not (parsed.parsed_ok and parsed.symbol):
+        return decision_label, probability, summary, reason_lines
+
+    from bot.research.market_events.db import market_events_readonly_connection
+
+    try:
+        with market_events_readonly_connection() as conn:
+            result = run_inbox_decision_ro_s23(conn, parsed.symbol)
+        dec = result.get("decision") or {}
+        decision_label = map_decision_label_s23(str(dec.get("decision")))
+        probability = int(dec.get("probability") or 0)
+        summary = str(dec.get("summary") or "")[:500]
+        reason_lines = _reason_lines_from_decision(result)
+        if result.get("run_id") is not None:
+            raise RuntimeError("decision engine persisted unexpectedly")
+    except Exception as exc:
+        decision_label = "WAIT"
+        probability = 0
+        summary = f"decision_error: {exc}"
+        reason_lines = [f"Decision engine error: {exc}"]
+    return decision_label, probability, summary, reason_lines
+
+
 def process_telegram_signal_inbox_s23(
     *,
     raw_text: str,
@@ -302,54 +398,26 @@ def process_telegram_signal_inbox_s23(
     message_id: int | None = None,
     telegram_user: str | None = None,
 ) -> tuple[str, int | None]:
-    """Parse → always persist → optional Decision (no decision INSERT) → reply text.
+    """Parse → Decision (RO, outside write tx) → short persist with retry → reply.
 
     Returns (reply_text, inbox_id).
     """
-    from bot.research.market_events.db import market_events_connection
-    from bot.research.market_events.event_schema import apply_migrations
-
     _ = message_id
     parsed = parse_signal_inbox_s23(raw_text)
-    decision_label = "WAIT"
-    probability: int | None = None
-    summary: str | None = None
-    reason_lines: list[str] = []
-
-    with market_events_connection() as conn:
-        apply_migrations(conn)
-
-        if parsed.parsed_ok and parsed.symbol:
-            try:
-                # persist=False inside Decision Engine — no INSERT to decision tables.
-                result = run_inbox_decision_ro_s23(conn, parsed.symbol)
-                dec = result.get("decision") or {}
-                decision_label = map_decision_label_s23(str(dec.get("decision")))
-                probability = int(dec.get("probability") or 0)
-                summary = str(dec.get("summary") or "")[:500]
-                reason_lines = _reason_lines_from_decision(result)
-                if result.get("run_id") is not None:
-                    # Belt-and-suspenders: inbox path must never create decision runs.
-                    raise RuntimeError("decision engine persisted unexpectedly")
-            except Exception as exc:
-                decision_label = "WAIT"
-                probability = 0
-                summary = f"decision_error: {exc}"
-                reason_lines = [f"Decision engine error: {exc}"]
-
-        inbox_id = persist_signal_inbox_s23(
-            conn,
-            raw_text=raw_text,
-            telegram_user=telegram_user,
-            chat_id=chat_id,
-            parsed=parsed,
-            decision_label=decision_label if parsed.parsed_ok else None,
-            decision_probability=probability if parsed.parsed_ok else None,
-            decision_summary=summary if parsed.parsed_ok else None,
-            decision_run_id=None,
-            source="telegram",
-        )
-        conn.commit()
+    decision_label, probability, summary, reason_lines = _run_inbox_decision_phase_s23(
+        parsed,
+    )
+    inbox_id = persist_signal_inbox_with_retry_s23(
+        raw_text=raw_text,
+        telegram_user=telegram_user,
+        chat_id=chat_id,
+        parsed=parsed,
+        decision_label=decision_label if parsed.parsed_ok else None,
+        decision_probability=probability if parsed.parsed_ok else None,
+        decision_summary=summary if parsed.parsed_ok else None,
+        decision_run_id=None,
+        source="telegram",
+    )
 
     reply = format_signal_received_reply_s23(
         symbol=parsed.symbol,

@@ -10,7 +10,6 @@ from typing import Any
 import requests
 
 from bot.research.market_events.db import market_events_connection
-from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence.claude_channel_s50 import telegram_claude_session
 from bot.research.market_events.signal_intelligence.research_artifacts_s50 import (
     ARTIFACT_DOCUMENT,
@@ -119,7 +118,6 @@ def handle_research_image_message(
     path, _b64, filename = download_telegram_image(message, token=token)
 
     with market_events_connection() as conn:
-        apply_migrations(conn)
         artifact_id = save_research_artifact_s50(
             conn,
             artifact_type=ARTIFACT_IMAGE,
@@ -169,7 +167,6 @@ def handle_research_document_message(
             text_preview = ""
 
     with market_events_connection() as conn:
-        apply_migrations(conn)
         artifact_id = save_research_artifact_s50(
             conn,
             artifact_type=ARTIFACT_DOCUMENT,
@@ -217,7 +214,6 @@ def handle_research_text_message(
         return None
     user = _telegram_user(message)
     with market_events_connection() as conn:
-        apply_migrations(conn)
         save_research_artifact_s50(
             conn,
             artifact_type=ARTIFACT_TEXT,

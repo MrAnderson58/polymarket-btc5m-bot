@@ -223,6 +223,7 @@ class MarketEventsE50Tests(unittest.TestCase):
     def test_dashboard_api_stats(self) -> None:
         from unittest.mock import patch
         from bot.research.market_events.alert_engine.dashboard_api import DashboardHandler
+        from bot.research.market_events.db_config import configure_unit_test_db_isolation
         from io import BytesIO
 
         class FakeHandler(DashboardHandler):
@@ -240,12 +241,14 @@ class MarketEventsE50Tests(unittest.TestCase):
             def end_headers(self):
                 pass
 
-        with patch("bot.research.market_events.config.MARKET_EVENTS_DATABASE_PATH", self.db_path):
-            handler = FakeHandler()
-            handler.do_GET()
-            body = json.loads(handler.wfile.getvalue().decode())
-            self.assertEqual(handler.response_code, 200)
-            self.assertIn("events_total", body)
+        configure_unit_test_db_isolation(self.db_path)
+        with self._conn() as conn:
+            apply_migrations(conn)
+        handler = FakeHandler()
+        handler.do_GET()
+        body = json.loads(handler.wfile.getvalue().decode())
+        self.assertEqual(handler.response_code, 200, msg=body)
+        self.assertIn("events_total", body)
 
     def test_format_shock_alert_delegates_v2(self) -> None:
         with self._conn() as conn:

@@ -20,6 +20,7 @@ from typing import Any, Iterator
 logger = logging.getLogger(__name__)
 
 BUSY_TIMEOUT_MS = 10_000
+WRITE_BUSY_TIMEOUT_MS = 30_000
 SLOW_TX_MS = 100.0
 
 _registry_lock = threading.Lock()
@@ -77,7 +78,9 @@ def apply_sqlite_pragmas(conn: sqlite3.Connection, *, readonly: bool = False) ->
         journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
         if str(journal).lower() == "wal":
             conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+    # BUG-S5.0.2: separate write busy_timeout; WAL left as-is.
+    timeout_ms = BUSY_TIMEOUT_MS if readonly else WRITE_BUSY_TIMEOUT_MS
+    conn.execute(f"PRAGMA busy_timeout={timeout_ms}")
     if not readonly:
         conn.execute("PRAGMA foreign_keys=ON")
 
@@ -184,7 +187,8 @@ class TracedConnectionG05:
             cur = self._conn.execute(sql, params)
             return TracedCursorG05(cur, self._lease)
         except Exception as exc:
-            maybe_log_database_locked(exc, lease=self._lease)
+            # Record diag only — retry_on_db_locked logs after all attempts fail.
+            maybe_log_database_locked(exc, lease=self._lease, emit_log=False)
             raise
 
     def executescript(self, sql: str) -> sqlite3.Cursor:
@@ -192,7 +196,7 @@ class TracedConnectionG05:
         try:
             return self._conn.executescript(sql)
         except Exception as exc:
-            maybe_log_database_locked(exc, lease=self._lease)
+            maybe_log_database_locked(exc, lease=self._lease, emit_log=False)
             raise
 
     def commit(self) -> None:
@@ -220,7 +224,7 @@ class TracedConnectionG05:
             self._lease.tx_started_at = None
             self._lease.tx_mode = None
         except Exception as exc:
-            maybe_log_database_locked(exc, lease=self._lease)
+            maybe_log_database_locked(exc, lease=self._lease, emit_log=False)
             raise
 
     def rollback(self) -> None:
@@ -228,7 +232,7 @@ class TracedConnectionG05:
         try:
             self._conn.rollback()
         except Exception as exc:
-            maybe_log_database_locked(exc, lease=self._lease)
+            maybe_log_database_locked(exc, lease=self._lease, emit_log=False)
             raise
 
     def close(self) -> None:
@@ -256,7 +260,10 @@ def connect_sqlite(
     """SOLE entry point for market_events SQLite connects."""
     global _conn_seq
     path = Path(path)
-    timeout = timeout_sec if timeout_sec is not None else BUSY_TIMEOUT_MS / 1000.0
+    default_timeout = (
+        BUSY_TIMEOUT_MS / 1000.0 if readonly else WRITE_BUSY_TIMEOUT_MS / 1000.0
+    )
+    timeout = timeout_sec if timeout_sec is not None else default_timeout
     caller = _caller_frame()
 
     if readonly:
@@ -326,7 +333,13 @@ def sqlite_connection(
         conn.close()
 
 
-def maybe_log_database_locked(exc: BaseException, *, lease: ConnectionLeaseG05 | None = None) -> None:
+def maybe_log_database_locked(
+    exc: BaseException,
+    *,
+    lease: ConnectionLeaseG05 | None = None,
+    emit_log: bool = True,
+) -> None:
+    """Record lock diagnostics. Log only when emit_log=True (after retries exhausted)."""
     global _last_locked_diag
     msg = str(exc).lower()
     if "database is locked" not in msg and "database table is locked" not in msg:
@@ -364,6 +377,8 @@ def maybe_log_database_locked(exc: BaseException, *, lease: ConnectionLeaseG05 |
         ],
     }
     _last_locked_diag = diag
+    if not emit_log:
+        return
     logger.error(
         "database is locked diag last_sql=%s last_tx=%s owner_pid=%s caller=%s\n%s",
         diag["last_sql"],

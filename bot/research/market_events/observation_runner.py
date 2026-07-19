@@ -285,27 +285,28 @@ class ObservationRunner:
                 instruments, version = select_observe_universe(
                     conn, mode=self.universe_mode, explicit_symbols=self.explicit_symbols,
                 )
-            self._progress(
-                f"startup universe={version} instruments={len(instruments)} "
-                f"mode={self.universe_mode} (sequential poll, isolated errors)",
-            )
-            if not instruments:
-                self._progress("no instruments in scope — run instrument-discover first")
-                return self.stats
+        self._progress(
+            f"startup universe={version} instruments={len(instruments)} "
+            f"mode={self.universe_mode} (sequential poll, isolated errors)",
+        )
+        if not instruments:
+            self._progress("no instruments in scope — run instrument-discover first")
+            return self.stats
 
-            bybit = BybitMarketClient()
-            cycles = 0
-            while not self._shutdown:
-                cycles += 1
-                try:
+        bybit = BybitMarketClient()
+        cycles = 0
+        while not self._shutdown:
+            cycles += 1
+            try:
+                with market_events_connection() as conn:
                     self.run_once(conn, instruments, bybit, cycle=cycles)
-                except Exception as exc:
-                    self.stats.errors.append(str(exc))
-                    self._progress(f"cycle={cycles} fatal_error={exc}")
-                if self.max_cycles and cycles >= self.max_cycles:
-                    break
-                if not self._shutdown:
-                    time.sleep(POLL_INTERVAL_SEC)
+            except Exception as exc:
+                self.stats.errors.append(str(exc))
+                self._progress(f"cycle={cycles} fatal_error={exc}")
+            if self.max_cycles and cycles >= self.max_cycles:
+                break
+            if not self._shutdown:
+                time.sleep(POLL_INTERVAL_SEC)
 
         self._progress(
             f"complete polls={self.stats.polls} observations={self.stats.observations} "

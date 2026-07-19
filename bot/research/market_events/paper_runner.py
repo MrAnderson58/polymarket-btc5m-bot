@@ -745,35 +745,34 @@ class ShockPaperRunner:
                 logger.info("universe %s symbols=%s", version, ",".join(symbols))
                 self._restore_state(conn)
 
-            try:
-                from bot.research.market_events.ai_analyst.config import AI_EMBEDDED_IN_PAPER_RUN
-                if AI_EMBEDDED_IN_PAPER_RUN:
-                    from bot.research.market_events.ai_analyst.job_queue import start_background_worker
-                    start_background_worker(market_events_connection)
-            except Exception as exc:
-                logger.debug("AI background worker not started: %s", exc)
+        try:
+            from bot.research.market_events.ai_analyst.config import AI_EMBEDDED_IN_PAPER_RUN
+            if AI_EMBEDDED_IN_PAPER_RUN:
+                from bot.research.market_events.ai_analyst.job_queue import start_background_worker
+                start_background_worker(market_events_connection)
+        except Exception as exc:
+            logger.debug("AI background worker not started: %s", exc)
 
-            cycles = 0
-            while not self._shutdown:
-                try:
+        cycles = 0
+        while not self._shutdown:
+            try:
+                with market_events_connection() as conn:
                     self.run_once(conn, symbols)
-                    conn.commit()
                     try:
                         from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
                             write_system_heartbeat,
                         )
                         write_system_heartbeat(conn, writer="shock-paper")
-                        conn.commit()
                     except Exception as exc:
                         logger.debug("shock-paper heartbeat write skipped: %s", exc)
                     self._maybe_heartbeat(conn, symbols)
-                except Exception as exc:
-                    self.stats.errors.append(str(exc))
-                    logger.error("cycle error: %s", exc)
-                cycles += 1
-                if self.max_cycles and cycles >= self.max_cycles:
-                    break
-                time.sleep(POLL_INTERVAL_SEC)
+            except Exception as exc:
+                self.stats.errors.append(str(exc))
+                logger.error("cycle error: %s", exc)
+            cycles += 1
+            if self.max_cycles and cycles >= self.max_cycles:
+                break
+            time.sleep(POLL_INTERVAL_SEC)
 
         logger.info(
             "complete polls=%s shocks=%s entries=%s closed=%s deduped=%s",

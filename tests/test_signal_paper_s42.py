@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import sqlite3
+import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+from bot.research.market_events.db import market_events_connection
+from bot.research.market_events.db_config import configure_unit_test_db_isolation
 from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
     CAPITAL_PER_TRADE_USD,
@@ -182,9 +186,17 @@ class TestPaperPerformanceS42(unittest.TestCase):
         return_value={"daily": False, "weekly": False},
     )
     def test_cycle_smoke(self, *_mocks: object) -> None:
-        stats = run_paper_performance_cycle_s42()
-        self.assertIn("opened", stats)
-        self.assertIn("ticked", stats)
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            path = Path(tmp.name) / "paper_cycle.db"
+            configure_unit_test_db_isolation(path)
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+            stats = run_paper_performance_cycle_s42()
+            self.assertIn("opened", stats)
+            self.assertIn("ticked", stats)
+        finally:
+            tmp.cleanup()
 
 
 if __name__ == "__main__":

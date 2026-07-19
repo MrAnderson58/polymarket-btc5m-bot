@@ -13,8 +13,7 @@ from bot.research.market_events.alert_engine.ai_comparison import comparison_rep
 from bot.research.market_events.alert_engine.daily_digest import build_daily_digest
 from bot.research.market_events.alert_engine.timeline import build_event_timeline
 from bot.research.market_events.alert_engine.weekly_report import build_weekly_report
-from bot.research.market_events.db import market_events_connection
-from bot.research.market_events.event_schema import apply_migrations
+from bot.research.market_events.db import market_events_readonly_connection
 
 
 def _json_response(handler: BaseHTTPRequestHandler, data: Any, status: int = 200) -> None:
@@ -48,8 +47,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
 
         try:
-            with market_events_connection() as conn:
-                apply_migrations(conn)
+            with market_events_readonly_connection() as conn:
                 if path == "/events":
                     limit = _query_int(qs, "limit", 50)
                     rows = conn.execute(

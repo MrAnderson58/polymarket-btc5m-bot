@@ -275,7 +275,6 @@ def run_g3_live(
     while max_cycles is None or cycle < max_cycles:
         cycle += 1
         with market_events_connection() as conn:
-            apply_migrations(conn)
             stats = run_g3_cycle(conn)
             conn.commit()
         total.cycles += stats.cycles

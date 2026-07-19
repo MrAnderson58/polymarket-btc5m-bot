@@ -7,7 +7,6 @@ import logging
 from typing import Any
 
 from bot.research.market_events.db import market_events_connection
-from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence.claude_channel_s50 import (
     s50_max_context_tokens,
 )
@@ -365,7 +364,6 @@ def run_audit_s51_cli(
 ) -> str:
     """Run AI Audit for a symbol or full system (Telegram-only Claude)."""
     with market_events_connection() as conn:
-        apply_migrations(conn)
         if system or (symbol and str(symbol).lower() in {"system", "sys", "all"}):
             ctx, artifact_ids = _build_system_audit_context_s51(conn)
             user = "\n".join([

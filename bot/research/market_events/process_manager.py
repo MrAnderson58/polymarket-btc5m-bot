@@ -94,6 +94,13 @@ SERVICES: tuple[ManagedService, ...] = (
         markers=("bot.research.market_events learning-worker",),
     ),
     ManagedService(
+        key="news-intel",
+        label="news-intel",
+        module_args=("-m", "bot.research.market_events", "news-intel-worker"),
+        log_name="news-intelligence.log",
+        markers=("bot.research.market_events news-intel-worker",),
+    ),
+    ManagedService(
         key="dashboard",
         label="dashboard",
         module_args=("-m", "bot.research.market_events", "dashboard-api-serve"),

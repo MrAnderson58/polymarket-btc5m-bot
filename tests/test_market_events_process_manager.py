@@ -23,11 +23,16 @@ class ProcessManagerTests(unittest.TestCase):
         self.assertIn("shock-paper-core", keys)
         self.assertIn("dashboard", keys)
         self.assertIn("telegram", keys)
-        self.assertEqual(len(SERVICES), 7)
+        self.assertEqual(len(SERVICES), 9)
         self.assertIn("g3-live", keys)
+        self.assertIn("news-intel", keys)
+        self.assertIn("learning", keys)
         tg = next(s for s in SERVICES if s.key == "telegram")
         self.assertEqual(tg.label, "telegram")
         self.assertIn("telegram-poll", tg.module_args)
+        ni = next(s for s in SERVICES if s.key == "news-intel")
+        self.assertEqual(ni.log_name, "news-intelligence.log")
+        self.assertIn("news-intel-worker", ni.module_args)
 
     @patch("bot.research.market_events.process_manager._ps_rows")
     def test_find_by_ps_markers(self, mock_ps) -> None:
@@ -39,11 +44,13 @@ class ProcessManagerTests(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0].pid, 1234)
 
-    @patch("bot.research.market_events.process_manager._ps_rows")
-    def test_find_telegram_markers(self, mock_ps) -> None:
+    @patch("bot.research.market_events.process_manager.find_telegram_poll_processes")
+    def test_find_telegram_markers(self, mock_tg) -> None:
+        from bot.ops.process_utils import ProcessInfo
+
         tg = next(s for s in SERVICES if s.key == "telegram")
-        mock_ps.return_value = [
-            (5555, "python -m bot.research.futures_agent telegram-poll"),
+        mock_tg.return_value = [
+            ProcessInfo(pid=5555, command="python -m bot.research.futures_agent telegram-poll"),
         ]
         found = find_service_processes(tg)
         self.assertEqual(len(found), 1)

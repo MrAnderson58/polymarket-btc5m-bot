@@ -13,7 +13,6 @@ from datetime import datetime
 from typing import Any
 
 from bot.research.market_events.db import execute_with_retry, market_events_connection, market_events_readonly_connection
-from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence.candles import load_recent_candles
 
 logger = logging.getLogger(__name__)
@@ -619,7 +618,6 @@ def maybe_emit_scheduled_reports_s42(conn: Any) -> dict[str, Any]:
 def run_paper_performance_cycle_s42() -> dict[str, Any]:
     """Worker hook: open, tick, scheduled reports — short write transactions."""
     with market_events_connection() as conn:
-        apply_migrations(conn)
         _ensure_account(conn)
         opened = open_paper_trades_from_s40(conn)
         ticked = tick_open_paper_trades_s42(conn)

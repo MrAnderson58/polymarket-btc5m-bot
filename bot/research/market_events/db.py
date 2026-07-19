@@ -15,6 +15,7 @@ from bot.research.market_events.db_config import (
 )
 from bot.research.market_events.sqlite_manager_g05 import (
     BUSY_TIMEOUT_MS,
+    WRITE_BUSY_TIMEOUT_MS,
     TracedConnectionG05,
     apply_sqlite_pragmas,
     connect_sqlite,
@@ -23,8 +24,9 @@ from bot.research.market_events.sqlite_manager_g05 import (
 
 T = TypeVar("T")
 
-_LOCK_RETRY_INITIAL_MS = 50
-_LOCK_RETRY_MAX_TOTAL_MS = 10_000
+# BUG-S5.0.2: fixed backoff after SQLite busy_timeout still returns locked.
+_LOCK_RETRY_BACKOFF_MS = (50, 100, 200, 500)
+_LOCK_RETRY_MAX_TOTAL_MS = 5_000
 
 
 class MarketEventsDbError(RuntimeError):
@@ -55,20 +57,26 @@ def is_database_locked(exc: BaseException) -> bool:
 
 
 def lock_retry_sleep_schedule() -> list[float]:
+    """Backoff sleeps: 50 → 100 → 200 → 500 ms, then hold 500 until budget."""
     schedule: list[float] = []
-    ms = _LOCK_RETRY_INITIAL_MS
     total_ms = 0
-    while total_ms < _LOCK_RETRY_MAX_TOTAL_MS:
+    for ms in _LOCK_RETRY_BACKOFF_MS:
+        if total_ms >= _LOCK_RETRY_MAX_TOTAL_MS:
+            break
         step = min(ms, _LOCK_RETRY_MAX_TOTAL_MS - total_ms)
+        schedule.append(step / 1000.0)
+        total_ms += step
+    while total_ms < _LOCK_RETRY_MAX_TOTAL_MS:
+        step = min(500, _LOCK_RETRY_MAX_TOTAL_MS - total_ms)
         if step <= 0:
             break
         schedule.append(step / 1000.0)
         total_ms += step
-        ms = min(ms * 2, 6400)
     return schedule
 
 
 def retry_on_db_locked(fn: Callable[[], T]) -> T:
+    """Retry writes on database is locked; log only after all attempts fail."""
     schedule = lock_retry_sleep_schedule()
     last_exc: BaseException | None = None
     for attempt in range(len(schedule) + 1):
@@ -77,12 +85,12 @@ def retry_on_db_locked(fn: Callable[[], T]) -> T:
         except (sqlite3.OperationalError, Exception) as exc:
             if not is_database_locked(exc):
                 raise
-            maybe_log_database_locked(exc)
             last_exc = exc
             if attempt >= len(schedule):
                 break
             time.sleep(schedule[attempt])
     assert last_exc is not None
+    maybe_log_database_locked(last_exc, emit_log=True)
     raise last_exc
 
 
@@ -270,7 +278,7 @@ def market_events_connection(
             yield conn
             retry_on_db_locked(conn.commit)
         except Exception as exc:
-            maybe_log_database_locked(exc)
+            maybe_log_database_locked(exc, emit_log=False)
             try:
                 conn.rollback()
             except Exception:
@@ -321,7 +329,7 @@ def with_retry_transaction(conn: Any) -> Iterator[Any]:
         yield conn
         retry_on_db_locked(conn.commit)
     except Exception as exc:
-        maybe_log_database_locked(exc)
+        maybe_log_database_locked(exc, emit_log=False)
         try:
             conn.rollback()
         except Exception:
@@ -367,6 +375,7 @@ def format_db_info(db_path: Path | None = None) -> str:
 # Re-export for callers that imported from db historically.
 __all__ = [
     "BUSY_TIMEOUT_MS",
+    "WRITE_BUSY_TIMEOUT_MS",
     "MarketEventsDbError",
     "PostgresBackend",
     "SQLiteBackend",

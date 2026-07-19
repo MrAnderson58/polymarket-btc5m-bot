@@ -109,11 +109,36 @@ class SqliteConcurrentStartupTests(unittest.TestCase):
             ):
                 self.assertIn(token, info)
 
-    def test_lock_retry_schedule_caps_at_10s(self) -> None:
+    def test_lock_retry_schedule_backoff_50_100_200_500(self) -> None:
         schedule = lock_retry_sleep_schedule()
-        self.assertGreaterEqual(len(schedule), 5)
-        self.assertAlmostEqual(sum(schedule), 10.0, delta=0.01)
+        self.assertGreaterEqual(len(schedule), 4)
         self.assertEqual(schedule[0], 0.05)
+        self.assertEqual(schedule[1], 0.10)
+        self.assertEqual(schedule[2], 0.20)
+        self.assertEqual(schedule[3], 0.50)
+        self.assertAlmostEqual(sum(schedule), 5.0, delta=0.01)
+        # After the fixed steps, remaining budget is filled with 500ms holds
+        # (last chunk may be truncated to hit the total budget exactly).
+        if len(schedule) > 4:
+            self.assertTrue(all(s <= 0.5 + 1e-9 for s in schedule[4:]))
+            self.assertTrue(all(s > 0 for s in schedule[4:]))
+
+    def test_retry_on_db_locked_logs_only_after_exhaustion(self) -> None:
+        calls = {"n": 0}
+
+        def always_locked() -> str:
+            calls["n"] += 1
+            raise sqlite3.OperationalError("database is locked")
+
+        with patch("bot.research.market_events.db.time.sleep"), patch(
+            "bot.research.market_events.db.maybe_log_database_locked",
+        ) as mock_log:
+            with self.assertRaises(sqlite3.OperationalError):
+                retry_on_db_locked(always_locked)
+        self.assertGreaterEqual(calls["n"], 2)
+        mock_log.assert_called_once()
+        kwargs = mock_log.call_args.kwargs
+        self.assertTrue(kwargs.get("emit_log", True))
 
     def test_retry_on_db_locked_eventually_succeeds(self) -> None:
         calls = {"n": 0}
@@ -124,10 +149,27 @@ class SqliteConcurrentStartupTests(unittest.TestCase):
                 raise sqlite3.OperationalError("database is locked")
             return "ok"
 
-        with patch("bot.research.market_events.db.time.sleep"):
+        with patch("bot.research.market_events.db.time.sleep"), patch(
+            "bot.research.market_events.db.maybe_log_database_locked",
+        ) as mock_log:
             result = retry_on_db_locked(flaky)
         self.assertEqual(result, "ok")
         self.assertEqual(calls["n"], 3)
+        mock_log.assert_not_called()
+
+    def test_write_busy_timeout_pragma(self) -> None:
+        from bot.research.market_events.sqlite_manager_g05 import (
+            WRITE_BUSY_TIMEOUT_MS,
+            connect_sqlite,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "busy.db"
+            conn = connect_sqlite(db, readonly=False)
+            try:
+                row = conn.execute("PRAGMA busy_timeout").fetchone()
+                self.assertEqual(int(row[0]), WRITE_BUSY_TIMEOUT_MS)
+            finally:
+                conn.close()
 
     def test_concurrent_inserts_no_lock_errors(self) -> None:
         import json

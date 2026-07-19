@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from bot.research.market_events.db import insert_returning_id, market_events_connection
-from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence.telegram_photo_g36 import (
     download_telegram_image,
     is_image_message,
@@ -252,7 +251,6 @@ def handle_telegram_photo_message(
     )
 
     with market_events_connection() as conn:
-        apply_migrations(conn)
         _persist_vision_g36(
             conn,
             message_id=message_id,

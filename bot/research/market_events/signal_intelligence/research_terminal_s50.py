@@ -12,7 +12,6 @@ from typing import Any
 import requests
 
 from bot.research.market_events.db import execute_with_retry, market_events_connection, market_events_readonly_connection
-from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence.claude_channel_s50 import (
     s50_max_context_tokens,
     s50_daily_limit,
@@ -285,7 +284,6 @@ def run_ai_s50_cli(
 ) -> str:
     sym = _normalize_symbol(symbol) or "BTC"
     with market_events_connection() as conn:
-        apply_migrations(conn)
         ctx, artifact_ids = _build_research_context_s50(conn, symbol=sym)
         system = (
             "You are an expert crypto research consultant. "
@@ -320,7 +318,6 @@ def run_analyze_text_s50_cli(
 ) -> str:
     sym = _normalize_symbol(symbol)
     with market_events_connection() as conn:
-        apply_migrations(conn)
         ctx, artifact_ids = _build_research_context_s50(conn, symbol=sym)
         system = (
             "Classify and analyze the user text for crypto research. "
@@ -362,7 +359,6 @@ def run_analyze_url_s50_cli(
         fetched = f"(fetch failed: {exc})"
 
     with market_events_connection() as conn:
-        apply_migrations(conn)
         from bot.research.market_events.signal_intelligence.research_artifacts_s50 import (
             save_research_artifact_s50,
         )
@@ -408,7 +404,6 @@ def run_analyze_image_s50_cli(
 ) -> str:
     sym = _normalize_symbol(symbol)
     with market_events_connection() as conn:
-        apply_migrations(conn)
         ctx, artifact_ids = _build_research_context_s50(conn, symbol=sym)
         if artifact_id:
             artifact_ids.append(artifact_id)
@@ -443,7 +438,6 @@ def run_compare_s50_cli(
 ) -> str:
     sym = _normalize_symbol(symbol) or "BTC"
     with market_events_connection() as conn:
-        apply_migrations(conn)
         ctx, artifact_ids = _build_research_context_s50(conn, symbol=sym)
         try:
             from bot.research.market_events.signal_intelligence.decision_engine_s20 import (
