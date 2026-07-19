@@ -1,4 +1,4 @@
-"""S44 X/Twitter whitelist collector (Nitter RSS mirrors; failure-isolated)."""
+"""S44 X/Twitter whitelist collector — network then single DB write batch."""
 
 from __future__ import annotations
 
@@ -26,7 +26,6 @@ from bot.research.market_events.signal_intelligence.news_collector_n11 import (
 logger = logging.getLogger(__name__)
 LOG_PATH = BASE_DIR / "logs" / "collector-twitter.log"
 
-# Public RSS mirrors — tried in order per user.
 _NITTER_BASES = (
     "https://nitter.net",
     "https://nitter.privacydev.net",
@@ -72,23 +71,37 @@ def _fetch_user_rss(username: str, *, limit: int = 12) -> list[dict[str, Any]]:
 def collect_twitter_s44(*, limit_per_user: int = 12) -> dict[str, Any]:
     _configure_log()
     sources = enabled_sources("twitter_sources")
-    inserted = 0
     fetched = 0
     errors = 0
     per_source: dict[str, Any] = {}
+    pending: list[tuple[str, list[dict[str, Any]], float, bool, str]] = []
 
+    for row in sources:
+        user = str(row.get("username") or "").lstrip("@")
+        if not user:
+            continue
+        t0 = time.perf_counter()
+        try:
+            items = _fetch_user_rss(user, limit=limit_per_user)
+            fetched += len(items)
+            latency = (time.perf_counter() - t0) * 1000.0
+            pending.append((user, items, latency, True, ""))
+            per_source[user] = {"ok": True, "fetched": len(items)}
+            logger.info("twitter %s fetched=%s", user, len(items))
+        except Exception as exc:
+            errors += 1
+            latency = (time.perf_counter() - t0) * 1000.0
+            pending.append((user, [], latency, False, str(exc)[:500]))
+            per_source[user] = {"ok": False, "error": str(exc)[:200]}
+            logger.warning("twitter %s failed: %s", user, exc)
+
+    inserted = 0
     with market_events_connection() as conn:
         batch = _load_recent_titles(conn)
         now = int(time.time())
-        for row in sources:
-            user = str(row.get("username") or "").lstrip("@")
-            if not user:
-                continue
-            t0 = time.perf_counter()
-            try:
-                items = _fetch_user_rss(user, limit=limit_per_user)
-                fetched += len(items)
-                src_ins = 0
+        for user, items, latency, ok, err in pending:
+            src_ins = 0
+            if ok:
                 for item in items:
                     title = item.get("title") or ""
                     if is_duplicate_title_n11(title, batch):
@@ -97,36 +110,25 @@ def collect_twitter_s44(*, limit_per_user: int = 12) -> dict[str, Any]:
                     batch.insert(0, title)
                     src_ins += 1
                     inserted += 1
-                conn.commit()
-                latency = (time.perf_counter() - t0) * 1000.0
-                status = "ok" if items else "empty"
                 record_source_health(
                     source_type="twitter",
                     source_name=user,
-                    status=status,
+                    status="ok" if items else "empty",
                     latency_ms=latency,
                     items=src_ins,
+                    conn=conn,
                 )
-                per_source[user] = {
-                    "ok": True, "inserted": src_ins, "fetched": len(items),
-                }
-                logger.info("twitter %s fetched=%s inserted=%s", user, len(items), src_ins)
-            except Exception as exc:
-                errors += 1
-                latency = (time.perf_counter() - t0) * 1000.0
+                per_source[user]["inserted"] = src_ins
+            else:
                 record_source_health(
                     source_type="twitter",
                     source_name=user,
                     status="error",
-                    error=str(exc)[:500],
+                    error=err,
                     latency_ms=latency,
+                    conn=conn,
                 )
-                per_source[user] = {"ok": False, "error": str(exc)[:200]}
-                logger.warning("twitter %s failed: %s", user, exc)
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
+        conn.commit()
 
     return {
         "source_type": "twitter",

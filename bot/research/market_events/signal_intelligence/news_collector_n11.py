@@ -240,10 +240,13 @@ def insert_news_item_n11(conn: Any, item: dict[str, Any], *, now: int | None = N
             url=str(item.get("url") or ""),
             symbols=symbols if isinstance(symbols, list) else None,
         )
-        source_type = tagged["source_type"]
-        importance = float(tagged["importance"])
-        language = tagged["language"]
-        body_store = tagged["body"]
+        source_type = str(item.get("source_type") or tagged["source_type"] or "rss")
+        if item.get("importance") is not None:
+            importance = float(item.get("importance"))
+        else:
+            importance = float(tagged["importance"])
+        language = str(item.get("language") or tagged["language"] or "en")
+        body_store = str(item.get("body") or tagged["body"] or body)[:4000]
         symbols_str = (
             ",".join(tagged["symbols"])[:200] if tagged["symbols"] else symbols_str
         )

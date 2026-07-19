@@ -32,12 +32,14 @@ from bot.research.market_events.signal_intelligence.narrative_engine.watchlist i
 
 logger = logging.getLogger(__name__)
 
-# Hourly cadence for the worker; lookbacks must cover news-intel (30m agg / 2h brief).
+# Hourly cadence for the worker; event lookback aligns with S43 event engine (24h).
 WINDOW_SEC = 3600
-# Align with news-intel brief window so summaries remain visible between cycles.
 SUMMARY_LOOKBACK_SEC = 2 * 3600
 BRIEF_LOOKBACK_SEC = 2 * 3600
 FEED_LOOKBACK_SEC = 2 * 3600
+EVENT_LOOKBACK_SEC = 24 * 3600
+# Macro / untagged intel events still feed asset narratives via BTC proxy.
+_MACRO_PROXY_SYMBOLS = ("BTC", "ETH")
 
 
 def _utc_now() -> int:
@@ -384,6 +386,25 @@ def _save_top_assets(conn: Any, *, now: int, assets: list[dict[str, Any]]) -> No
     )
 
 
+def _resolve_event_symbols(ev: dict[str, Any], watch: set[str]) -> list[str]:
+    """Map intel-event symbols onto watchlist; recover from title/summary if empty."""
+    syms = [str(s).upper() for s in (ev.get("symbols") or []) if s]
+    if not syms:
+        blob = f"{ev.get('title') or ''}\n{ev.get('summary') or ''}"
+        syms = detect_symbols(blob)
+    matched = [s for s in syms if s in watch]
+    if matched:
+        return matched
+    narr = str(ev.get("narrative") or "")
+    macroish = any(
+        k in narr
+        for k in ("Macro", "Fed", "ETF", "Regulation", "Hack", "Whales")
+    ) or not syms
+    if macroish:
+        return [s for s in _MACRO_PROXY_SYMBOLS if s in watch] or list(_MACRO_PROXY_SYMBOLS)[:1]
+    return []
+
+
 def format_narrative_debug_s42(debug: dict[str, Any]) -> str:
     """Human-readable --debug dump for ops."""
     lines: list[str] = []
@@ -392,6 +413,7 @@ def format_narrative_debug_s42(debug: dict[str, Any]) -> str:
         f"lookback: events={debug.get('event_lookback_sec')}s "
         f"brief={debug.get('brief_lookback_sec')}s"
     )
+    lines.append(f"events_total: {debug.get('events_total', 0)}")
     lines.append(f"Loaded events: {debug.get('events_loaded', 0)}")
     for row in debug.get("events_detail") or []:
         lines.append(str(row.get("title") or "?"))
@@ -430,13 +452,18 @@ def run_narrative_engine_cycle_s42(
 ) -> dict[str, Any]:
     """Hourly: per-asset intelligence from market_intel_events (S43), not raw articles."""
     now_ts = int(now if now is not None else _utc_now())
-    # Compat: summary/feed lookback args map onto event lookback.
+    # Prefer explicit event lookback; default 24h (S43), not the 2h summary window.
     ev_lb = int(
         event_lookback_sec
-        or summary_lookback_sec
-        or feed_lookback_sec
-        or max(int(window_sec), SUMMARY_LOOKBACK_SEC)
+        if event_lookback_sec is not None
+        else EVENT_LOOKBACK_SEC
     )
+    if summary_lookback_sec is not None and event_lookback_sec is None:
+        # Compat: only honor summary lookback when caller did not pass event lookback
+        # and explicitly asked for a shorter summary window via the old kwarg alone.
+        ev_lb = max(ev_lb, int(summary_lookback_sec))
+    if feed_lookback_sec is not None and event_lookback_sec is None:
+        ev_lb = max(ev_lb, int(feed_lookback_sec))
     brief_lb = int(brief_lookback_sec or max(int(window_sec), BRIEF_LOOKBACK_SEC))
     event_since = now_ts - ev_lb
     brief_since = now_ts - brief_lb
@@ -461,6 +488,16 @@ def run_narrative_engine_cycle_s42(
             if _table_exists(conn, "market_intel_events")
             else []
         )
+        # Fallback: lookback empty but table has rows (clock skew / stale last_seen).
+        if not events and events_total > 0:
+            events = load_recent_events(conn, since_ts=0, limit=min(50, events_total))
+            logger.warning(
+                "s42 event lookback empty (since=%s) but events_total=%s; "
+                "fallback loaded %s",
+                event_since,
+                events_total,
+                len(events),
+            )
         briefs = _load_briefs(conn, since_ts=brief_since)
 
         logger.info(
@@ -475,26 +512,21 @@ def run_narrative_engine_cycle_s42(
 
         by_sym: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for ev in events:
+            matched = _resolve_event_symbols(ev, watch)
             events_detail.append({
                 "title": ev.get("title"),
                 "source_count": ev.get("source_count"),
                 "confidence": ev.get("confidence"),
-                "symbols": ev.get("symbols") or [],
+                "symbols": matched or (ev.get("symbols") or []),
             })
-            syms = [str(s).upper() for s in (ev.get("symbols") or []) if s]
-            matched = [s for s in syms if s in watch]
             if not matched:
-                # Macro / untagged events still surface under MACRO-ish watch? skip asset map
-                if not syms:
-                    skipped.append({
-                        "title": str(ev.get("title") or "")[:80],
-                        "reason": "no symbols on event",
-                    })
-                else:
-                    skipped.append({
-                        "title": str(ev.get("title") or "")[:80],
-                        "reason": f"symbols not on watchlist: {','.join(syms)}",
-                    })
+                skipped.append({
+                    "title": str(ev.get("title") or "")[:80],
+                    "reason": (
+                        f"symbols not on watchlist: "
+                        f"{','.join(str(s) for s in (ev.get('symbols') or [])) or 'none'}"
+                    ),
+                })
                 continue
             # Convert event → synthetic "item" for asset builder
             item = {

@@ -125,17 +125,18 @@ def article_similarity(
 def cluster_key_bucket(article: dict[str, Any]) -> str:
     """Coarse bucket to keep pairwise comparisons small (perf)."""
     syms = sorted({str(s).upper() for s in (article.get("symbols") or []) if s})[:1]
-    narr = (article.get("narratives") or ["GEN"])[:1]
+    narr = [n for n in (article.get("narratives") or []) if n and n != "General"]
     primary = narr[0] if narr else "GEN"
-    # Wider 12h time bucket so same-day thematic coverage stays together.
+    # Same-day bucket so thematic coverage stays mergeable.
     ts = int(article.get("timestamp") or 0)
-    bucket = ts // (12 * 3600) if ts else 0
-    # Token fallback for macro (no symbols)
-    if not syms:
-        toks = article.get("tokens") or set()
-        for tip in ("etf", "fed", "fomc", "hack", "whale", "sec"):
-            if tip in toks:
+    bucket = ts // (24 * 3600) if ts else 0
+    toks = article.get("tokens") or set()
+    for tip in ("etf", "fed", "fomc", "hack", "whale", "sec", "cpi", "ppi"):
+        if tip in toks:
+            if not syms:
                 return f"{primary}|MACRO|{tip}|{bucket}"
+            return f"{primary}|{syms[0]}|{tip}|{bucket}"
+    if not syms:
         return f"{primary}|MACRO|{bucket}"
     return f"{primary}|{syms[0]}|{bucket}"
 

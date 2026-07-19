@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 59
+SCHEMA_VERSION = 60
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -950,6 +950,22 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v59")
             current = 59
+
+        if current < 60:
+            # S44.1 stabilization: ensure N11 enriched cols + S44 tables/columns.
+            _ensure_n11_enriched_columns(conn)
+            conn.executescript(S44_MULTI_SOURCE_DDL)
+            conn.executescript(S43_EVENT_INTELLIGENCE_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (60, now, "FIX-S4.4.1 stabilize multi-source schema (source_type + S44 fields)"),
+            )
+            applied.append("v60")
+            current = 60
 
     if not applied:
         conn.commit()
@@ -3292,13 +3308,42 @@ CREATE TABLE IF NOT EXISTS market_news_feed_n11 (
     symbols TEXT,
     category TEXT,
     raw_json TEXT,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    source_type TEXT,
+    importance REAL,
+    language TEXT,
+    body TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_news_feed_n11_published ON market_news_feed_n11(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_news_feed_n11_source ON market_news_feed_n11(source, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_news_feed_n11_created ON market_news_feed_n11(created_at DESC);
 """
+
+
+def _ensure_n11_enriched_columns(conn: Any) -> None:
+    """Add S41/S44 enriched columns to market_news_feed_n11 if missing."""
+    try:
+        existing = {
+            str(r[1]) for r in conn.execute("PRAGMA table_info(market_news_feed_n11)").fetchall()
+        }
+    except Exception:
+        return
+    if not existing:
+        conn.executescript(N11_NEWS_FEED_DDL)
+        return
+    alters = [
+        ("source_type", "ALTER TABLE market_news_feed_n11 ADD COLUMN source_type TEXT"),
+        ("importance", "ALTER TABLE market_news_feed_n11 ADD COLUMN importance REAL"),
+        ("language", "ALTER TABLE market_news_feed_n11 ADD COLUMN language TEXT"),
+        ("body", "ALTER TABLE market_news_feed_n11 ADD COLUMN body TEXT"),
+    ]
+    for col, sql in alters:
+        if col not in existing:
+            try:
+                conn.execute(sql)
+            except Exception:
+                pass
 
 # S4.2 Narrative Engine — also ensures S4.1 summary/brief tables if missing.
 S42_NARRATIVE_ENGINE_DDL = """

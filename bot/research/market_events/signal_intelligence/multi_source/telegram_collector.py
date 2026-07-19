@@ -1,4 +1,4 @@
-"""S44 Telegram channel collector (public preview pages; failure-isolated)."""
+"""S44 Telegram channel collector — network then single DB write batch."""
 
 from __future__ import annotations
 
@@ -45,9 +45,7 @@ def _configure_log() -> None:
 
 
 def _parse_tme_preview(html: str, *, channel: str, limit: int = 15) -> list[dict[str, Any]]:
-    """Best-effort parse of public t.me/s/<channel> preview HTML."""
     posts: list[dict[str, Any]] = []
-    # Messages often in divs with class tgme_widget_message_text
     chunks = re.findall(
         r'class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>',
         html,
@@ -73,26 +71,37 @@ def _parse_tme_preview(html: str, *, channel: str, limit: int = 15) -> list[dict
 def collect_telegram_s44(*, limit_per_channel: int = 12) -> dict[str, Any]:
     _configure_log()
     sources = enabled_sources("telegram_sources")
-    inserted = 0
     fetched = 0
     errors = 0
     per_source: dict[str, Any] = {}
+    pending: list[tuple[str, list[dict[str, Any]], float, bool, str]] = []
 
+    for row in sources:
+        name = str(row.get("name") or row.get("channel") or "tg")
+        channel = str(row.get("channel") or name).lstrip("@")
+        t0 = time.perf_counter()
+        try:
+            html = http_get_text(f"https://t.me/s/{channel}", timeout=15.0)
+            items = _parse_tme_preview(html, channel=channel, limit=limit_per_channel)
+            fetched += len(items)
+            latency = (time.perf_counter() - t0) * 1000.0
+            pending.append((name, items, latency, True, ""))
+            per_source[name] = {"ok": True, "fetched": len(items)}
+            logger.info("telegram %s fetched=%s", name, len(items))
+        except Exception as exc:
+            errors += 1
+            latency = (time.perf_counter() - t0) * 1000.0
+            pending.append((name, [], latency, False, str(exc)[:500]))
+            per_source[name] = {"ok": False, "error": str(exc)[:200]}
+            logger.warning("telegram %s failed: %s", name, exc)
+
+    inserted = 0
     with market_events_connection() as conn:
         batch = _load_recent_titles(conn)
         now = int(time.time())
-        for row in sources:
-            name = str(row.get("name") or row.get("channel") or "tg")
-            channel = str(row.get("channel") or name).lstrip("@")
-            t0 = time.perf_counter()
-            try:
-                url = f"https://t.me/s/{channel}"
-                html = http_get_text(url, timeout=15.0)
-                items = _parse_tme_preview(
-                    html, channel=channel, limit=limit_per_channel,
-                )
-                fetched += len(items)
-                src_ins = 0
+        for name, items, latency, ok, err in pending:
+            src_ins = 0
+            if ok:
                 for item in items:
                     title = item.get("title") or ""
                     if is_duplicate_title_n11(title, batch):
@@ -101,38 +110,25 @@ def collect_telegram_s44(*, limit_per_channel: int = 12) -> dict[str, Any]:
                     batch.insert(0, title)
                     src_ins += 1
                     inserted += 1
-                conn.commit()
-                latency = (time.perf_counter() - t0) * 1000.0
-                status = "ok" if items else "empty"
                 record_source_health(
                     source_type="telegram",
                     source_name=name,
-                    status=status,
+                    status="ok" if items else "empty",
                     latency_ms=latency,
                     items=src_ins,
+                    conn=conn,
                 )
-                per_source[name] = {
-                    "ok": True, "inserted": src_ins, "fetched": len(items),
-                }
-                logger.info(
-                    "telegram %s fetched=%s inserted=%s", name, len(items), src_ins,
-                )
-            except Exception as exc:
-                errors += 1
-                latency = (time.perf_counter() - t0) * 1000.0
+                per_source[name]["inserted"] = src_ins
+            else:
                 record_source_health(
                     source_type="telegram",
                     source_name=name,
                     status="error",
-                    error=str(exc)[:500],
+                    error=err,
                     latency_ms=latency,
+                    conn=conn,
                 )
-                per_source[name] = {"ok": False, "error": str(exc)[:200]}
-                logger.warning("telegram %s failed: %s", name, exc)
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
+        conn.commit()
 
     return {
         "source_type": "telegram",

@@ -1,4 +1,4 @@
-"""S44 Polymarket probability collector (Gamma API)."""
+"""S44 Polymarket probability collector — network then single DB write batch."""
 
 from __future__ import annotations
 
@@ -41,7 +41,6 @@ def _configure_log() -> None:
 
 
 def _extract_probability(market: dict[str, Any]) -> float | None:
-    # outcomePrices often JSON string "[\"0.55\", \"0.45\"]"
     raw = market.get("outcomePrices") or market.get("outcome_prices")
     if isinstance(raw, str):
         try:
@@ -74,7 +73,6 @@ def _search_markets(query: str, *, limit: int = 5) -> list[dict[str, Any]]:
         if isinstance(data, list):
             return data[:limit]
     except Exception:
-        # Fallback: markets endpoint with search-ish filter
         url2 = f"{GAMMA}/markets?limit={limit}&active=true&closed=false"
         data2 = http_get_json(url2, timeout=12.0)
         if isinstance(data2, list):
@@ -86,25 +84,49 @@ def _search_markets(query: str, *, limit: int = 5) -> list[dict[str, Any]]:
 def collect_polymarket_s44() -> dict[str, Any]:
     _configure_log()
     sources = enabled_sources("polymarket_sources")
-    inserted = 0
     errors = 0
     per_source: dict[str, Any] = {}
-    now = int(time.time())
+    pending: list[tuple[str, dict[str, Any] | None, float, bool, str]] = []
 
+    for row in sources:
+        name = str(row.get("name") or "polymarket")
+        query = str(row.get("query") or name)
+        t0 = time.perf_counter()
+        try:
+            markets = _search_markets(query, limit=3)
+            best = markets[0] if markets else None
+            latency = (time.perf_counter() - t0) * 1000.0
+            pending.append((name, {"row": row, "query": query, "best": best}, latency, True, ""))
+            per_source[name] = {
+                "ok": True,
+                "probability": _extract_probability(best) if best else None,
+                "question": str((best or {}).get("question") or query)[:120],
+            }
+            logger.info(
+                "polymarket %s prob=%s q=%s",
+                name,
+                per_source[name]["probability"],
+                per_source[name]["question"][:80],
+            )
+        except Exception as exc:
+            errors += 1
+            latency = (time.perf_counter() - t0) * 1000.0
+            pending.append((name, None, latency, False, str(exc)[:500]))
+            per_source[name] = {"ok": False, "error": str(exc)[:200]}
+            logger.warning("polymarket %s failed: %s", name, exc)
+
+    inserted = 0
+    now = int(time.time())
     with market_events_connection() as conn:
-        for row in sources:
-            name = str(row.get("name") or "polymarket")
-            query = str(row.get("query") or name)
-            t0 = time.perf_counter()
-            try:
-                markets = _search_markets(query, limit=3)
-                best = markets[0] if markets else None
+        for name, payload, latency, ok, err in pending:
+            if ok and payload is not None:
+                best = payload.get("best")
+                row = payload["row"]
+                query = payload["query"]
                 prob = _extract_probability(best) if best else None
                 question = str((best or {}).get("question") or query)[:500]
                 condition_id = str(
-                    (best or {}).get("conditionId")
-                    or (best or {}).get("id")
-                    or ""
+                    (best or {}).get("conditionId") or (best or {}).get("id") or ""
                 )[:120]
                 execute_with_retry(
                     conn,
@@ -126,38 +148,24 @@ def collect_polymarket_s44() -> dict[str, Any]:
                     ),
                 )
                 inserted += 1
-                conn.commit()
-                latency = (time.perf_counter() - t0) * 1000.0
-                status = "ok" if best else "empty"
                 record_source_health(
                     source_type="polymarket",
                     source_name=name,
-                    status=status,
+                    status="ok" if best else "empty",
                     latency_ms=latency,
                     items=1 if best else 0,
+                    conn=conn,
                 )
-                per_source[name] = {
-                    "ok": True,
-                    "probability": prob,
-                    "question": question[:120],
-                }
-                logger.info("polymarket %s prob=%s q=%s", name, prob, question[:80])
-            except Exception as exc:
-                errors += 1
-                latency = (time.perf_counter() - t0) * 1000.0
+            else:
                 record_source_health(
                     source_type="polymarket",
                     source_name=name,
                     status="error",
-                    error=str(exc)[:500],
+                    error=err,
                     latency_ms=latency,
+                    conn=conn,
                 )
-                per_source[name] = {"ok": False, "error": str(exc)[:200]}
-                logger.warning("polymarket %s failed: %s", name, exc)
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
+        conn.commit()
 
     return {
         "source_type": "polymarket",

@@ -35,8 +35,10 @@ from bot.research.market_events.signal_intelligence.narrative_engine.watchlist i
 logger = logging.getLogger(__name__)
 
 LOOKBACK_SEC = 24 * 3600
-MERGE_THRESHOLD = 0.42
-TIME_WINDOW_SEC = 12 * 3600
+MERGE_THRESHOLD = 0.38
+TIME_WINDOW_SEC = 24 * 3600
+SECOND_PASS_THRESHOLD = 0.36
+
 
 
 def _utc_now() -> int:
@@ -85,7 +87,7 @@ def cluster_articles(
     merge_threshold: float = MERGE_THRESHOLD,
     time_window_sec: int = TIME_WINDOW_SEC,
 ) -> list[list[dict[str, Any]]]:
-    """Greedy clustering within coarse buckets (fast for ~1000 articles)."""
+    """Greedy clustering + second-pass thematic merge (target ~15–30 events / 90 arts)."""
     prepared = [prepare_article(a) if "tokens" not in a else a for a in articles]
     buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for art in prepared:
@@ -95,14 +97,13 @@ def cluster_articles(
     duplicates_removed = 0
 
     for _bucket, group in buckets.items():
-        # Sort newest first
         group = sorted(group, key=lambda x: int(x.get("timestamp") or 0), reverse=True)
         local: list[list[dict[str, Any]]] = []
         for art in group:
             placed = False
             for cluster in local:
                 best = 0.0
-                for member in cluster[:8]:
+                for member in cluster[:12]:
                     sim = article_similarity(
                         art, member, time_window_sec=time_window_sec,
                     )
@@ -128,9 +129,105 @@ def cluster_articles(
                 local.append([art])
         clusters.extend(local)
 
-    # Attach stats on function attribute for callers
+    clusters, extra_dupes = _second_pass_merge(
+        clusters, threshold=SECOND_PASS_THRESHOLD, time_window_sec=time_window_sec,
+    )
+    duplicates_removed += extra_dupes
+    clusters, theme_merged = _thematic_bucket_merge(clusters)
+    duplicates_removed += theme_merged
     cluster_articles.last_duplicates_removed = duplicates_removed  # type: ignore[attr-defined]
     return clusters
+
+
+def _cluster_centroid(cluster: list[dict[str, Any]]) -> dict[str, Any]:
+    return max(cluster, key=lambda x: float(x.get("importance") or 0))
+
+
+def _primary_theme_key(art: dict[str, Any]) -> str:
+    narrs = [str(n) for n in (art.get("narratives") or []) if n and n != "General"]
+    primary = narrs[0] if narrs else "General"
+    syms = [str(s).upper() for s in (art.get("symbols") or []) if s]
+    sym = syms[0] if syms else "MACRO"
+    ts = int(art.get("timestamp") or 0)
+    bucket = ts // (24 * 3600) if ts else 0
+    theme_hits = {
+        "etf", "fed", "fomc", "hack", "hyperliquid", "inflow", "inflows",
+        "cpi", "ppi", "whale", "sec", "layer2", "defi",
+    }
+    toks = art.get("tokens") or set()
+    tip = next((t for t in sorted(theme_hits) if t in toks), "")
+    if tip and primary == "General":
+        primary = tip.upper()
+    return f"{primary}|{sym}|{tip}|{bucket}"
+
+
+def _thematic_bucket_merge(
+    clusters: list[list[dict[str, Any]]],
+) -> tuple[list[list[dict[str, Any]]], int]:
+    """Force-merge clusters that share narrative+symbol (or MACRO theme) same day."""
+    if len(clusters) <= 1:
+        return clusters, 0
+    buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for cluster in clusters:
+        if not cluster:
+            continue
+        key = _primary_theme_key(_cluster_centroid(cluster))
+        buckets[key].extend(cluster)
+    merged = list(buckets.values())
+    return merged, max(0, len(clusters) - len(merged))
+
+
+def _second_pass_merge(
+    clusters: list[list[dict[str, Any]]],
+    *,
+    threshold: float,
+    time_window_sec: int,
+) -> tuple[list[list[dict[str, Any]]], int]:
+    """Merge clusters that share narrative/theme across coarse buckets."""
+    if len(clusters) <= 1:
+        return clusters, 0
+    alive = [list(c) for c in clusters if c]
+    merged_away = 0
+    i = 0
+    while i < len(alive):
+        if not alive[i]:
+            i += 1
+            continue
+        j = i + 1
+        while j < len(alive):
+            if not alive[j]:
+                j += 1
+                continue
+            a = _cluster_centroid(alive[i])
+            b = _cluster_centroid(alive[j])
+            narr_a = set(a.get("narratives") or [])
+            narr_b = set(b.get("narratives") or [])
+            shared_narr = bool((narr_a & narr_b) - {"General"})
+            theme_hits = {
+                "etf", "fed", "fomc", "hack", "hyperliquid", "inflow", "inflows",
+                "cpi", "ppi",
+            }
+            shared_theme = bool(
+                theme_hits & (a.get("tokens") or set()) & (b.get("tokens") or set())
+            )
+            syms_a = {str(s).upper() for s in (a.get("symbols") or []) if s}
+            syms_b = {str(s).upper() for s in (b.get("symbols") or []) if s}
+            shared_sym = bool(syms_a & syms_b) or (not syms_a and not syms_b)
+            if not (shared_narr or shared_theme):
+                j += 1
+                continue
+            sim = article_similarity(a, b, time_window_sec=time_window_sec)
+            if (
+                sim >= threshold
+                or (shared_narr and shared_theme)
+                or (shared_narr and shared_sym and sim >= threshold * 0.7)
+            ):
+                alive[i].extend(alive[j])
+                alive[j] = []
+                merged_away += 1
+            j += 1
+        i += 1
+    return [c for c in alive if c], merged_away
 
 
 def build_event_from_cluster(
@@ -395,11 +492,11 @@ def load_recent_events(
                symbols_json, sentiment, importance, confidence, source_count,
                headline_count, first_seen, last_seen, sources_json, freshness
         FROM market_intel_events
-        WHERE last_seen >= ? OR updated_at >= ?
+        WHERE last_seen >= ? OR updated_at >= ? OR created_at >= ? OR first_seen >= ?
         ORDER BY (freshness * confidence * (0.5 + importance)) DESC, last_seen DESC
         LIMIT ?
         """,
-        (since_ts, since_ts, limit),
+        (since_ts, since_ts, since_ts, since_ts, limit),
     ).fetchall()
     out: list[dict[str, Any]] = []
     for r in rows:

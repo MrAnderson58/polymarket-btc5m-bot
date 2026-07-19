@@ -42,6 +42,47 @@ def _event_emoji(narrative: str) -> str:
     return "📌"
 
 
+def _assets_from_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Derive bullish/bearish asset rows from intel events when DB assets are empty."""
+    by_sym: dict[str, dict[str, Any]] = {}
+    for ev in events:
+        syms = [str(s).upper() for s in (ev.get("symbols") or []) if s] or ["BTC"]
+        sent = float(ev.get("sentiment") or 0)
+        imp = float(ev.get("importance") or 0.3)
+        title = str(ev.get("title") or "")[:160]
+        for sym in syms:
+            row = by_sym.setdefault(
+                sym,
+                {
+                    "symbol": sym,
+                    "news_count": 0,
+                    "bullish_score": 0.0,
+                    "bearish_score": 0.0,
+                    "importance": 0.0,
+                    "confidence": 0.0,
+                    "risk_level": "LOW",
+                    "summary": "",
+                    "narrative": str(ev.get("narrative") or "General"),
+                },
+            )
+            row["news_count"] = int(row["news_count"]) + 1
+            if sent >= 0:
+                row["bullish_score"] = float(row["bullish_score"]) + max(0.15, sent)
+            else:
+                row["bearish_score"] = float(row["bearish_score"]) + max(0.15, -sent)
+            row["importance"] = max(float(row["importance"]), imp)
+            row["confidence"] = max(
+                float(row["confidence"]), float(ev.get("confidence") or 0),
+            )
+            if not row["summary"]:
+                row["summary"] = title
+            if float(row["importance"]) >= 0.7 or int(row["news_count"]) >= 4:
+                row["risk_level"] = "HIGH"
+            elif float(row["importance"]) >= 0.4 or int(row["news_count"]) >= 2:
+                row["risk_level"] = "MEDIUM"
+    return list(by_sym.values())
+
+
 def _bullets_assets(rows: list[dict[str, Any]], *, empty: str = "—") -> str:
     if not rows:
         return empty
@@ -143,14 +184,17 @@ def render_claude_market_context(
 ) -> str:
     events = events or []
     active = [a for a in assets if int(a.get("news_count") or 0) > 0]
+    # If asset rows are empty but events exist, synthesize scores from events.
+    if not active and events:
+        active = _assets_from_events(events)
     top_bullish = sorted(
         active,
-        key=lambda a: float(a["bullish_score"]) * float(a["importance"]),
+        key=lambda a: float(a.get("bullish_score") or 0) * float(a.get("importance") or 0.1),
         reverse=True,
     )[:5]
     top_bearish = sorted(
         active,
-        key=lambda a: float(a["bearish_score"]) * float(a["importance"]),
+        key=lambda a: float(a.get("bearish_score") or 0) * float(a.get("importance") or 0.1),
         reverse=True,
     )[:5]
 
@@ -251,26 +295,28 @@ def render_telegram_brief(
 ) -> str:
     events = events or []
     active = [a for a in assets if int(a.get("news_count") or 0) > 0]
+    if not active and events:
+        active = _assets_from_events(events)
     top_bullish = sorted(
         active,
-        key=lambda a: float(a["bullish_score"]) * float(a["importance"]),
+        key=lambda a: float(a.get("bullish_score") or 0) * float(a.get("importance") or 0.1),
         reverse=True,
     )[:3]
     top_bearish = sorted(
         active,
-        key=lambda a: float(a["bearish_score"]) * float(a["importance"]),
+        key=lambda a: float(a.get("bearish_score") or 0) * float(a.get("importance") or 0.1),
         reverse=True,
     )[:3]
     brief = briefs[0] if briefs else {}
     main = brief.get("global_narrative") or (
         events[0]["title"] if events else None
     ) or (
-        active[0]["narrative"] if active else "General / quiet tape"
+        active[0].get("narrative") if active else "General / quiet tape"
     )
     if isinstance(main, str) and len(main) > 220:
         main = main[:217] + "..."
     risk = brief.get("risk_level") or (
-        "HIGH" if any(a["risk_level"] == "HIGH" for a in active) else "LOW"
+        "HIGH" if any(a.get("risk_level") == "HIGH" for a in active) else "LOW"
     )
     macro = _parse_json_list(brief.get("macro_events_json"))
     poly = _parse_json_list(brief.get("polymarket_json"))

@@ -1,4 +1,4 @@
-"""S44 Macro collector (Fed RSS + series snapshots)."""
+"""S44 Macro collector — network then single DB write batch."""
 
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ from bot.research.market_events.signal_intelligence.news_collector_n11 import (
 logger = logging.getLogger(__name__)
 LOG_PATH = BASE_DIR / "logs" / "collector-macro.log"
 
-# Lightweight public placeholders when no paid feed is configured.
 _SERIES_NOTES = {
     "CPI": "US CPI inflation print watch",
     "PPI": "US PPI producer prices watch",
@@ -50,41 +49,66 @@ def _configure_log() -> None:
     logger.addHandler(fh)
 
 
+def _fetch_macro_payload(row: dict[str, Any]) -> dict[str, Any]:
+    name = str(row.get("name") or "macro")
+    kind = str(row.get("type") or "series").lower()
+    title = name
+    summary = ""
+    value = None
+    unit = None
+    if kind == "rss":
+        url = str(row.get("url") or "")
+        body = _http_get(url)
+        items = _parse_rss_items(body, source=name, limit=3)
+        if items:
+            title = items[0].get("title") or name
+            summary = items[0].get("summary") or title
+        else:
+            summary = f"{name} RSS empty"
+    else:
+        series_id = str(row.get("series_id") or name).upper()
+        summary = _SERIES_NOTES.get(series_id, f"{series_id} macro watch")
+        title = f"{series_id} macro watch"
+        unit = "watch"
+    return {
+        "name": name,
+        "kind": kind,
+        "title": str(title)[:300],
+        "summary": str(summary)[:2000],
+        "value": value,
+        "unit": unit,
+        "row": row,
+    }
+
+
 def collect_macro_s44() -> dict[str, Any]:
     _configure_log()
     sources = enabled_sources("macro_sources")
-    inserted = 0
     errors = 0
     per_source: dict[str, Any] = {}
+    pending: list[tuple[str, dict[str, Any] | None, float, bool, str]] = []
+
+    for row in sources:
+        name = str(row.get("name") or "macro")
+        t0 = time.perf_counter()
+        try:
+            payload = _fetch_macro_payload(row)
+            latency = (time.perf_counter() - t0) * 1000.0
+            pending.append((name, payload, latency, True, ""))
+            per_source[name] = {"ok": True, "title": payload["title"][:100]}
+            logger.info("macro %s ok title=%s", name, payload["title"][:80])
+        except Exception as exc:
+            errors += 1
+            latency = (time.perf_counter() - t0) * 1000.0
+            pending.append((name, None, latency, False, str(exc)[:500]))
+            per_source[name] = {"ok": False, "error": str(exc)[:200]}
+            logger.warning("macro %s failed: %s", name, exc)
+
+    inserted = 0
     now = int(time.time())
-
     with market_events_connection() as conn:
-        for row in sources:
-            name = str(row.get("name") or "macro")
-            kind = str(row.get("type") or "series").lower()
-            t0 = time.perf_counter()
-            try:
-                title = name
-                summary = ""
-                value = None
-                unit = None
-                if kind == "rss":
-                    url = str(row.get("url") or "")
-                    body = _http_get(url)
-                    items = _parse_rss_items(body, source=name, limit=3)
-                    if items:
-                        title = items[0].get("title") or name
-                        summary = items[0].get("summary") or title
-                    else:
-                        summary = f"{name} RSS empty"
-                else:
-                    series_id = str(row.get("series_id") or name).upper()
-                    summary = _SERIES_NOTES.get(series_id, f"{series_id} macro watch")
-                    title = f"{series_id} macro watch"
-                    # Snapshot marker (no paid data vendor in intel layer).
-                    value = None
-                    unit = "watch"
-
+        for name, payload, latency, ok, err in pending:
+            if ok and payload is not None:
                 execute_with_retry(
                     conn,
                     """
@@ -95,44 +119,35 @@ def collect_macro_s44() -> dict[str, Any]:
                     """,
                     (
                         now,
-                        name,
-                        kind,
-                        str(title)[:300],
-                        str(summary)[:2000],
-                        value,
-                        unit,
-                        json.dumps(row.get("tags") or [], ensure_ascii=False),
-                        json.dumps(row, ensure_ascii=False, default=str)[:4000],
+                        payload["name"],
+                        payload["kind"],
+                        payload["title"],
+                        payload["summary"],
+                        payload["value"],
+                        payload["unit"],
+                        json.dumps(payload["row"].get("tags") or [], ensure_ascii=False),
+                        json.dumps(payload["row"], ensure_ascii=False, default=str)[:4000],
                     ),
                 )
                 inserted += 1
-                conn.commit()
-                latency = (time.perf_counter() - t0) * 1000.0
                 record_source_health(
                     source_type="macro",
                     source_name=name,
                     status="ok",
                     latency_ms=latency,
                     items=1,
+                    conn=conn,
                 )
-                per_source[name] = {"ok": True, "title": str(title)[:100]}
-                logger.info("macro %s ok title=%s", name, str(title)[:80])
-            except Exception as exc:
-                errors += 1
-                latency = (time.perf_counter() - t0) * 1000.0
+            else:
                 record_source_health(
                     source_type="macro",
                     source_name=name,
                     status="error",
-                    error=str(exc)[:500],
+                    error=err,
                     latency_ms=latency,
+                    conn=conn,
                 )
-                per_source[name] = {"ok": False, "error": str(exc)[:200]}
-                logger.warning("macro %s failed: %s", name, exc)
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
+        conn.commit()
 
     return {
         "source_type": "macro",

@@ -1,4 +1,4 @@
-"""S44 — source health tracking."""
+"""S44.1 — batched source-health writes (same connection as collectors)."""
 
 from __future__ import annotations
 
@@ -20,37 +20,40 @@ def record_source_health(
     error: str | None = None,
     latency_ms: float | None = None,
     items: int = 0,
+    conn: Any | None = None,
 ) -> None:
+    """Upsert health row. Prefer passing collector `conn` to avoid lock contention."""
     now = int(time.time())
+    params = (
+        source_type[:32],
+        source_name[:120],
+        status[:32],
+        int(last_update or now),
+        (error or "")[:1000] or None,
+        float(latency_ms) if latency_ms is not None else None,
+        int(items),
+        now,
+    )
+    sql = """
+        INSERT INTO market_source_health (
+          source_type, source_name, status, last_update, error,
+          latency_ms, items, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source_type, source_name) DO UPDATE SET
+          status=excluded.status,
+          last_update=excluded.last_update,
+          error=excluded.error,
+          latency_ms=excluded.latency_ms,
+          items=excluded.items,
+          updated_at=excluded.updated_at
+    """
     try:
-        with market_events_connection() as conn:
-            execute_with_retry(
-                conn,
-                """
-                INSERT INTO market_source_health (
-                  source_type, source_name, status, last_update, error,
-                  latency_ms, items, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(source_type, source_name) DO UPDATE SET
-                  status=excluded.status,
-                  last_update=excluded.last_update,
-                  error=excluded.error,
-                  latency_ms=excluded.latency_ms,
-                  items=excluded.items,
-                  updated_at=excluded.updated_at
-                """,
-                (
-                    source_type[:32],
-                    source_name[:120],
-                    status[:32],
-                    int(last_update or now),
-                    (error or "")[:1000] or None,
-                    float(latency_ms) if latency_ms is not None else None,
-                    int(items),
-                    now,
-                ),
-            )
-            conn.commit()
+        if conn is not None:
+            execute_with_retry(conn, sql, params)
+            return
+        with market_events_connection() as c:
+            execute_with_retry(c, sql, params)
+            c.commit()
     except Exception:
         logger.exception(
             "failed to record source health type=%s name=%s",

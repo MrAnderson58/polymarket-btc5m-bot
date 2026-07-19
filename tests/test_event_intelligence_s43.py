@@ -118,8 +118,8 @@ class TestClusterArticlesS43(unittest.TestCase):
                 "title": f"{topic} update #{i // 5}",
                 "summary": f"{topic} coverage from {src}",
                 "source": src,
-                "timestamp": now - (i % 50) * 60,
-                "symbols": list(syms),
+                "timestamp": now - (i % 200),
+                "symbols": syms,
             })
         t0 = time.perf_counter()
         clusters = cluster_articles(articles)
@@ -127,6 +127,42 @@ class TestClusterArticlesS43(unittest.TestCase):
         self.assertLess(elapsed, 2.0, msg=f"clustering took {elapsed:.3f}s")
         self.assertLess(len(clusters), 200)
         self.assertGreater(len(clusters), 0)
+
+    def test_ninety_articles_merge_to_fifteen_thirty(self) -> None:
+        """S44.1: ~90 related headlines should collapse to ~15–30 events."""
+        now = int(time.time())
+        themes = [
+            ("Bitcoin ETF inflows smash records", ["BTC"], "etf inflow"),
+            ("Spot BTC ETF sees strong inflows", ["BTC"], "etf inflow"),
+            ("BlackRock IBIT leads bitcoin ETF flows", ["BTC"], "etf inflow"),
+            ("Fed speakers remain hawkish on rates", [], "fed rates"),
+            ("Federal Reserve officials stay hawkish", [], "fed rates"),
+            ("Powell allies push back on early cuts", [], "fed rates"),
+            ("Hyperliquid volume surge continues", ["HYPE"], "hyperliquid"),
+            ("HYPE exchange volume hits new highs", ["HYPE"], "hyperliquid"),
+            ("Ethereum layer2 fees drop again", ["ETH"], "layer2"),
+            ("ARB and OP fees ease on L2", ["ETH", "ARB"], "layer2"),
+            ("Solana DeFi TVL climbs", ["SOL"], "defi"),
+            ("SOL defi protocols attract deposits", ["SOL"], "defi"),
+            ("Whale moves BTC to Binance", ["BTC"], "whale"),
+            ("Large BTC transfer spotted on-chain", ["BTC"], "whale"),
+            ("SEC crypto regulation headlines", ["BTC"], "sec"),
+        ]
+        articles = []
+        for i in range(90):
+            title, syms, theme = themes[i % len(themes)]
+            src = ["CoinDesk", "Reuters", "The Block", "Decrypt", "Wu Blockchain"][i % 5]
+            articles.append({
+                "id": i + 1,
+                "title": f"{title} #{i // len(themes)}",
+                "summary": f"{theme} coverage update from {src}",
+                "source": src,
+                "timestamp": now - (i * 60),
+                "symbols": list(syms),
+            })
+        clusters = cluster_articles(articles)
+        self.assertGreaterEqual(len(clusters), 8)
+        self.assertLessEqual(len(clusters), 30)
 
 
 class TestEventEnginePersistS43(unittest.TestCase):

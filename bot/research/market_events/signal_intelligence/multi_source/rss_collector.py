@@ -1,4 +1,4 @@
-"""S44 RSS collector — config-driven, failure-isolated per source."""
+"""S44 RSS collector — config-driven, failure-isolated, single-writer batching."""
 
 from __future__ import annotations
 
@@ -16,11 +16,11 @@ from bot.research.market_events.signal_intelligence.multi_source.health import (
     record_source_health,
 )
 from bot.research.market_events.signal_intelligence.news_collector_n11 import (
+    _http_get,
+    _load_recent_titles,
     _parse_rss_items,
     insert_news_item_n11,
     is_duplicate_title_n11,
-    _load_recent_titles,
-    _http_get,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,62 +52,69 @@ def load_rss_feeds_from_config() -> list[tuple[str, str]]:
 
 
 def collect_rss_s44(*, limit_per_feed: int = 20) -> dict[str, Any]:
-    """Fetch enabled RSS feeds independently; never abort whole run on one failure."""
+    """Fetch feeds independently, then one DB write batch (avoids lock storms)."""
     _configure_log()
     feeds = load_rss_feeds_from_config()
-    inserted = 0
     fetched = 0
     errors = 0
     per_source: dict[str, Any] = {}
+    pending: list[tuple[str, list[dict[str, Any]], float]] = []
 
+    # Network phase — no DB held open.
+    for name, url in feeds:
+        t0 = time.perf_counter()
+        try:
+            body = _http_get(url)
+            items = _parse_rss_items(body, source=name, limit=limit_per_feed)
+            for it in items:
+                it["source_type"] = "rss"
+            fetched += len(items)
+            latency = (time.perf_counter() - t0) * 1000.0
+            pending.append((name, items, latency))
+            per_source[name] = {"ok": True, "fetched": len(items)}
+            logger.info("rss %s fetched=%s", name, len(items))
+        except Exception as exc:
+            errors += 1
+            latency = (time.perf_counter() - t0) * 1000.0
+            pending.append((name, [], latency))
+            per_source[name] = {"ok": False, "error": str(exc)[:200], "fetched": 0}
+            logger.warning("rss %s failed: %s", name, exc)
+
+    inserted = 0
     with market_events_connection() as conn:
-        existing = _load_recent_titles(conn)
-        batch = list(existing)
+        batch = _load_recent_titles(conn)
         now = int(time.time())
-        for name, url in feeds:
-            t0 = time.perf_counter()
-            try:
-                body = _http_get(url)
-                items = _parse_rss_items(body, source=name, limit=limit_per_feed)
-                fetched += len(items)
-                src_ins = 0
+        for name, items, latency in pending:
+            src_ins = 0
+            if per_source.get(name, {}).get("ok"):
                 for item in items:
                     title = item.get("title") or ""
                     if is_duplicate_title_n11(title, batch):
                         continue
-                    item["source_type"] = "rss"
                     insert_news_item_n11(conn, item, now=now)
                     batch.insert(0, title)
                     src_ins += 1
                     inserted += 1
-                conn.commit()
-                latency = (time.perf_counter() - t0) * 1000.0
                 record_source_health(
                     source_type="rss",
                     source_name=name,
-                    status="ok",
+                    status="ok" if items else "empty",
                     latency_ms=latency,
                     items=src_ins,
+                    conn=conn,
                 )
-                per_source[name] = {"ok": True, "inserted": src_ins, "fetched": len(items)}
-                logger.info("rss %s fetched=%s inserted=%s", name, len(items), src_ins)
-            except Exception as exc:
-                errors += 1
-                latency = (time.perf_counter() - t0) * 1000.0
+                per_source[name]["inserted"] = src_ins
+            else:
                 record_source_health(
                     source_type="rss",
                     source_name=name,
                     status="error",
-                    error=str(exc)[:500],
+                    error=str(per_source[name].get("error") or "")[:500],
                     latency_ms=latency,
                     items=0,
+                    conn=conn,
                 )
-                per_source[name] = {"ok": False, "error": str(exc)[:200]}
-                logger.warning("rss %s failed: %s", name, exc)
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
+        conn.commit()
 
     return {
         "source_type": "rss",

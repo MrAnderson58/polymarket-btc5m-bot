@@ -224,10 +224,44 @@ class TestCollectorInsertPathS44(unittest.TestCase):
                 now=now,
             )
             conn.commit()
-            n = conn.execute(
-                "SELECT COUNT(*) AS n FROM market_news_feed_n11"
-            ).fetchone()["n"]
-        self.assertGreaterEqual(n, 1)
+            row = conn.execute(
+                "SELECT source_type FROM market_news_feed_n11 LIMIT 1"
+            ).fetchone()
+            self.assertEqual(row["source_type"], "telegram")
+            cols = {
+                str(r[1])
+                for r in conn.execute("PRAGMA table_info(market_news_feed_n11)").fetchall()
+            }
+            self.assertIn("source_type", cols)
+            self.assertIn("importance", cols)
+            self.assertIn("language", cols)
+            self.assertIn("body", cols)
+
+
+class TestHealthSameConnectionS441(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = Path(self.tmp.name) / "s441h.db"
+        configure_unit_test_db_isolation(self.db)
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_record_health_reuses_conn(self) -> None:
+        with market_events_connection() as conn:
+            record_source_health(
+                source_type="rss",
+                source_name="CoinDesk",
+                status="ok",
+                items=2,
+                conn=conn,
+            )
+            conn.commit()
+            rows = fetch_source_health(conn=conn)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["source_name"], "CoinDesk")
 
 
 if __name__ == "__main__":
