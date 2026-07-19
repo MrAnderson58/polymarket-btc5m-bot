@@ -226,6 +226,10 @@ def main(argv: list[str] | None = None) -> int:
             "pattern-build",
             "news-update",
             "news-latest",
+            "news-intel-worker",
+            "news-intel-aggregate",
+            "news-intel-brief",
+            "news-intel-reports",
             "narrative-engine-run",
             "reversal-diagnostics",
             "signal-inbox",
@@ -1079,6 +1083,59 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(rows, indent=2, ensure_ascii=False, default=str))
             else:
                 print(format_news_latest_n11(rows))
+        return 0
+
+    if args.command == "news-intel-worker":
+        from bot.research.market_events.signal_intelligence.news_intelligence.worker import (
+            _configure_logging,
+            run_news_intelligence_worker_s41,
+        )
+        _configure_logging()
+        stats = run_news_intelligence_worker_s41(
+            max_cycles=args.max_cycles,
+        )
+        print(json.dumps(stats, indent=2) if args.json else stats)
+        return 1 if stats.get("errors") and not stats.get("aggregations") else 0
+
+    if args.command == "news-intel-aggregate":
+        from bot.research.market_events.signal_intelligence.news_intelligence.aggregator import (
+            run_news_aggregation_cycle_s41,
+        )
+        from bot.research.market_events.signal_intelligence.news_intelligence.worker import (
+            _configure_logging,
+        )
+        _configure_logging()
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+        result = run_news_aggregation_cycle_s41()
+        print(json.dumps(result, indent=2, default=str) if args.json else result)
+        return 0
+
+    if args.command == "news-intel-brief":
+        from bot.research.market_events.signal_intelligence.news_intelligence.briefs import (
+            run_global_brief_cycle_s41,
+        )
+        from bot.research.market_events.signal_intelligence.news_intelligence.reports import (
+            write_period_reports_s41,
+        )
+        from bot.research.market_events.signal_intelligence.news_intelligence.worker import (
+            _configure_logging,
+        )
+        _configure_logging()
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+        brief = run_global_brief_cycle_s41()
+        reports = write_period_reports_s41()
+        out = {"brief": brief, "reports": reports}
+        print(json.dumps(out, indent=2, default=str) if args.json else out)
+        return 0
+
+    if args.command == "news-intel-reports":
+        from bot.research.market_events.signal_intelligence.news_intelligence.reports import (
+            write_period_reports_s41,
+        )
+        result = write_period_reports_s41()
+        print(json.dumps(result, indent=2, default=str) if args.json else result)
         return 0
 
     if args.command == "narrative-engine-run":

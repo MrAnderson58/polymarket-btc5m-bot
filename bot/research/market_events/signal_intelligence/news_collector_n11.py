@@ -140,6 +140,15 @@ def _parse_rss_items(xml_text: str, *, source: str, limit: int = 25) -> list[dic
 
 def extract_symbols_n11(title: str, summary: str = "") -> list[str]:
     text = f"{title} {summary}"
+    try:
+        from bot.research.market_events.signal_intelligence.news_intelligence.watchlist import (
+            detect_symbols,
+        )
+        found = detect_symbols(text)
+        if found:
+            return found
+    except Exception:
+        pass
     found: list[str] = []
     for sym, pat in _SYMBOL_PATTERNS:
         if pat.search(text) and sym not in found:
@@ -205,37 +214,90 @@ def _load_recent_titles(conn: Any, *, limit: int = 800) -> list[str]:
 def insert_news_item_n11(conn: Any, item: dict[str, Any], *, now: int | None = None) -> int | None:
     """INSERT one row into market_news_feed_n11 only. Returns id or None if skipped."""
     created = now if now is not None else int(time.time())
+    title = str(item.get("title") or "")
+    body = str(item.get("body") or item.get("summary") or "")
     symbols = item.get("symbols")
     if symbols is None:
-        symbols = extract_symbols_n11(item.get("title") or "", item.get("summary") or "")
+        symbols = extract_symbols_n11(title, body)
     if isinstance(symbols, list):
         symbols_str = ",".join(str(s) for s in symbols)[:200]
     else:
         symbols_str = str(symbols or "")[:200]
-    category = item.get("category") or extract_category_n11(
-        item.get("title") or "", item.get("summary") or "",
-    )
+    category = item.get("category") or extract_category_n11(title, body)
     raw_json = item.get("raw_json")
     if raw_json is None:
         raw_json = json.dumps(item.get("raw") or item, ensure_ascii=False, default=str)
-    cur = conn.execute(
-        """
-        INSERT INTO market_news_feed_n11 (
-            published_at, source, title, summary, url, symbols, category, raw_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            int(item.get("published_at") or created),
-            str(item.get("source") or "unknown")[:80],
-            str(item.get("title") or "")[:500],
-            str(item.get("summary") or "")[:2000],
-            str(item.get("url") or "")[:500],
-            symbols_str,
-            str(category or "general")[:64],
-            raw_json,
-            created,
-        ),
-    )
+
+    try:
+        from bot.research.market_events.signal_intelligence.news_intelligence.tagging import (
+            tag_news_item,
+        )
+        tagged = tag_news_item(
+            timestamp=int(item.get("published_at") or created),
+            source=str(item.get("source") or "unknown"),
+            title=title,
+            body=body,
+            url=str(item.get("url") or ""),
+            symbols=symbols if isinstance(symbols, list) else None,
+        )
+        source_type = tagged["source_type"]
+        importance = float(tagged["importance"])
+        language = tagged["language"]
+        body_store = tagged["body"]
+        symbols_str = (
+            ",".join(tagged["symbols"])[:200] if tagged["symbols"] else symbols_str
+        )
+    except Exception:
+        source_type = str(item.get("source_type") or "rss")
+        importance = float(item.get("importance") or 0.35)
+        language = str(item.get("language") or "en")
+        body_store = body[:4000]
+
+    # Prefer enriched columns when present; fall back to base N11 schema.
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO market_news_feed_n11 (
+                published_at, source, title, summary, url, symbols, category,
+                raw_json, created_at, source_type, importance, language, body
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(item.get("published_at") or created),
+                str(item.get("source") or "unknown")[:80],
+                title[:500],
+                str(item.get("summary") or body)[:2000],
+                str(item.get("url") or "")[:500],
+                symbols_str,
+                str(category or "general")[:64],
+                raw_json,
+                created,
+                source_type[:32],
+                importance,
+                language[:8],
+                body_store[:4000],
+            ),
+        )
+    except Exception:
+        cur = conn.execute(
+            """
+            INSERT INTO market_news_feed_n11 (
+                published_at, source, title, summary, url, symbols, category,
+                raw_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(item.get("published_at") or created),
+                str(item.get("source") or "unknown")[:80],
+                title[:500],
+                str(item.get("summary") or body)[:2000],
+                str(item.get("url") or "")[:500],
+                symbols_str,
+                str(category or "general")[:64],
+                raw_json,
+                created,
+            ),
+        )
     return int(cur.lastrowid) if cur.lastrowid else None
 
 
