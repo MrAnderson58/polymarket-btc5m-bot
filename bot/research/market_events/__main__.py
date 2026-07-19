@@ -287,6 +287,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--paper-only", action="store_true", default=True)
     parser.add_argument("--max-cycles", type=int, default=None, help="Limit poll cycles (testing)")
     parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="narrative-engine-run: print load/skip diagnostics (implies one-shot if no --max-cycles)",
+    )
+    parser.add_argument(
         "--max-reviews-per-cycle",
         type=int,
         default=5,
@@ -1144,18 +1149,20 @@ def main(argv: list[str] | None = None) -> int:
             run_narrative_engine_worker_s42,
         )
         _configure_logging()
-        # One-shot if --max-cycles set; otherwise long-running worker.
-        if args.max_cycles is not None:
+        debug = bool(getattr(args, "debug", False))
+        # One-shot if --max-cycles or --debug; otherwise long-running worker.
+        if args.max_cycles is not None or debug:
             from bot.research.market_events.signal_intelligence.narrative_engine.engine import (
                 run_narrative_engine_cycle_s42,
             )
             with market_events_connection() as conn:
                 apply_migrations(conn)
-            # Run N cycles of the hourly job immediately (for tests/ops).
             last = None
-            for _ in range(max(1, int(args.max_cycles))):
-                last = run_narrative_engine_cycle_s42()
-            print(json.dumps(last, indent=2, default=str) if args.json else last)
+            cycles = max(1, int(args.max_cycles or 1))
+            for _ in range(cycles):
+                last = run_narrative_engine_cycle_s42(debug=debug)
+            if not debug or args.json:
+                print(json.dumps(last, indent=2, default=str) if args.json else last)
             return 0
         stats = run_narrative_engine_worker_s42(max_cycles=None)
         print(json.dumps(stats, indent=2) if args.json else stats)
