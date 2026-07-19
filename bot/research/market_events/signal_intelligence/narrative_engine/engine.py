@@ -389,20 +389,16 @@ def format_narrative_debug_s42(debug: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append(f"now_utc: {debug.get('now_utc')}")
     lines.append(
-        f"lookback: feed={debug.get('feed_lookback_sec')}s "
-        f"summary={debug.get('summary_lookback_sec')}s "
+        f"lookback: events={debug.get('event_lookback_sec')}s "
         f"brief={debug.get('brief_lookback_sec')}s"
     )
-    lines.append(
-        f"since_utc: feed>={debug.get('feed_since')} "
-        f"summary>={debug.get('summary_since')} "
-        f"brief>={debug.get('brief_since')}"
-    )
-    lines.append(f"Loaded summaries: {debug.get('summaries_loaded', 0)}")
-    for row in debug.get("summaries_detail") or []:
-        lines.append(f"{row['symbol']}")
-        hc = int(row.get("headline_count") or 0)
-        lines.append(f"{hc} headline{'s' if hc != 1 else ''}")
+    lines.append(f"Loaded events: {debug.get('events_loaded', 0)}")
+    for row in debug.get("events_detail") or []:
+        lines.append(str(row.get("title") or "?"))
+        lines.append(
+            f"sources={row.get('source_count')} conf={row.get('confidence')} "
+            f"assets={','.join(row.get('symbols') or []) or '—'}"
+        )
         lines.append("")
     skipped = debug.get("skipped") or []
     lines.append("Skipped:")
@@ -410,15 +406,14 @@ def format_narrative_debug_s42(debug: dict[str, Any]) -> str:
         lines.append("(none)")
     else:
         for s in skipped:
-            lines.append(s.get("symbol") or "?")
+            lines.append(s.get("symbol") or s.get("title") or "?")
             lines.append("reason:")
             lines.append(str(s.get("reason") or ""))
             lines.append("")
     lines.append(f"Loaded briefs: {debug.get('briefs_loaded', 0)}")
-    lines.append(f"Loaded feed items: {debug.get('feed_loaded', 0)}")
     lines.append(f"Generated assets: {debug.get('generated_assets', 0)}")
     lines.append(f"Active assets: {debug.get('active_assets', 0)}")
-    lines.append(f"Summaries used: {debug.get('summaries_used', 0)}")
+    lines.append(f"Events used: {debug.get('events_used', 0)}")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -431,115 +426,104 @@ def run_narrative_engine_cycle_s42(
     summary_lookback_sec: int | None = None,
     feed_lookback_sec: int | None = None,
     brief_lookback_sec: int | None = None,
+    event_lookback_sec: int | None = None,
 ) -> dict[str, Any]:
-    """Hourly: per-asset intelligence from N11 + market_news_summary + briefs."""
+    """Hourly: per-asset intelligence from market_intel_events (S43), not raw articles."""
     now_ts = int(now if now is not None else _utc_now())
-    # window_sec kept for API compat; lookbacks default wider to match news-intel.
-    sum_lb = int(summary_lookback_sec or max(int(window_sec), SUMMARY_LOOKBACK_SEC))
-    feed_lb = int(feed_lookback_sec or max(int(window_sec), FEED_LOOKBACK_SEC))
+    # Compat: summary/feed lookback args map onto event lookback.
+    ev_lb = int(
+        event_lookback_sec
+        or summary_lookback_sec
+        or feed_lookback_sec
+        or max(int(window_sec), SUMMARY_LOOKBACK_SEC)
+    )
     brief_lb = int(brief_lookback_sec or max(int(window_sec), BRIEF_LOOKBACK_SEC))
-    feed_since = now_ts - feed_lb
-    summary_since = now_ts - sum_lb
+    event_since = now_ts - ev_lb
     brief_since = now_ts - brief_lb
     watch = set(watched_symbols())
 
     skipped: list[dict[str, str]] = []
-    summaries_detail: list[dict[str, Any]] = []
+    events_detail: list[dict[str, Any]] = []
+
+    from bot.research.market_events.signal_intelligence.event_intelligence.engine import (
+        load_recent_events,
+    )
 
     with market_events_connection() as conn:
-        # Count totals for debug SQL evidence
-        n11_total = 0
-        sum_total = 0
-        if _table_exists(conn, "market_news_feed_n11"):
-            n11_total = int(
-                conn.execute("SELECT COUNT(*) AS n FROM market_news_feed_n11")
+        events_total = 0
+        if _table_exists(conn, "market_intel_events"):
+            events_total = int(
+                conn.execute("SELECT COUNT(*) AS n FROM market_intel_events")
                 .fetchone()["n"]
             )
-        if _table_exists(conn, "market_news_summary"):
-            sum_total = int(
-                conn.execute("SELECT COUNT(*) AS n FROM market_news_summary")
-                .fetchone()["n"]
-            )
-
-        feed = _load_n11(conn, since_ts=feed_since)
-        summaries_raw = _load_summaries_raw(conn, since_ts=summary_since)
+        events = (
+            load_recent_events(conn, since_ts=event_since, limit=200)
+            if _table_exists(conn, "market_intel_events")
+            else []
+        )
         briefs = _load_briefs(conn, since_ts=brief_since)
 
         logger.info(
-            "s42 load sql n11_total=%s selected_feed=%s since=%s | "
-            "summary_total=%s selected_summaries=%s since=%s | "
+            "s42 load sql events_total=%s selected_events=%s since=%s | "
             "selected_briefs=%s since=%s",
-            n11_total,
-            len(feed),
-            feed_since,
-            sum_total,
-            len(summaries_raw),
-            summary_since,
+            events_total,
+            len(events),
+            event_since,
             len(briefs),
             brief_since,
         )
 
-        # Classify summaries: watchlist match vs skip
-        in_window_by_sym = _pick_latest_summary_per_symbol(summaries_raw)
-        for sym, s in sorted(in_window_by_sym.items()):
-            if sym not in watch:
-                skipped.append({
-                    "symbol": sym,
-                    "reason": "not on watchlist",
-                })
-                continue
-            summaries_detail.append({
-                "symbol": sym,
-                "headline_count": int(s.get("headline_count") or 0),
-                "period_end": int(s.get("period_end") or 0),
-                "importance": float(s.get("importance") or 0),
-            })
-
-        # Also note watchlist symbols with no summary
-        for sym in sorted(watch):
-            if sym not in in_window_by_sym:
-                # Check if older summaries exist outside lookback
-                older = None
-                if _table_exists(conn, "market_news_summary"):
-                    older = conn.execute(
-                        """
-                        SELECT period_end, created_at FROM market_news_summary
-                        WHERE UPPER(symbol)=? ORDER BY period_end DESC LIMIT 1
-                        """,
-                        (sym,),
-                    ).fetchone()
-                if older:
-                    pe = int(older["period_end"] or older["created_at"] or 0)
-                    skipped.append({
-                        "symbol": sym,
-                        "reason": (
-                            f"outside time window "
-                            f"(latest period_end={pe}, need>={summary_since})"
-                        ),
-                    })
-
-        summary_by_sym = {
-            sym: row for sym, row in in_window_by_sym.items() if sym in watch
-        }
-
         by_sym: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for item in feed:
-            matched = False
-            for sym in item.get("symbols") or []:
-                sym_u = str(sym).upper()
-                if sym_u in watch:
-                    by_sym[sym_u].append(item)
-                    matched = True
-            if not matched and not (item.get("symbols") or []):
-                # Untagged feed rows: try detect against watchlist
-                detected = [
-                    s for s in detect_symbols(
-                        f"{item.get('title') or ''}\n{item.get('body') or ''}"
-                    )
-                    if s in watch
-                ]
-                for sym_u in detected:
-                    by_sym[sym_u].append(item)
+        for ev in events:
+            events_detail.append({
+                "title": ev.get("title"),
+                "source_count": ev.get("source_count"),
+                "confidence": ev.get("confidence"),
+                "symbols": ev.get("symbols") or [],
+            })
+            syms = [str(s).upper() for s in (ev.get("symbols") or []) if s]
+            matched = [s for s in syms if s in watch]
+            if not matched:
+                # Macro / untagged events still surface under MACRO-ish watch? skip asset map
+                if not syms:
+                    skipped.append({
+                        "title": str(ev.get("title") or "")[:80],
+                        "reason": "no symbols on event",
+                    })
+                else:
+                    skipped.append({
+                        "title": str(ev.get("title") or "")[:80],
+                        "reason": f"symbols not on watchlist: {','.join(syms)}",
+                    })
+                continue
+            # Convert event → synthetic "item" for asset builder
+            item = {
+                "title": ev.get("title") or "",
+                "body": ev.get("summary") or "",
+                "source": (ev.get("sources") or ["event"])[0],
+                "timestamp": int(ev.get("last_seen") or now_ts),
+                "bullish": max(0.0, float(ev.get("sentiment") or 0)),
+                "bearish": max(0.0, -float(ev.get("sentiment") or 0)),
+                "neutral": 0.35,
+                "importance": float(ev.get("importance") or 0.3),
+                "narratives": [
+                    p.strip()
+                    for p in str(ev.get("narrative") or "").split(",")
+                    if p.strip() and p.strip() != "General"
+                ],
+                "macro_score": 0.3 if "Macro" in str(ev.get("narrative") or "") else 0.1,
+                "whale_score": 0.3 if "Whales" in str(ev.get("narrative") or "") else 0.1,
+                "polymarket_score": 0.2,
+                "confidence": float(ev.get("confidence") or 0),
+                "source_count": int(ev.get("source_count") or 0),
+                "headline_count": int(ev.get("headline_count") or 0),
+            }
+            if item["bullish"] == 0 and item["bearish"] == 0:
+                item["bullish"] = 0.25
+                item["bearish"] = 0.25
+                item["neutral"] = 0.5
+            for sym in matched:
+                by_sym[sym].append(item)
 
         assets: list[dict[str, Any]] = []
         for sym in watched_symbols():
@@ -547,7 +531,7 @@ def run_narrative_engine_cycle_s42(
                 _build_asset_record(
                     sym,
                     by_sym.get(sym) or [],
-                    summary_hint=summary_by_sym.get(sym),
+                    summary_hint=None,
                     now=now_ts,
                 )
             )
@@ -564,55 +548,58 @@ def run_narrative_engine_cycle_s42(
         report_paths = write_narrative_reports_s42(
             assets=assets,
             briefs=briefs,
+            events=events,
             now=now_ts,
         )
 
     active = sum(1 for a in assets if int(a.get("news_count") or 0) > 0)
-    summaries_used = len(summary_by_sym)
+    events_used = len(events)
 
     debug_info = {
         "now_utc": now_ts,
-        "feed_lookback_sec": feed_lb,
-        "summary_lookback_sec": sum_lb,
+        "event_lookback_sec": ev_lb,
         "brief_lookback_sec": brief_lb,
-        "feed_since": feed_since,
-        "summary_since": summary_since,
+        "event_since": event_since,
         "brief_since": brief_since,
-        "n11_total": n11_total,
-        "summary_total": sum_total,
-        "feed_loaded": len(feed),
-        "summaries_loaded": len(summaries_detail),
-        "summaries_detail": summaries_detail,
+        "events_total": events_total,
+        "events_loaded": len(events),
+        "events_detail": events_detail[:20],
         "briefs_loaded": len(briefs),
         "skipped": skipped,
         "generated_assets": written,
         "active_assets": active,
-        "summaries_used": summaries_used,
+        "events_used": events_used,
+        # Compat keys for older debug consumers
+        "summaries_loaded": 0,
+        "summaries_detail": [],
+        "summaries_used": 0,
+        "feed_loaded": 0,
+        "feed_lookback_sec": ev_lb,
+        "summary_lookback_sec": ev_lb,
     }
 
     logger.info(
-        "s42 narrative cycle assets=%s active=%s feed=%s summaries=%s briefs=%s",
+        "s42 narrative cycle assets=%s active=%s events=%s briefs=%s",
         written,
         active,
-        len(feed),
-        summaries_used,
+        events_used,
         len(briefs),
     )
     if skipped:
         for s in skipped[:20]:
             logger.info(
-                "s42 skipped summary symbol=%s reason=%s",
-                s.get("symbol"),
+                "s42 skipped event=%s reason=%s",
+                s.get("title") or s.get("symbol"),
                 s.get("reason"),
             )
 
     result = {
         "created_at": now_ts,
         "window_sec": window_sec,
-        "feed_lookback_sec": feed_lb,
-        "summary_lookback_sec": sum_lb,
-        "feed_items": len(feed),
-        "summaries_used": summaries_used,
+        "event_lookback_sec": ev_lb,
+        "feed_items": 0,
+        "events_used": events_used,
+        "summaries_used": 0,
         "briefs_used": len(briefs),
         "assets_written": written,
         "active_assets": active,

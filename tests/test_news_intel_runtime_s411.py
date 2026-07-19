@@ -27,6 +27,9 @@ from bot.research.market_events.signal_intelligence.news_intelligence.briefs imp
 from bot.research.market_events.signal_intelligence.news_intelligence.worker import (
     run_news_intelligence_worker_s41,
 )
+from bot.research.market_events.signal_intelligence.event_intelligence.engine import (
+    run_event_engine_cycle_s43,
+)
 from bot.research.market_events.signal_intelligence.narrative_engine.watchlist import (
     clear_watchlist_cache as clear_narrative_watchlist,
 )
@@ -39,8 +42,10 @@ class TestNewsIntelRegisteredS411(unittest.TestCase):
     def test_start_all_includes_news_intel(self) -> None:
         keys = [s.key for s in SERVICES]
         self.assertIn("news-intel", keys)
-        # News must start before narrative so summaries exist for the engine.
-        self.assertLess(keys.index("news-intel"), keys.index("narrative-engine"))
+        self.assertIn("event-engine", keys)
+        # News → events → narrative
+        self.assertLess(keys.index("news-intel"), keys.index("event-engine"))
+        self.assertLess(keys.index("event-engine"), keys.index("narrative-engine"))
         svc = next(s for s in SERVICES if s.key == "news-intel")
         self.assertEqual(svc.log_name, "news-intelligence.log")
         self.assertIn("news-intel-worker", svc.module_args)
@@ -101,6 +106,10 @@ class TestNewsIntelRuntimePipelineS411(unittest.TestCase):
         self.assertGreater(n_sum, 0)
         self.assertGreater(n_brief, 0)
 
+        # S43: cluster articles into events before narrative.
+        ev = run_event_engine_cycle_s43(now=self.now + 30)
+        self.assertGreaterEqual(ev["events"], 1)
+
         reports_dir = Path(self.tmp.name) / "reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
         with patch(
@@ -112,7 +121,7 @@ class TestNewsIntelRuntimePipelineS411(unittest.TestCase):
                 now=self.now + 60,
                 write_reports=True,
             )
-        self.assertGreater(result["feed_items"], 0)
+        self.assertGreater(result["events_used"], 0)
         self.assertGreater(result["active_assets"], 0)
         self.assertGreaterEqual(result["assets_written"], 1)
 
@@ -123,12 +132,13 @@ class TestNewsIntelRuntimePipelineS411(unittest.TestCase):
         claude_txt = claude.read_text(encoding="utf-8")
         tg_txt = tg.read_text(encoding="utf-8")
         self.assertIn("# MARKET CONTEXT", claude_txt)
+        self.assertIn("Top Events", claude_txt)
         self.assertTrue(
             "Bitcoin" in claude_txt or "BTC" in claude_txt or "ETF" in claude_txt,
-            msg="claude report should mention real news",
+            msg="claude report should mention real events",
         )
         self.assertIn("AI Market Brief", tg_txt)
-        self.assertNotIn("Quiet news flow", claude_txt)
+        self.assertIn("Top Events", tg_txt)
 
     def test_aggregate_alone_writes_summary(self) -> None:
         agg = run_news_aggregation_cycle_s41(window_sec=3600, now=self.now + 30)

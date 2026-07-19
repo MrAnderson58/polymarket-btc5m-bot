@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 57
+SCHEMA_VERSION = 58
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -923,6 +923,20 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v57")
             current = 57
+
+        if current < 58:
+            # S43 Event Intelligence — market_intel_events (core market_events is trading shocks).
+            conn.executescript(S43_EVENT_INTELLIGENCE_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (58, now, "Phase S4.3 Event Intelligence Engine (clustered intel events)"),
+            )
+            applied.append("v58")
+            current = 58
 
     if not applied:
         conn.commit()
@@ -3388,4 +3402,38 @@ CREATE TABLE IF NOT EXISTS market_top_assets (
 
 CREATE INDEX IF NOT EXISTS idx_top_assets_ts
     ON market_top_assets(timestamp DESC);
+"""
+
+# S4.3 Event Intelligence — clustered news events.
+# Core `market_events` is reserved for trading shocks; intel uses market_intel_events.
+S43_EVENT_INTELLIGENCE_DDL = """
+CREATE TABLE IF NOT EXISTS market_intel_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_uid TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    narrative TEXT NOT NULL,
+    symbols_json TEXT,
+    sentiment REAL NOT NULL DEFAULT 0,
+    importance REAL NOT NULL DEFAULT 0,
+    confidence REAL NOT NULL DEFAULT 0,
+    source_count INTEGER NOT NULL DEFAULT 0,
+    headline_count INTEGER NOT NULL DEFAULT 0,
+    first_seen INTEGER NOT NULL,
+    last_seen INTEGER NOT NULL,
+    sources_json TEXT,
+    freshness REAL NOT NULL DEFAULT 0,
+    article_ids_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_intel_events_updated
+    ON market_intel_events(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_intel_events_last_seen
+    ON market_intel_events(last_seen DESC);
+CREATE INDEX IF NOT EXISTS idx_intel_events_confidence
+    ON market_intel_events(confidence DESC, last_seen DESC);
+CREATE INDEX IF NOT EXISTS idx_intel_events_importance
+    ON market_intel_events(importance DESC, last_seen DESC);
 """

@@ -16,6 +16,9 @@ from bot.research.market_events.signal_intelligence.narrative_engine.confidence 
 from bot.research.market_events.signal_intelligence.narrative_engine.engine import (
     run_narrative_engine_cycle_s42,
 )
+from bot.research.market_events.signal_intelligence.event_intelligence.engine import (
+    run_event_engine_cycle_s43,
+)
 from bot.research.market_events.signal_intelligence.narrative_engine.narratives import (
     detect_narratives,
 )
@@ -81,7 +84,7 @@ class TestAssetAggregationS42(unittest.TestCase):
         with market_events_connection() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v56", applied)
-            self.assertGreaterEqual(SCHEMA_VERSION, 57)
+            self.assertGreaterEqual(SCHEMA_VERSION, 58)
             now = 1_800_000_000
             for title, summary in (
                 ("Bitcoin ETF inflows hit record after BlackRock buy", "Institutional BTC"),
@@ -121,14 +124,16 @@ class TestAssetAggregationS42(unittest.TestCase):
 
     def test_cycle_writes_intel_and_reports(self) -> None:
         reports_dir = Path(self.tmp.name) / "reports"
-        # Patch reports dir via cycle then rewrite with custom dir by calling reports
+        # Cluster N11 articles into intel events, then narrative reads events only.
+        run_event_engine_cycle_s43(now=1_800_000_050, lookback_sec=7200)
         result = run_narrative_engine_cycle_s42(
             window_sec=7200,
             now=1_800_000_100,
             write_reports=False,
         )
         self.assertEqual(result["assets_written"], len(watched_symbols()))
-        self.assertGreaterEqual(result["active_assets"], 2)
+        self.assertGreaterEqual(result["active_assets"], 1)
+        self.assertGreaterEqual(result["events_used"], 1)
 
         with market_events_connection() as conn:
             n_intel = conn.execute(

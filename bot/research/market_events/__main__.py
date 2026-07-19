@@ -230,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
             "news-intel-aggregate",
             "news-intel-brief",
             "news-intel-reports",
+            "event-engine-run",
             "narrative-engine-run",
             "reversal-diagnostics",
             "signal-inbox",
@@ -1142,6 +1143,38 @@ def main(argv: list[str] | None = None) -> int:
         result = write_period_reports_s41()
         print(json.dumps(result, indent=2, default=str) if args.json else result)
         return 0
+
+    if args.command == "event-engine-run":
+        from bot.research.market_events.signal_intelligence.event_intelligence.worker import (
+            _configure_logging,
+            run_event_intelligence_worker_s43,
+        )
+        _configure_logging()
+        if args.max_cycles is not None or bool(getattr(args, "debug", False)):
+            from bot.research.market_events.signal_intelligence.event_intelligence.engine import (
+                run_event_engine_cycle_s43,
+            )
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+            last = None
+            cycles = max(1, int(args.max_cycles or 1))
+            for _ in range(cycles):
+                last = run_event_engine_cycle_s43()
+                if getattr(args, "debug", False):
+                    print(
+                        f"events created={last.get('created')} "
+                        f"merged={last.get('merged')} "
+                        f"duplicates_removed={last.get('duplicates_removed')} "
+                        f"clusters={last.get('clusters')} "
+                        f"articles={last.get('articles')} "
+                        f"ms={last.get('elapsed_ms')}",
+                        flush=True,
+                    )
+            print(json.dumps(last, indent=2, default=str) if args.json else last)
+            return 0
+        stats = run_event_intelligence_worker_s43(max_cycles=None)
+        print(json.dumps(stats, indent=2) if args.json else stats)
+        return 1 if stats.get("errors") and not stats.get("runs") else 0
 
     if args.command == "narrative-engine-run":
         from bot.research.market_events.signal_intelligence.narrative_engine.worker import (

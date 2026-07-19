@@ -1,7 +1,8 @@
-"""S42.1 — Narrative Engine consumes market_news_summary / briefs."""
+"""S42.1/S43 — Narrative consumes market_intel_events."""
 
 from __future__ import annotations
 
+import json
 import tempfile
 import time
 import unittest
@@ -20,36 +21,42 @@ from bot.research.market_events.signal_intelligence.narrative_engine.watchlist i
 )
 
 
-class TestNarrativeConsumesSummariesS421(unittest.TestCase):
+class TestNarrativeConsumesEventsS421(unittest.TestCase):
     def setUp(self) -> None:
         clear_watchlist_cache()
         self.tmp = tempfile.TemporaryDirectory()
-        self.db = Path(self.tmp.name) / "s421.db"
+        self.db = Path(self.tmp.name) / "s421e.db"
         configure_unit_test_db_isolation(self.db)
         self.now = int(time.time())
         with market_events_connection() as conn:
             apply_migrations(conn)
-            # Insert summary only (no N11 feed) — engine must still activate BTC.
             conn.execute(
                 """
-                INSERT INTO market_news_summary (
-                  period_start, period_end, symbol, summary,
-                  bullish_score, bearish_score, neutral_score,
-                  importance, sources, headline_count, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO market_intel_events (
+                  event_uid, created_at, updated_at, title, summary, narrative,
+                  symbols_json, sentiment, importance, confidence,
+                  source_count, headline_count, first_seen, last_seen,
+                  sources_json, freshness, article_ids_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    self.now - 1800,
+                    "uid-btc-etf",
                     self.now - 60,
-                    "BTC",
-                    "BTC: Bitcoin ETF inflows smash weekly records\nHeadlines in window: 3.",
-                    0.7,
-                    0.1,
-                    0.2,
+                    self.now - 60,
+                    "ETF inflows accelerate",
+                    "BTC ETF inflows smash weekly records across desks",
+                    "ETF, Institutional Adoption",
+                    json.dumps(["BTC"]),
+                    0.55,
                     0.8,
-                    '["CoinDesk"]',
-                    3,
+                    0.92,
+                    4,
+                    4,
+                    self.now - 600,
                     self.now - 60,
+                    json.dumps(["CoinDesk", "Reuters", "The Block", "Wu Blockchain"]),
+                    0.95,
+                    "[]",
                 ),
             )
             conn.execute(
@@ -83,7 +90,7 @@ class TestNarrativeConsumesSummariesS421(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def test_summary_only_produces_btc_intel_and_reports(self) -> None:
+    def test_event_produces_btc_intel_and_reports(self) -> None:
         reports_dir = Path(self.tmp.name) / "reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
         with patch(
@@ -96,9 +103,8 @@ class TestNarrativeConsumesSummariesS421(unittest.TestCase):
                 debug=False,
             )
 
-        self.assertGreaterEqual(result["summaries_used"], 1)
+        self.assertGreaterEqual(result["events_used"], 1)
         self.assertGreaterEqual(result["active_assets"], 1)
-        self.assertGreaterEqual(result["briefs_used"], 1)
 
         with market_events_connection() as conn:
             btc = conn.execute(
@@ -110,24 +116,24 @@ class TestNarrativeConsumesSummariesS421(unittest.TestCase):
         self.assertIsNotNone(btc)
         self.assertEqual(btc["symbol"], "BTC")
         self.assertGreaterEqual(int(btc["news_count"]), 1)
-        self.assertIn("BTC", btc["summary"])
 
         claude = (reports_dir / "claude_market_context.md").read_text(encoding="utf-8")
         tg = (reports_dir / "telegram_brief.md").read_text(encoding="utf-8")
+        self.assertIn("Top Events", claude)
         self.assertIn("BTC", claude)
+        self.assertIn("ETF", claude)
         self.assertIn("BTC", tg)
+        self.assertIn("Top Events", tg)
 
-    def test_debug_format_lists_loaded_and_skipped(self) -> None:
+    def test_debug_format_lists_events(self) -> None:
         result = run_narrative_engine_cycle_s42(
             now=self.now,
             write_reports=False,
             debug=False,
         )
         text = format_narrative_debug_s42(result["debug"])
-        self.assertIn("Loaded summaries:", text)
-        self.assertIn("BTC", text)
-        self.assertIn("Loaded briefs:", text)
-        self.assertIn("Generated assets:", text)
+        self.assertIn("Loaded events:", text)
+        self.assertIn("ETF", text)
 
 
 if __name__ == "__main__":

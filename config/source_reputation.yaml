@@ -1,0 +1,16 @@
+# Source reputation for Event Intelligence (S43)
+# Higher = more trusted when scoring event confidence.
+sources:
+  Reuters: 1.00
+  Bloomberg: 0.99
+  CoinDesk: 0.96
+  The Block: 0.95
+  Blockworks: 0.94
+  Decrypt: 0.92
+  Wu Blockchain: 0.91
+  Cointelegraph: 0.89
+  CryptoSlate: 0.85
+  Telegram: 0.75
+  Unknown: 0.40
+
+default: 0.40
