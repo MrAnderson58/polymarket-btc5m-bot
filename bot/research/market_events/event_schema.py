@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 60
+SCHEMA_VERSION = 61
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -966,6 +966,20 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v60")
             current = 60
+
+        if current < 61:
+            # S45 Intelligence Quality Engine — net_score + event impact fields.
+            _ensure_s45_quality_columns(conn)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (61, now, "Phase S4.5 Intelligence Quality Engine"),
+            )
+            applied.append("v61")
+            current = 61
 
     if not applied:
         conn.commit()
@@ -3345,6 +3359,51 @@ def _ensure_n11_enriched_columns(conn: Any) -> None:
             except Exception:
                 pass
 
+
+def _ensure_s45_quality_columns(conn: Any) -> None:
+    """Add S45 net_score / impact / why_it_matters columns if missing."""
+    try:
+        asset_cols = {
+            str(r[1])
+            for r in conn.execute("PRAGMA table_info(market_asset_intelligence)").fetchall()
+        }
+    except Exception:
+        asset_cols = set()
+    if asset_cols and "net_score" not in asset_cols:
+        try:
+            conn.execute(
+                "ALTER TABLE market_asset_intelligence "
+                "ADD COLUMN net_score REAL NOT NULL DEFAULT 0"
+            )
+        except Exception:
+            pass
+    elif not asset_cols:
+        conn.executescript(S42_ASSET_INTELLIGENCE_DDL)
+
+    try:
+        ev_cols = {
+            str(r[1])
+            for r in conn.execute("PRAGMA table_info(market_intel_events)").fetchall()
+        }
+    except Exception:
+        ev_cols = set()
+    if not ev_cols:
+        conn.executescript(S43_EVENT_INTELLIGENCE_DDL)
+        ev_cols = {
+            str(r[1])
+            for r in conn.execute("PRAGMA table_info(market_intel_events)").fetchall()
+        }
+    for col, sql in (
+        ("market_impact", "ALTER TABLE market_intel_events ADD COLUMN market_impact TEXT"),
+        ("why_it_matters", "ALTER TABLE market_intel_events ADD COLUMN why_it_matters TEXT"),
+        ("polarity", "ALTER TABLE market_intel_events ADD COLUMN polarity TEXT"),
+    ):
+        if col not in ev_cols:
+            try:
+                conn.execute(sql)
+            except Exception:
+                pass
+
 # S4.2 Narrative Engine — also ensures S4.1 summary/brief tables if missing.
 S42_NARRATIVE_ENGINE_DDL = """
 CREATE TABLE IF NOT EXISTS market_news_summary (
@@ -3403,7 +3462,8 @@ CREATE TABLE IF NOT EXISTS market_asset_intelligence (
     macro_score REAL NOT NULL DEFAULT 0,
     whale_score REAL NOT NULL DEFAULT 0,
     polymarket_score REAL NOT NULL DEFAULT 0,
-    market_score REAL NOT NULL DEFAULT 0
+    market_score REAL NOT NULL DEFAULT 0,
+    net_score REAL NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_asset_intel_symbol_ts
@@ -3442,7 +3502,8 @@ CREATE TABLE IF NOT EXISTS market_asset_intelligence (
     macro_score REAL NOT NULL DEFAULT 0,
     whale_score REAL NOT NULL DEFAULT 0,
     polymarket_score REAL NOT NULL DEFAULT 0,
-    market_score REAL NOT NULL DEFAULT 0
+    market_score REAL NOT NULL DEFAULT 0,
+    net_score REAL NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_asset_intel_symbol_ts
@@ -3483,7 +3544,10 @@ CREATE TABLE IF NOT EXISTS market_intel_events (
     last_seen INTEGER NOT NULL,
     sources_json TEXT,
     freshness REAL NOT NULL DEFAULT 0,
-    article_ids_json TEXT
+    article_ids_json TEXT,
+    market_impact TEXT,
+    why_it_matters TEXT,
+    polarity TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_intel_events_updated

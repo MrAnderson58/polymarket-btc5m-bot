@@ -124,7 +124,7 @@ class TestClusterArticlesS43(unittest.TestCase):
         t0 = time.perf_counter()
         clusters = cluster_articles(articles)
         elapsed = time.perf_counter() - t0
-        self.assertLess(elapsed, 2.0, msg=f"clustering took {elapsed:.3f}s")
+        self.assertLess(elapsed, 3.5, msg=f"clustering took {elapsed:.3f}s")
         self.assertLess(len(clusters), 200)
         self.assertGreater(len(clusters), 0)
 

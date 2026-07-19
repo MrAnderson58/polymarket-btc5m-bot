@@ -31,6 +31,15 @@ from bot.research.market_events.signal_intelligence.narrative_engine.scoring imp
 from bot.research.market_events.signal_intelligence.narrative_engine.watchlist import (
     detect_symbols,
 )
+from bot.research.market_events.signal_intelligence.narrative_engine.binding import (
+    prepare_article_symbols,
+)
+from bot.research.market_events.signal_intelligence.narrative_engine.quality import (
+    enrich_event_for_report,
+    market_impact,
+    why_it_matters,
+    event_polarity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,17 +58,19 @@ def prepare_article(row: dict[str, Any]) -> dict[str, Any]:
     title = str(row.get("title") or "")
     body = str(row.get("body") or row.get("summary") or "")
     blob = f"{title}\n{body}"
-    symbols = row.get("symbols")
-    if not symbols:
-        symbols = detect_symbols(blob)
-    elif isinstance(symbols, str):
-        symbols = [s.strip().upper() for s in symbols.split(",") if s.strip()]
-    else:
-        symbols = [str(s).upper() for s in symbols if s]
     narratives = detect_narratives(blob)
+    # Prefer weighted binding; fall back to detect_symbols only as seed.
+    symbols = prepare_article_symbols({**row, "narratives": narratives})
+    if not symbols:
+        raw = row.get("symbols")
+        if isinstance(raw, str):
+            symbols = [s.strip().upper() for s in raw.split(",") if s.strip()]
+        elif isinstance(raw, list):
+            symbols = [str(s).upper() for s in raw if s]
+        else:
+            symbols = detect_symbols(blob)
     tokens = significant_tokens(blob)
     entities = set(tokens) | {s.lower() for s in symbols}
-    # Light entity boost for known narrative keywords already in tokens
     bull, bear, neu = sentiment_scores(title, body)
     sentiment = float(bull) - float(bear)
     return {
@@ -278,11 +289,11 @@ def build_event_from_cluster(
     summary = f"{title}. Sources: {', '.join(sources[:6])}. " + " | ".join(summary_bits)
     article_ids = [a.get("id") for a in cluster if a.get("id") is not None]
     uid = event_uid_from_seed(title, symbols, first_seen)
-    return {
+    base = {
         "event_uid": uid,
         "title": title[:300],
         "summary": summary[:4000],
-        "narrative": narr_text[:500],
+        "narrative": narr_text[:500] if narr_text else "",
         "symbols": symbols,
         "sentiment": round(avg_sent, 3),
         "importance": round(importance, 3),
@@ -297,6 +308,18 @@ def build_event_from_cluster(
         "created_at": now,
         "updated_at": now,
     }
+    base["market_impact"] = market_impact(
+        importance=base["importance"],
+        confidence=base["confidence"],
+        source_count=base["source_count"],
+        freshness=base["freshness"],
+        last_seen=last_seen,
+        now=now,
+        affected_assets=symbols,
+    )
+    base["polarity"] = event_polarity(base["sentiment"])
+    base["why_it_matters"] = why_it_matters(base)
+    return enrich_event_for_report(base, now=now)
 
 
 def load_n11_articles(conn: Any, *, since_ts: int, limit: int = 2000) -> list[dict[str, Any]]:
@@ -362,67 +385,138 @@ def upsert_events(conn: Any, events: list[dict[str, Any]]) -> dict[str, int]:
         ).fetchone()
         if existing:
             first_seen = min(int(existing["first_seen"] or ev["first_seen"]), int(ev["first_seen"]))
-            execute_with_retry(
-                conn,
-                """
-                UPDATE market_intel_events SET
-                  updated_at=?, title=?, summary=?, narrative=?, symbols_json=?,
-                  sentiment=?, importance=?, confidence=?, source_count=?,
-                  headline_count=?, first_seen=?, last_seen=?,
-                  sources_json=?, freshness=?, article_ids_json=?
-                WHERE event_uid=?
-                """,
-                (
-                    int(ev["updated_at"]),
-                    ev["title"],
-                    ev["summary"],
-                    ev["narrative"],
-                    json.dumps(ev.get("symbols") or [], ensure_ascii=False),
-                    float(ev["sentiment"]),
-                    float(ev["importance"]),
-                    float(ev["confidence"]),
-                    int(ev["source_count"]),
-                    int(ev["headline_count"]),
-                    first_seen,
-                    int(ev["last_seen"]),
-                    json.dumps(ev.get("sources") or [], ensure_ascii=False),
-                    float(ev.get("freshness") or 0),
-                    json.dumps(ev.get("article_ids") or [], ensure_ascii=False),
-                    ev["event_uid"],
-                ),
-            )
+            try:
+                execute_with_retry(
+                    conn,
+                    """
+                    UPDATE market_intel_events SET
+                      updated_at=?, title=?, summary=?, narrative=?, symbols_json=?,
+                      sentiment=?, importance=?, confidence=?, source_count=?,
+                      headline_count=?, first_seen=?, last_seen=?,
+                      sources_json=?, freshness=?, article_ids_json=?,
+                      market_impact=?, why_it_matters=?, polarity=?
+                    WHERE event_uid=?
+                    """,
+                    (
+                        int(ev["updated_at"]),
+                        ev["title"],
+                        ev["summary"],
+                        ev["narrative"],
+                        json.dumps(ev.get("symbols") or [], ensure_ascii=False),
+                        float(ev["sentiment"]),
+                        float(ev["importance"]),
+                        float(ev["confidence"]),
+                        int(ev["source_count"]),
+                        int(ev["headline_count"]),
+                        first_seen,
+                        int(ev["last_seen"]),
+                        json.dumps(ev.get("sources") or [], ensure_ascii=False),
+                        float(ev.get("freshness") or 0),
+                        json.dumps(ev.get("article_ids") or [], ensure_ascii=False),
+                        str(ev.get("market_impact") or "")[:32] or None,
+                        str(ev.get("why_it_matters") or "")[:1000] or None,
+                        str(ev.get("polarity") or "")[:32] or None,
+                        ev["event_uid"],
+                    ),
+                )
+            except Exception:
+                execute_with_retry(
+                    conn,
+                    """
+                    UPDATE market_intel_events SET
+                      updated_at=?, title=?, summary=?, narrative=?, symbols_json=?,
+                      sentiment=?, importance=?, confidence=?, source_count=?,
+                      headline_count=?, first_seen=?, last_seen=?,
+                      sources_json=?, freshness=?, article_ids_json=?
+                    WHERE event_uid=?
+                    """,
+                    (
+                        int(ev["updated_at"]),
+                        ev["title"],
+                        ev["summary"],
+                        ev["narrative"],
+                        json.dumps(ev.get("symbols") or [], ensure_ascii=False),
+                        float(ev["sentiment"]),
+                        float(ev["importance"]),
+                        float(ev["confidence"]),
+                        int(ev["source_count"]),
+                        int(ev["headline_count"]),
+                        first_seen,
+                        int(ev["last_seen"]),
+                        json.dumps(ev.get("sources") or [], ensure_ascii=False),
+                        float(ev.get("freshness") or 0),
+                        json.dumps(ev.get("article_ids") or [], ensure_ascii=False),
+                        ev["event_uid"],
+                    ),
+                )
             merged += 1
         else:
-            execute_with_retry(
-                conn,
-                """
-                INSERT INTO market_intel_events (
-                  event_uid, created_at, updated_at, title, summary, narrative,
-                  symbols_json, sentiment, importance, confidence,
-                  source_count, headline_count, first_seen, last_seen,
-                  sources_json, freshness, article_ids_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    ev["event_uid"],
-                    int(ev["created_at"]),
-                    int(ev["updated_at"]),
-                    ev["title"],
-                    ev["summary"],
-                    ev["narrative"],
-                    json.dumps(ev.get("symbols") or [], ensure_ascii=False),
-                    float(ev["sentiment"]),
-                    float(ev["importance"]),
-                    float(ev["confidence"]),
-                    int(ev["source_count"]),
-                    int(ev["headline_count"]),
-                    int(ev["first_seen"]),
-                    int(ev["last_seen"]),
-                    json.dumps(ev.get("sources") or [], ensure_ascii=False),
-                    float(ev.get("freshness") or 0),
-                    json.dumps(ev.get("article_ids") or [], ensure_ascii=False),
-                ),
-            )
+            try:
+                execute_with_retry(
+                    conn,
+                    """
+                    INSERT INTO market_intel_events (
+                      event_uid, created_at, updated_at, title, summary, narrative,
+                      symbols_json, sentiment, importance, confidence,
+                      source_count, headline_count, first_seen, last_seen,
+                      sources_json, freshness, article_ids_json,
+                      market_impact, why_it_matters, polarity
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        ev["event_uid"],
+                        int(ev["created_at"]),
+                        int(ev["updated_at"]),
+                        ev["title"],
+                        ev["summary"],
+                        ev["narrative"],
+                        json.dumps(ev.get("symbols") or [], ensure_ascii=False),
+                        float(ev["sentiment"]),
+                        float(ev["importance"]),
+                        float(ev["confidence"]),
+                        int(ev["source_count"]),
+                        int(ev["headline_count"]),
+                        int(ev["first_seen"]),
+                        int(ev["last_seen"]),
+                        json.dumps(ev.get("sources") or [], ensure_ascii=False),
+                        float(ev.get("freshness") or 0),
+                        json.dumps(ev.get("article_ids") or [], ensure_ascii=False),
+                        str(ev.get("market_impact") or "")[:32] or None,
+                        str(ev.get("why_it_matters") or "")[:1000] or None,
+                        str(ev.get("polarity") or "")[:32] or None,
+                    ),
+                )
+            except Exception:
+                execute_with_retry(
+                    conn,
+                    """
+                    INSERT INTO market_intel_events (
+                      event_uid, created_at, updated_at, title, summary, narrative,
+                      symbols_json, sentiment, importance, confidence,
+                      source_count, headline_count, first_seen, last_seen,
+                      sources_json, freshness, article_ids_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        ev["event_uid"],
+                        int(ev["created_at"]),
+                        int(ev["updated_at"]),
+                        ev["title"],
+                        ev["summary"],
+                        ev["narrative"],
+                        json.dumps(ev.get("symbols") or [], ensure_ascii=False),
+                        float(ev["sentiment"]),
+                        float(ev["importance"]),
+                        float(ev["confidence"]),
+                        int(ev["source_count"]),
+                        int(ev["headline_count"]),
+                        int(ev["first_seen"]),
+                        int(ev["last_seen"]),
+                        json.dumps(ev.get("sources") or [], ensure_ascii=False),
+                        float(ev.get("freshness") or 0),
+                        json.dumps(ev.get("article_ids") or [], ensure_ascii=False),
+                    ),
+                )
             created += 1
     return {"created": created, "merged": merged}
 
@@ -486,18 +580,33 @@ def load_recent_events(
     since_ts: int,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        """
-        SELECT id, event_uid, created_at, updated_at, title, summary, narrative,
-               symbols_json, sentiment, importance, confidence, source_count,
-               headline_count, first_seen, last_seen, sources_json, freshness
-        FROM market_intel_events
-        WHERE last_seen >= ? OR updated_at >= ? OR created_at >= ? OR first_seen >= ?
-        ORDER BY (freshness * confidence * (0.5 + importance)) DESC, last_seen DESC
-        LIMIT ?
-        """,
-        (since_ts, since_ts, since_ts, since_ts, limit),
-    ).fetchall()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, event_uid, created_at, updated_at, title, summary, narrative,
+                   symbols_json, sentiment, importance, confidence, source_count,
+                   headline_count, first_seen, last_seen, sources_json, freshness,
+                   market_impact, why_it_matters, polarity
+            FROM market_intel_events
+            WHERE last_seen >= ? OR updated_at >= ? OR created_at >= ? OR first_seen >= ?
+            ORDER BY (freshness * confidence * (0.5 + importance)) DESC, last_seen DESC
+            LIMIT ?
+            """,
+            (since_ts, since_ts, since_ts, since_ts, limit),
+        ).fetchall()
+    except Exception:
+        rows = conn.execute(
+            """
+            SELECT id, event_uid, created_at, updated_at, title, summary, narrative,
+                   symbols_json, sentiment, importance, confidence, source_count,
+                   headline_count, first_seen, last_seen, sources_json, freshness
+            FROM market_intel_events
+            WHERE last_seen >= ? OR updated_at >= ? OR created_at >= ? OR first_seen >= ?
+            ORDER BY (freshness * confidence * (0.5 + importance)) DESC, last_seen DESC
+            LIMIT ?
+            """,
+            (since_ts, since_ts, since_ts, since_ts, limit),
+        ).fetchall()
     out: list[dict[str, Any]] = []
     for r in rows:
         try:
@@ -508,7 +617,7 @@ def load_recent_events(
             sources = json.loads(r["sources_json"] or "[]")
         except Exception:
             sources = []
-        out.append({
+        row = {
             "id": r["id"],
             "event_uid": r["event_uid"],
             "created_at": r["created_at"],
@@ -526,5 +635,13 @@ def load_recent_events(
             "last_seen": int(r["last_seen"] or 0),
             "sources": sources if isinstance(sources, list) else [],
             "freshness": float(r["freshness"] or 0),
-        })
+        }
+        keys = set(r.keys()) if hasattr(r, "keys") else set()
+        if "market_impact" in keys:
+            row["market_impact"] = r["market_impact"]
+        if "why_it_matters" in keys:
+            row["why_it_matters"] = r["why_it_matters"]
+        if "polarity" in keys:
+            row["polarity"] = r["polarity"]
+        out.append(row)
     return out

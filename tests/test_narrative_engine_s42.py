@@ -39,7 +39,7 @@ class TestNarrativeDetectionS42(unittest.TestCase):
         )
         self.assertIn("ETF", labels)
         self.assertIn("Fed", labels)
-        self.assertIn("Institutional Adoption", labels)
+        self.assertIn("Institutional", labels)
 
     def test_hack_security(self) -> None:
         labels = detect_narratives("Protocol hack drains liquidity after exploit")

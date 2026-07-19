@@ -29,6 +29,13 @@ from bot.research.market_events.signal_intelligence.narrative_engine.watchlist i
     source_quality,
     watched_symbols,
 )
+from bot.research.market_events.signal_intelligence.narrative_engine.binding import (
+    bind_event_assets,
+)
+from bot.research.market_events.signal_intelligence.narrative_engine.quality import (
+    compute_net_score,
+    select_top_by_net_score,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +45,6 @@ SUMMARY_LOOKBACK_SEC = 2 * 3600
 BRIEF_LOOKBACK_SEC = 2 * 3600
 FEED_LOOKBACK_SEC = 2 * 3600
 EVENT_LOOKBACK_SEC = 24 * 3600
-# Macro / untagged intel events still feed asset narratives via BTC proxy.
-_MACRO_PROXY_SYMBOLS = ("BTC", "ETH")
 
 
 def _utc_now() -> int:
@@ -214,10 +219,11 @@ def _build_asset_record(
             "bullish_score": 0.25,
             "bearish_score": 0.25,
             "neutral_score": 0.5,
+            "net_score": 0.0,
             "importance": 0.2,
             "top_headlines": [],
             "summary": f"{symbol}: no material headlines in the lookback window.",
-            "narrative": "General",
+            "narrative": "",
             "risk_level": "LOW",
             "confidence": 0.15,
             "macro_score": 0.1,
@@ -284,16 +290,18 @@ def _build_asset_record(
         min(1.0, 0.35 * bull + 0.25 * importance + 0.2 * conf + 0.2 * (1.0 - bear)),
         3,
     )
+    net = compute_net_score(bull, bear, neutral=neu)
     return {
         "symbol": symbol,
         "news_count": news_count,
         "bullish_score": round(bull, 3),
         "bearish_score": round(bear, 3),
         "neutral_score": round(neu, 3),
+        "net_score": net,
         "importance": round(importance, 3),
         "top_headlines": headlines,
         "summary": summary[:2000],
-        "narrative": narrative[:500],
+        "narrative": (narrative or "Uncategorized")[:500],
         "risk_level": risk,
         "confidence": conf,
         "macro_score": round(macro, 3),
@@ -308,52 +316,85 @@ def _build_asset_record(
 def _save_asset_intel(conn: Any, rows: list[dict[str, Any]]) -> int:
     n = 0
     for row in rows:
-        execute_with_retry(
-            conn,
-            """
-            INSERT INTO market_asset_intelligence (
-              created_at, symbol, news_count,
-              bullish_score, bearish_score, neutral_score,
-              importance, top_headlines_json, summary, narrative,
-              risk_level, confidence,
-              macro_score, whale_score, polymarket_score, market_score
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                int(row["created_at"]),
-                row["symbol"],
-                int(row["news_count"]),
+        net = row.get("net_score")
+        if net is None:
+            net = compute_net_score(
                 float(row["bullish_score"]),
                 float(row["bearish_score"]),
-                float(row["neutral_score"]),
-                float(row["importance"]),
-                json.dumps(row.get("top_headlines") or [], ensure_ascii=False),
-                row["summary"],
-                row["narrative"],
-                row["risk_level"],
-                float(row["confidence"]),
-                float(row["macro_score"]),
-                float(row["whale_score"]),
-                float(row["polymarket_score"]),
-                float(row["market_score"]),
-            ),
-        )
+                neutral=float(row.get("neutral_score") or 0),
+            )
+        try:
+            execute_with_retry(
+                conn,
+                """
+                INSERT INTO market_asset_intelligence (
+                  created_at, symbol, news_count,
+                  bullish_score, bearish_score, neutral_score,
+                  importance, top_headlines_json, summary, narrative,
+                  risk_level, confidence,
+                  macro_score, whale_score, polymarket_score, market_score,
+                  net_score
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(row["created_at"]),
+                    row["symbol"],
+                    int(row["news_count"]),
+                    float(row["bullish_score"]),
+                    float(row["bearish_score"]),
+                    float(row["neutral_score"]),
+                    float(row["importance"]),
+                    json.dumps(row.get("top_headlines") or [], ensure_ascii=False),
+                    row["summary"],
+                    row["narrative"],
+                    row["risk_level"],
+                    float(row["confidence"]),
+                    float(row["macro_score"]),
+                    float(row["whale_score"]),
+                    float(row["polymarket_score"]),
+                    float(row["market_score"]),
+                    float(net),
+                ),
+            )
+        except Exception:
+            # Pre-v61 DBs without net_score column
+            execute_with_retry(
+                conn,
+                """
+                INSERT INTO market_asset_intelligence (
+                  created_at, symbol, news_count,
+                  bullish_score, bearish_score, neutral_score,
+                  importance, top_headlines_json, summary, narrative,
+                  risk_level, confidence,
+                  macro_score, whale_score, polymarket_score, market_score
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(row["created_at"]),
+                    row["symbol"],
+                    int(row["news_count"]),
+                    float(row["bullish_score"]),
+                    float(row["bearish_score"]),
+                    float(row["neutral_score"]),
+                    float(row["importance"]),
+                    json.dumps(row.get("top_headlines") or [], ensure_ascii=False),
+                    row["summary"],
+                    row["narrative"],
+                    row["risk_level"],
+                    float(row["confidence"]),
+                    float(row["macro_score"]),
+                    float(row["whale_score"]),
+                    float(row["polymarket_score"]),
+                    float(row["market_score"]),
+                ),
+            )
         n += 1
     return n
 
 
 def _save_top_assets(conn: Any, *, now: int, assets: list[dict[str, Any]]) -> None:
+    top_bullish, top_bearish = select_top_by_net_score(assets, limit=5)
     active = [a for a in assets if int(a.get("news_count") or 0) > 0]
-    top_bullish = sorted(
-        active,
-        key=lambda a: float(a["bullish_score"]) * float(a["importance"]),
-        reverse=True,
-    )[:5]
-    top_bearish = sorted(
-        active,
-        key=lambda a: float(a["bearish_score"]) * float(a["importance"]),
-        reverse=True,
-    )[:5]
     most_discussed = sorted(
         active, key=lambda a: int(a["news_count"]), reverse=True,
     )[:5]
@@ -366,6 +407,7 @@ def _save_top_assets(conn: Any, *, now: int, assets: list[dict[str, Any]]) -> No
                     "news_count": r["news_count"],
                     "bullish_score": r["bullish_score"],
                     "bearish_score": r["bearish_score"],
+                    "net_score": r.get("net_score"),
                     "narrative": r["narrative"],
                     "confidence": r["confidence"],
                     "summary": r["summary"][:240],
@@ -387,22 +429,19 @@ def _save_top_assets(conn: Any, *, now: int, assets: list[dict[str, Any]]) -> No
 
 
 def _resolve_event_symbols(ev: dict[str, Any], watch: set[str]) -> list[str]:
-    """Map intel-event symbols onto watchlist; recover from title/summary if empty."""
-    syms = [str(s).upper() for s in (ev.get("symbols") or []) if s]
-    if not syms:
-        blob = f"{ev.get('title') or ''}\n{ev.get('summary') or ''}"
-        syms = detect_symbols(blob)
-    matched = [s for s in syms if s in watch]
-    if matched:
-        return matched
-    narr = str(ev.get("narrative") or "")
-    macroish = any(
-        k in narr
-        for k in ("Macro", "Fed", "ETF", "Regulation", "Hack", "Whales")
-    ) or not syms
-    if macroish:
-        return [s for s in _MACRO_PROXY_SYMBOLS if s in watch] or list(_MACRO_PROXY_SYMBOLS)[:1]
-    return []
+    """Weighted binding — never assign BTC solely because text is 'crypto'."""
+    return bind_event_assets(
+        title=str(ev.get("title") or ""),
+        body=str(ev.get("summary") or ""),
+        source=(ev.get("sources") or ["event"])[0] if ev.get("sources") else "event",
+        narratives=[
+            p.strip()
+            for p in str(ev.get("narrative") or "").split(",")
+            if p.strip()
+        ],
+        existing_symbols=[str(s).upper() for s in (ev.get("symbols") or []) if s],
+        watch=watch,
+    )
 
 
 def format_narrative_debug_s42(debug: dict[str, Any]) -> str:
@@ -471,6 +510,8 @@ def run_narrative_engine_cycle_s42(
 
     skipped: list[dict[str, str]] = []
     events_detail: list[dict[str, Any]] = []
+    macro_rows: list[dict[str, Any]] = []
+    poly_rows: list[dict[str, Any]] = []
 
     from bot.research.market_events.signal_intelligence.event_intelligence.engine import (
         load_recent_events,
@@ -513,6 +554,9 @@ def run_narrative_engine_cycle_s42(
         by_sym: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for ev in events:
             matched = _resolve_event_symbols(ev, watch)
+            # Persist resolved assets onto the event for reports.
+            if matched:
+                ev["symbols"] = matched
             events_detail.append({
                 "title": ev.get("title"),
                 "source_count": ev.get("source_count"),
@@ -523,20 +567,21 @@ def run_narrative_engine_cycle_s42(
                 skipped.append({
                     "title": str(ev.get("title") or "")[:80],
                     "reason": (
-                        f"symbols not on watchlist: "
-                        f"{','.join(str(s) for s in (ev.get('symbols') or [])) or 'none'}"
+                        "no weighted asset binding "
+                        f"(raw={','.join(str(s) for s in (ev.get('symbols') or [])) or 'none'})"
                     ),
                 })
                 continue
             # Convert event → synthetic "item" for asset builder
+            sent = float(ev.get("sentiment") or 0)
             item = {
                 "title": ev.get("title") or "",
                 "body": ev.get("summary") or "",
                 "source": (ev.get("sources") or ["event"])[0],
                 "timestamp": int(ev.get("last_seen") or now_ts),
-                "bullish": max(0.0, float(ev.get("sentiment") or 0)),
-                "bearish": max(0.0, -float(ev.get("sentiment") or 0)),
-                "neutral": 0.35,
+                "bullish": max(0.0, sent) if sent != 0 else 0.0,
+                "bearish": max(0.0, -sent) if sent != 0 else 0.0,
+                "neutral": 0.5 if sent == 0 else max(0.0, 1.0 - abs(sent)),
                 "importance": float(ev.get("importance") or 0.3),
                 "narratives": [
                     p.strip()
@@ -551,9 +596,9 @@ def run_narrative_engine_cycle_s42(
                 "headline_count": int(ev.get("headline_count") or 0),
             }
             if item["bullish"] == 0 and item["bearish"] == 0:
-                item["bullish"] = 0.25
-                item["bearish"] = 0.25
-                item["neutral"] = 0.5
+                item["bullish"] = 0.2
+                item["bearish"] = 0.2
+                item["neutral"] = 0.6
             for sym in matched:
                 by_sym[sym].append(item)
 
@@ -567,6 +612,13 @@ def run_narrative_engine_cycle_s42(
                     now=now_ts,
                 )
             )
+
+        from bot.research.market_events.signal_intelligence.narrative_engine.quality import (
+            load_macro_rows,
+            load_polymarket_rows,
+        )
+        macro_rows = load_macro_rows(conn, since_ts=event_since, limit=40)
+        poly_rows = load_polymarket_rows(conn, since_ts=event_since, limit=40)
 
         written = _save_asset_intel(conn, assets)
         _save_top_assets(conn, now=now_ts, assets=assets)
@@ -582,6 +634,8 @@ def run_narrative_engine_cycle_s42(
             briefs=briefs,
             events=events,
             now=now_ts,
+            macro_rows=macro_rows,
+            poly_rows=poly_rows,
         )
 
     active = sum(1 for a in assets if int(a.get("news_count") or 0) > 0)
