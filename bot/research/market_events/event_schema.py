@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 55
+SCHEMA_VERSION = 57
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -895,6 +895,34 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v55")
             current = 55
+
+        if current < 56:
+            # Fresh DBs: create S41 summary/brief tables + S42 intelligence tables together.
+            conn.executescript(S42_NARRATIVE_ENGINE_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (56, now, "Phase S4.1/S4.2 news summary + narrative engine base tables"),
+            )
+            applied.append("v56")
+            current = 56
+
+        if current < 57:
+            # Repair path: DBs that already applied S41-only as v56 still need S42 tables.
+            conn.executescript(S42_ASSET_INTELLIGENCE_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (57, now, "Phase S4.2 AI Narrative Engine (asset intelligence + top assets)"),
+            )
+            applied.append("v57")
+            current = 57
 
     if not applied:
         conn.commit()
@@ -3243,4 +3271,121 @@ CREATE TABLE IF NOT EXISTS market_news_feed_n11 (
 CREATE INDEX IF NOT EXISTS idx_news_feed_n11_published ON market_news_feed_n11(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_news_feed_n11_source ON market_news_feed_n11(source, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_news_feed_n11_created ON market_news_feed_n11(created_at DESC);
+"""
+
+# S4.2 Narrative Engine — also ensures S4.1 summary/brief tables if missing.
+S42_NARRATIVE_ENGINE_DDL = """
+CREATE TABLE IF NOT EXISTS market_news_summary (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_start INTEGER NOT NULL,
+    period_end INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    bullish_score REAL NOT NULL DEFAULT 0,
+    bearish_score REAL NOT NULL DEFAULT 0,
+    neutral_score REAL NOT NULL DEFAULT 0,
+    importance REAL NOT NULL DEFAULT 0,
+    sources TEXT,
+    headline_count INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_summary_period
+    ON market_news_summary(period_end DESC, symbol);
+
+CREATE TABLE IF NOT EXISTS market_daily_briefs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_start INTEGER NOT NULL,
+    period_end INTEGER NOT NULL,
+    global_narrative TEXT NOT NULL,
+    top_bullish_json TEXT,
+    top_bearish_json TEXT,
+    macro_events_json TEXT,
+    fed_json TEXT,
+    etf_json TEXT,
+    whales_json TEXT,
+    polymarket_json TEXT,
+    risk_level TEXT NOT NULL,
+    risk_score REAL NOT NULL DEFAULT 0,
+    headline_count INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_briefs_created
+    ON market_daily_briefs(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_asset_intelligence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    news_count INTEGER NOT NULL DEFAULT 0,
+    bullish_score REAL NOT NULL DEFAULT 0,
+    bearish_score REAL NOT NULL DEFAULT 0,
+    neutral_score REAL NOT NULL DEFAULT 0,
+    importance REAL NOT NULL DEFAULT 0,
+    top_headlines_json TEXT,
+    summary TEXT NOT NULL,
+    narrative TEXT NOT NULL,
+    risk_level TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0,
+    macro_score REAL NOT NULL DEFAULT 0,
+    whale_score REAL NOT NULL DEFAULT 0,
+    polymarket_score REAL NOT NULL DEFAULT 0,
+    market_score REAL NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_asset_intel_symbol_ts
+    ON market_asset_intelligence(symbol, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asset_intel_created
+    ON market_asset_intelligence(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_top_assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp INTEGER NOT NULL,
+    top_bullish_json TEXT,
+    top_bearish_json TEXT,
+    most_discussed_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_top_assets_ts
+    ON market_top_assets(timestamp DESC);
+"""
+
+# S4.2 tables only — used when v56 already recorded S41 summaries without these.
+S42_ASSET_INTELLIGENCE_DDL = """
+CREATE TABLE IF NOT EXISTS market_asset_intelligence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    news_count INTEGER NOT NULL DEFAULT 0,
+    bullish_score REAL NOT NULL DEFAULT 0,
+    bearish_score REAL NOT NULL DEFAULT 0,
+    neutral_score REAL NOT NULL DEFAULT 0,
+    importance REAL NOT NULL DEFAULT 0,
+    top_headlines_json TEXT,
+    summary TEXT NOT NULL,
+    narrative TEXT NOT NULL,
+    risk_level TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0,
+    macro_score REAL NOT NULL DEFAULT 0,
+    whale_score REAL NOT NULL DEFAULT 0,
+    polymarket_score REAL NOT NULL DEFAULT 0,
+    market_score REAL NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_asset_intel_symbol_ts
+    ON market_asset_intelligence(symbol, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asset_intel_created
+    ON market_asset_intelligence(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_top_assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp INTEGER NOT NULL,
+    top_bullish_json TEXT,
+    top_bearish_json TEXT,
+    most_discussed_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_top_assets_ts
+    ON market_top_assets(timestamp DESC);
 """

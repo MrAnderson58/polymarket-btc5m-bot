@@ -1,0 +1,50 @@
+# Watched assets for Narrative Engine (S42) / Intelligence Layer
+assets:
+  - symbol: BTC
+    aliases: [Bitcoin, BTC, bitcoin]
+  - symbol: ETH
+    aliases: [Ethereum, Ether, ETH, ethereum]
+  - symbol: SOL
+    aliases: [Solana, SOL, solana]
+  - symbol: BNB
+    aliases: [BNB, Binance Coin, binance coin]
+  - symbol: XRP
+    aliases: [XRP, Ripple, ripple]
+  - symbol: HYPE
+    aliases: [HYPE, Hyperliquid, hyperliquid]
+  - symbol: SUI
+    aliases: [SUI, Sui, sui]
+  - symbol: LINK
+    aliases: [LINK, Chainlink, chainlink]
+  - symbol: AAVE
+    aliases: [AAVE, Aave, aave]
+  - symbol: ARB
+    aliases: [ARB, Arbitrum, arbitrum]
+  - symbol: INJ
+    aliases: [INJ, Injective, injective]
+  - symbol: AVAX
+    aliases: [AVAX, Avalanche, avalanche]
+  - symbol: DOGE
+    aliases: [DOGE, Dogecoin, dogecoin]
+  - symbol: ADA
+    aliases: [ADA, Cardano, cardano]
+  - symbol: TRX
+    aliases: [TRX, Tron, TRON, tron]
+  - symbol: TON
+    aliases: [TON, Toncoin, toncoin]
+  - symbol: SEI
+    aliases: [SEI, Sei, sei]
+  - symbol: ENA
+    aliases: [ENA, Ethena, ethena]
+  - symbol: OP
+    aliases: [OP, Optimism, optimism]
+  - symbol: ATOM
+    aliases: [ATOM, Cosmos, cosmos]
+
+source_quality:
+  CoinDesk: 0.9
+  Cointelegraph: 0.75
+  The Block: 0.9
+  Decrypt: 0.7
+  CryptoSlate: 0.65
+  default: 0.5

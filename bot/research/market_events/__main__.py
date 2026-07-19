@@ -226,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
             "pattern-build",
             "news-update",
             "news-latest",
+            "narrative-engine-run",
             "reversal-diagnostics",
             "signal-inbox",
             "review",
@@ -1079,6 +1080,29 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(format_news_latest_n11(rows))
         return 0
+
+    if args.command == "narrative-engine-run":
+        from bot.research.market_events.signal_intelligence.narrative_engine.worker import (
+            _configure_logging,
+            run_narrative_engine_worker_s42,
+        )
+        _configure_logging()
+        # One-shot if --max-cycles set; otherwise long-running worker.
+        if args.max_cycles is not None:
+            from bot.research.market_events.signal_intelligence.narrative_engine.engine import (
+                run_narrative_engine_cycle_s42,
+            )
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+            # Run N cycles of the hourly job immediately (for tests/ops).
+            last = None
+            for _ in range(max(1, int(args.max_cycles))):
+                last = run_narrative_engine_cycle_s42()
+            print(json.dumps(last, indent=2, default=str) if args.json else last)
+            return 0
+        stats = run_narrative_engine_worker_s42(max_cycles=None)
+        print(json.dumps(stats, indent=2) if args.json else stats)
+        return 1 if stats.get("errors") and not stats.get("runs") else 0
 
     if args.command == "signal-inbox":
         from bot.research.market_events.signal_intelligence.signal_inbox_s23 import (
