@@ -1,0 +1,9 @@
+Write an S&P500 Brief in Markdown (## S&P500 Brief).
+
+Answer:
+1. Equity market state (price / change / distance to ATH / VIX if present)
+2. Sector leaders — only if present in context; otherwise state unavailable
+3. Investor sentiment (VIX / Fear & Greed if present)
+4. Linkage to BTC (correlation narrative only if data supports)
+
+English. No trading recommendations. Use only provided context.

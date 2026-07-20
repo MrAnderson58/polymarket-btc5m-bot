@@ -1,0 +1,8 @@
+Write an Evening Brief in Markdown (## Evening Brief as title).
+
+Constraints:
+- Emphasize what changed during the day vs prior context fields (1h/24h deltas, event freshness)
+- English, one page
+- Sections: Day in review, What moved, Macro shift, Derivatives, Risks into overnight
+- No trading recommendations
+- Use only provided context

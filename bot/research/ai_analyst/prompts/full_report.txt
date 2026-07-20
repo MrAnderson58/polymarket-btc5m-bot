@@ -1,0 +1,23 @@
+Write a full market research report in Markdown with EXACTLY these sections (## headings):
+
+## Executive Summary
+## Global Market Overview
+## Bitcoin
+## S&P500
+## Macro
+## ETF
+## Derivatives
+## Prediction Markets
+## Key Events
+## Risk Factors
+## Positive Drivers
+## Negative Drivers
+## Next 24 Hours
+## Conclusion
+
+Constraints:
+- English
+- Analytical memo style
+- Use only the context JSON
+- No trading recommendations
+- If a section lacks data, write one sentence noting limited coverage

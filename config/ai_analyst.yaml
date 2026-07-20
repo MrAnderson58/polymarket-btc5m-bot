@@ -1,0 +1,48 @@
+# S46 AI Research Analyst — LLM settings (no secrets).
+# Override via env: AI_ANALYST_PROVIDER, AI_ANALYST_MODEL, AI_ANALYST_BASE_URL,
+# ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY.
+
+llm:
+  # openai | anthropic | openrouter | ollama | template
+  provider: anthropic
+  model: claude-sonnet-5
+  timeout_sec: 90
+  max_retries: 2
+  max_tokens: 4096
+  # Optional OpenAI-compatible base (openrouter / ollama / custom)
+  # base_url: https://openrouter.ai/api/v1
+  # base_url: http://127.0.0.1:11434/v1
+
+# Future specialist agents (S47+) share Context Builder; only prompt + output differ.
+agents:
+  s46_full:
+    prompt: full_report
+    output: market_report.md
+  s46_morning:
+    prompt: morning_brief
+    output: morning_brief.md
+  s46_evening:
+    prompt: evening_brief
+    output: evening_brief.md
+  s46_btc:
+    prompt: btc_brief
+    output: btc_brief.md
+  s46_macro:
+    prompt: macro_brief
+    output: macro_brief.md
+  s46_sp500:
+    prompt: sp500_brief
+    output: sp500_brief.md
+  s46_x:
+    prompt: x_post
+    output: x_post.md
+  s46_telegram:
+    prompt: telegram_post
+    output: telegram_post.md
+  s46_json:
+    prompt: json_summary
+    output: market_summary.json
+  # Placeholders for S47–S52 (prompts not shipped yet)
+  # s47_macro_analyst:
+  #   prompt: macro_analyst
+  #   output: macro_analyst_report.md

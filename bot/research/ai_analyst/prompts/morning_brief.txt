@@ -1,0 +1,9 @@
+Write a Morning Brief in Markdown (## Morning Brief as title).
+
+Constraints:
+- At most one page (~400–700 words)
+- English
+- Cover overnight / early-session setup only from context
+- Sections: Bias, Key levels/facts available, Macro, Risks, Watchlist
+- No trading recommendations
+- Use only provided context; mark missing data

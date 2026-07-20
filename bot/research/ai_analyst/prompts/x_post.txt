@@ -1,0 +1,13 @@
+Write ONE X/Twitter post.
+
+Hard constraints:
+- Maximum 280 characters
+- English only
+- Professional tone
+- No clickbait
+- No emojis
+- No hashtag spam (0–2 hashtags max if natural)
+- No trading advice
+- Use only facts from context
+
+Return ONLY the post text, nothing else.

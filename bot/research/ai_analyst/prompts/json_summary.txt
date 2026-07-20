@@ -1,0 +1,19 @@
+Return a single JSON object (no markdown fences) with EXACT keys:
+
+{
+  "market_bias": "bullish|bearish|neutral|mixed",
+  "risk_level": "LOW|MEDIUM|HIGH",
+  "main_theme": "string",
+  "btc_summary": "string",
+  "sp500_summary": "string",
+  "macro_summary": "string",
+  "top_events": ["string", "..."],
+  "top_risks": ["string", "..."],
+  "next_24h": "string"
+}
+
+Rules:
+- Use only provided context
+- If unknown, use short honest phrases like "insufficient data"
+- No trading recommendations
+- top_events and top_risks: 1–5 items

@@ -1,0 +1,10 @@
+Write a Bitcoin-only brief in Markdown (## BTC Brief).
+
+Answer clearly:
+1. What is driving BTC (from available context)
+2. What changed (1h / 24h / 7d if present)
+3. Key risks
+4. Strong supportive factors
+5. What to watch next
+
+English. No trading recommendations. Use only provided context.

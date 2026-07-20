@@ -1,0 +1,9 @@
+Write a Macro Brief in Markdown (## Macro Brief).
+
+Answer:
+1. What is happening in the global economy (from macro fields / Fed / CPI / DXY / yields / gold / oil)
+2. Impact on risk assets
+3. Impact on BTC
+4. Impact on S&P500
+
+English. No trading recommendations. Use only provided context; note gaps.
