@@ -125,19 +125,74 @@ class TestContextAndRunS46(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_context_builder_fields(self) -> None:
-        ctx = build_market_context(now=self.now)
+        live = {
+            "quotes": {
+                "spx": {"value": 5250.0, "change_24h": 50.0, "trend": "Bullish", "source": "test"},
+                "nasdaq": {"value": 18000.0, "change_24h": 100.0, "trend": "Bullish", "source": "test"},
+                "vix": {"value": 14.0, "change_24h": -1.0, "trend": "Bearish", "source": "test"},
+                "dxy": {"value": 103.5, "change_24h": -0.5, "trend": "Bearish", "source": "test"},
+                "us10y": {"value": 4.25, "change_24h": 0.02, "trend": "Bullish", "unit": "%", "source": "test"},
+                "us02y": {"value": 4.10, "change_24h": 0.01, "trend": "Bullish", "unit": "%", "source": "test"},
+            },
+            "etf": {
+                "unit": "USD_millions",
+                "source": "test",
+                "btc_etf": {
+                    "netflow_1d": 120.5,
+                    "netflow_5d": 500.0,
+                    "netflow_30d": 1200.0,
+                    "trend": "Bullish",
+                },
+                "eth_etf": {
+                    "netflow_1d": -10.0,
+                    "netflow_5d": 40.0,
+                    "netflow_30d": 200.0,
+                    "trend": "Bullish",
+                },
+            },
+            "elapsed_ms": 1,
+        }
+        ctx = build_market_context(now=self.now, live_payload=live)
         self.assertEqual(ctx["btc"]["price"], 65000)
         self.assertIsNotNone(ctx["btc"]["change_1h_pct"])
+        self.assertEqual(ctx["sp500"]["value"], 5250.0)
+        self.assertEqual(ctx["sp500"]["trend"], "Bullish")
+        self.assertEqual(ctx["nasdaq"]["value"], 18000.0)
+        self.assertEqual(ctx["vix"]["value"], 14.0)
+        self.assertEqual(ctx["macro"]["dxy"]["value"], 103.5)
+        self.assertEqual(ctx["macro"]["us10y"]["value"], 4.25)
+        self.assertEqual(ctx["macro"]["us02y"]["value"], 4.10)
+        self.assertNotIn("title", ctx["macro"]["dxy"])
+        self.assertEqual(ctx["etf"]["btc_etf"]["netflow_5d"], 500.0)
+        self.assertIn("context_completeness", ctx)
+        self.assertGreaterEqual(ctx["context_completeness"], 70)
+        # No raw None leaves in serialized JSON for key blocks
+        blob = json.dumps(ctx)
+        self.assertNotIn(": null", blob)
         self.assertIn("top_events", ctx["intelligence"])
-        self.assertGreaterEqual(len(ctx["intelligence"]["top_events"]), 1)
         self.assertIn("fed", ctx["macro"])
 
     def test_run_writes_artifacts(self) -> None:
+        live = {
+            "quotes": {
+                "spx": {"value": 5250.0, "change_24h": 10.0, "trend": "Bullish", "source": "test"},
+                "nasdaq": {"value": 18000.0, "change_24h": 20.0, "trend": "Bullish", "source": "test"},
+                "vix": {"value": 14.0, "change_24h": -0.5, "trend": "Bearish", "source": "test"},
+                "dxy": {"value": 103.5, "change_24h": -0.2, "trend": "Bearish", "source": "test"},
+                "us10y": {"value": 4.2, "change_24h": 0.01, "trend": "Bullish", "source": "test"},
+                "us02y": {"value": 4.0, "change_24h": 0.0, "trend": "Neutral", "source": "test"},
+            },
+            "etf": {
+                "btc_etf": {"netflow_5d": 100.0, "netflow_1d": 20.0, "trend": "Bullish"},
+                "eth_etf": {"netflow_5d": 10.0, "netflow_1d": 1.0, "trend": "Bullish"},
+            },
+        }
         result = run_ai_analyst(
             flags=None,
             reports_dir=self.reports,
             force_template=True,
             now=self.now,
+            live_payload=live,
         )
         self.assertTrue(result["ok"])
         expected = {
@@ -182,6 +237,7 @@ class TestContextAndRunS46(unittest.TestCase):
             reports_dir=self.reports,
             force_template=True,
             now=self.now,
+            live_enrich=False,
         )
         ids = {a["agent_id"] for a in result["artifacts"]}
         self.assertEqual(ids, {"s46_btc", "s46_x"})

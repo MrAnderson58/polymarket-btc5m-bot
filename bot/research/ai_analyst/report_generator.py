@@ -103,6 +103,8 @@ def run_ai_analyst(
     write_context: bool = True,
     force_template: bool = False,
     now: int | None = None,
+    live_enrich: bool = True,
+    live_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build context once, then generate selected artifacts."""
     settings = load_llm_settings()
@@ -132,7 +134,11 @@ def run_ai_analyst(
     else:
         selected = list(DEFAULT_RUN_AGENTS)
 
-    context = build_market_context(now=now)
+    context = build_market_context(
+        now=now,
+        live_enrich=live_enrich,
+        live_payload=live_payload,
+    )
     out_dir = reports_dir or REPORTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 

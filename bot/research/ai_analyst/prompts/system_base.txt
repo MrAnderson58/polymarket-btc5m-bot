@@ -7,4 +7,5 @@ Rules (mandatory):
 4. Explain cause-and-effect where the data supports it; otherwise mark uncertainty.
 5. Prefer structured, institutional tone. No hype, no clickbait.
 6. When data conflicts, describe the conflict rather than picking a side.
-7. Output must match the requested format exactly.
+7. When context_completeness is low or data_gaps is present, explicitly say analysis is limited by those missing fields — do not invent them and do not repeat null placeholders.
+8. Prefer numeric fields shaped as {value, change_24h, trend} for macro/index series.

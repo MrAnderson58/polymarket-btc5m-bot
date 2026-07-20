@@ -28,6 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Force deterministic template LLM (no API)",
     )
+    run.add_argument(
+        "--no-live",
+        action="store_true",
+        help="Skip Yahoo/Farside live enrichment (DB-only context)",
+    )
     run.add_argument("--json", action="store_true", help="Print result JSON to stdout")
     run.add_argument(
         "--dump-context",

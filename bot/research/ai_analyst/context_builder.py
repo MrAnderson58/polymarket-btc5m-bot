@@ -1,4 +1,4 @@
-"""S46 Context Builder — assemble JSON from Intelligence DB (no LLM analysis)."""
+"""S46/S46.1 Context Builder — factual JSON; live enrich when DB gaps exist."""
 
 from __future__ import annotations
 
@@ -8,6 +8,11 @@ import math
 import time
 from typing import Any
 
+from bot.research.ai_analyst.market_data_fetch import (
+    fetch_all_live_enrichment,
+    metric_from_values,
+    trend_from_change,
+)
 from bot.research.market_events.db import market_events_connection
 from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence.event_intelligence.engine import (
@@ -17,13 +22,33 @@ from bot.research.market_events.signal_intelligence.narrative_engine.quality imp
     enrich_event_for_report,
     load_macro_rows,
     load_polymarket_rows,
-    render_macro_intelligence,
-    render_polymarket_intelligence,
 )
 
 logger = logging.getLogger(__name__)
 
 LOOKBACK_SEC = 24 * 3600
+
+# Fields counted toward context_completeness (equal weight).
+_COMPLETENESS_PATHS: tuple[str, ...] = (
+    "btc.price",
+    "btc.change_24h_pct",
+    "btc.dominance",
+    "sp500.value",
+    "nasdaq.value",
+    "vix.value",
+    "macro.dxy.value",
+    "macro.us10y.value",
+    "macro.us02y.value",
+    "macro.gold.value",
+    "macro.oil.value",
+    "etf.btc_etf.netflow_5d",
+    "etf.eth_etf.netflow_5d",
+    "funding.current",
+    "open_interest.current",
+    "fear_greed.current",
+    "intelligence.top_events",
+    "polymarket.top_markets",
+)
 
 
 def _table_exists(conn: Any, name: str) -> bool:
@@ -38,9 +63,7 @@ def _table_exists(conn: Any, name: str) -> bool:
 
 
 def _pct_change(new: float | None, old: float | None) -> float | None:
-    if new is None or old is None:
-        return None
-    if old == 0:
+    if new is None or old is None or old == 0:
         return None
     return round(100.0 * (float(new) - float(old)) / float(old), 4)
 
@@ -49,10 +72,9 @@ def _snapshot_near(rows: list[dict[str, Any]], target_ts: int) -> dict[str, Any]
     if not rows:
         return None
     best = min(rows, key=lambda r: abs(int(r.get("snapshot_ts") or 0) - target_ts))
-    if abs(int(best.get("snapshot_ts") or 0) - target_ts) > 3 * 3600:
-        # Prefer any older row if nothing close
-        older = [r for r in rows if int(r.get("snapshot_ts") or 0) <= target_ts]
-        return older[-1] if older else best
+    older = [r for r in rows if int(r.get("snapshot_ts") or 0) <= target_ts]
+    if abs(int(best.get("snapshot_ts") or 0) - target_ts) > 6 * 3600 and older:
+        return older[-1]
     return best
 
 
@@ -71,9 +93,45 @@ def _load_snapshots(conn: Any, *, limit: int = 500) -> list[dict[str, Any]]:
         """,
         (limit,),
     ).fetchall()
-    # chronological ascending for window math
     out = [dict(r) for r in rows]
     out.reverse()
+    return out
+
+
+def _load_observation_aliases(conn: Any, *, since_ts: int) -> dict[str, float]:
+    """Map latest observation prices; include S46.1 proxy aliases."""
+    if not _table_exists(conn, "market_events_price_observations"):
+        return {}
+    if not _table_exists(conn, "market_events_instruments"):
+        return {}
+    try:
+        rows = conn.execute(
+            """
+            SELECT i.canonical_asset, o.trade_price
+            FROM market_events_price_observations o
+            JOIN market_events_instruments i ON i.id = o.instrument_id
+            WHERE o.observed_ts >= ?
+            ORDER BY o.observed_ts ASC
+            """,
+            (since_ts,),
+        ).fetchall()
+    except Exception:
+        return {}
+    alias = {
+        "DXY": "dxy",
+        "SPX": "spx",
+        "SP500_PROXY": "spx",
+        "QQQ": "qqq",
+        "NASDAQ100_PROXY": "qqq",
+        "VIX": "vix",
+        "GOLD": "gold",
+        "OIL": "oil",
+    }
+    out: dict[str, float] = {}
+    for r in rows:
+        key = alias.get(str(r["canonical_asset"] or "").upper())
+        if key and r["trade_price"] is not None:
+            out[key] = float(r["trade_price"])
     return out
 
 
@@ -82,7 +140,7 @@ def _realized_vol(prices: list[float], *, periods_per_year: float = 365 * 24) ->
         return None
     rets = []
     for i in range(1, len(prices)):
-        if prices[i - 1] and prices[i - 1] != 0 and prices[i] is not None:
+        if prices[i - 1] and prices[i] is not None and prices[i - 1] != 0:
             rets.append(math.log(float(prices[i]) / float(prices[i - 1])))
     if len(rets) < 2:
         return None
@@ -91,142 +149,92 @@ def _realized_vol(prices: list[float], *, periods_per_year: float = 365 * 24) ->
     return round(math.sqrt(var) * math.sqrt(periods_per_year) * 100.0, 4)
 
 
-def _macro_named(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    keys = ("Fed", "DXY", "US10Y", "US02Y", "Gold", "Oil", "CPI", "PPI", "NFP")
-    by: dict[str, Any] = {k.lower(): None for k in keys}
-    for r in rows:
-        name = str(r.get("name") or "")
-        title = str(r.get("title") or r.get("summary") or "")
-        blob = f"{name} {title}".lower()
-        for k in keys:
-            if k.lower() in blob and by[k.lower()] is None:
-                by[k.lower()] = {
-                    "name": name,
-                    "title": title[:200],
-                    "summary": str(r.get("summary") or "")[:400],
-                    "value": r.get("value"),
-                    "unit": r.get("unit"),
-                    "created_at": r.get("created_at"),
-                }
-    # Flatten convenience fields
+def _prune(obj: Any) -> Any:
+    """Drop None leaves; drop empty dict/list after pruning."""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            pv = _prune(v)
+            if pv is None:
+                continue
+            if pv == {} or pv == []:
+                continue
+            out[k] = pv
+        return out
+    if isinstance(obj, list):
+        out_list = []
+        for x in obj:
+            px = _prune(x)
+            if px is None or px == {} or px == []:
+                continue
+            out_list.append(px)
+        return out_list
+    return obj
+
+
+def _get_path(ctx: dict[str, Any], path: str) -> Any:
+    cur: Any = ctx
+    for part in path.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return None
+        cur = cur[part]
+    return cur
+
+
+def _path_filled(ctx: dict[str, Any], path: str) -> bool:
+    val = _get_path(ctx, path)
+    if val is None:
+        return False
+    if isinstance(val, (list, dict)) and not val:
+        return False
+    if isinstance(val, str) and not val.strip():
+        return False
+    return True
+
+
+def compute_context_completeness(ctx: dict[str, Any]) -> dict[str, Any]:
+    filled = [p for p in _COMPLETENESS_PATHS if _path_filled(ctx, p)]
+    missing = [p for p in _COMPLETENESS_PATHS if p not in filled]
+    score = int(round(100.0 * len(filled) / max(1, len(_COMPLETENESS_PATHS))))
     return {
-        "dxy": by["dxy"],
-        "us10y": by["us10y"],
-        "us02y": by["us02y"],
-        "gold": by["gold"],
-        "oil": by["oil"],
-        "fed": by["fed"],
-        "cpi": by["cpi"],
-        "ppi": by["ppi"],
-        "nfp": by["nfp"],
-        "rows_available": len(rows),
-        "markdown_snapshot": None,  # filled later
+        "context_completeness": score,
+        "filled_fields": filled,
+        "missing_fields": missing,
+        "filled_count": len(filled),
+        "total_fields": len(_COMPLETENESS_PATHS),
     }
 
 
-def _etf_from_events(events: list[dict[str, Any]]) -> dict[str, Any]:
-    btc_etf = []
-    eth_etf = []
-    for e in events:
-        narr = str(e.get("narrative") or "").lower()
-        title = str(e.get("title") or "")
-        blob = f"{title} {e.get('summary') or ''}".lower()
-        if "etf" not in narr and "etf" not in blob:
-            continue
-        item = {
-            "title": title[:200],
-            "sentiment": e.get("sentiment"),
-            "importance": e.get("importance"),
-            "symbols": e.get("symbols"),
-        }
-        if "eth" in blob or "ether" in blob:
-            eth_etf.append(item)
-        else:
-            btc_etf.append(item)
-    return {
-        "btc_etf": btc_etf[:8],
-        "eth_etf": eth_etf[:8],
-        "netflow": {"d5": None, "d30": None, "note": "numeric ETF netflow series not in DB"},
-        "coverage": "intel_events" if (btc_etf or eth_etf) else "unavailable",
-    }
+def _prefer_metric(
+    live: dict[str, Any] | None,
+    snap_value: float | None,
+    snap_prev: float | None,
+    *,
+    source_snap: str,
+    unit: str = "",
+) -> dict[str, Any] | None:
+    if live and live.get("value") is not None:
+        return live
+    return metric_from_values(snap_value, snap_prev, source=source_snap, unit=unit)
 
 
-def _whales_from_events(events: list[dict[str, Any]]) -> dict[str, Any]:
-    whale_ev = []
+def _event_headlines(events: list[dict[str, Any]], *needles: str) -> list[dict[str, Any]]:
+    out = []
     for e in events:
-        narr = str(e.get("narrative") or "").lower()
-        blob = f"{e.get('title') or ''} {e.get('summary') or ''}".lower()
-        if "whale" in narr or "whale" in blob or "transfer" in blob:
-            whale_ev.append({
+        blob = f"{e.get('title') or ''} {e.get('narrative') or ''}".lower()
+        if any(n in blob for n in needles):
+            out.append({
                 "title": e.get("title"),
-                "summary": str(e.get("summary") or "")[:240],
+                "sentiment": e.get("sentiment"),
+                "importance": e.get("importance"),
                 "symbols": e.get("symbols"),
             })
-    return {
-        "largest_transfers": whale_ev[:5],
-        "exchange_inflow": None,
-        "exchange_outflow": None,
-        "note": "on-chain inflow/outflow series not wired; whale items from intel events only",
-    }
-
-
-def _funding_block(latest: dict[str, Any] | None, hist: list[dict[str, Any]]) -> dict[str, Any]:
-    vals = [float(r["funding"]) for r in hist if r.get("funding") is not None]
-    current = latest.get("funding") if latest else None
-    avg = round(sum(vals) / len(vals), 8) if vals else None
-    extreme = None
-    if current is not None and avg is not None:
-        extreme = abs(float(current)) >= max(0.0003, abs(avg) * 2.5)
-    return {
-        "current": current,
-        "average_funding": avg,
-        "extreme_funding": extreme,
-    }
-
-
-def _oi_block(latest: dict[str, Any] | None, hist: list[dict[str, Any]], now: int) -> dict[str, Any]:
-    current = latest.get("open_interest") if latest else None
-    s24 = _snapshot_near(hist, now - 86400)
-    s7 = _snapshot_near(hist, now - 7 * 86400)
-    return {
-        "current": current,
-        "delta_24h": _pct_change(current, s24.get("open_interest") if s24 else None),
-        "delta_7d": _pct_change(current, s7.get("open_interest") if s7 else None),
-    }
-
-
-def _liquidations_block(latest: dict[str, Any] | None) -> dict[str, Any]:
-    # G3 liquidations field is a proxy — expose honestly.
-    liq = latest.get("liquidations") if latest else None
-    return {
-        "long": None,
-        "short": None,
-        "total_24h": liq,
-        "largest_event": None,
-        "note": "true long/short liquidation tape not in DB; total_24h may be funding proxy",
-    }
-
-
-def _fear_greed_block(latest: dict[str, Any] | None, hist: list[dict[str, Any]], now: int) -> dict[str, Any]:
-    current = latest.get("fear_greed") if latest else None
-    y = _snapshot_near(hist, now - 86400)
-    w = _snapshot_near(hist, now - 7 * 86400)
-    return {
-        "current": current,
-        "yesterday": y.get("fear_greed") if y else None,
-        "week": w.get("fear_greed") if w else None,
-    }
+    return out[:6]
 
 
 def _poly_block(rows: list[dict[str, Any]]) -> dict[str, Any]:
     if not rows:
-        return {
-            "top_markets": [],
-            "probability_changes": [],
-            "fastest_movers": [],
-            "consensus": None,
-            "markdown": "—",
-        }
+        return {}
     latest: dict[str, dict[str, Any]] = {}
     history: dict[str, list[float]] = {}
     for r in sorted(rows, key=lambda x: int(x.get("created_at") or 0)):
@@ -236,8 +244,8 @@ def _poly_block(rows: list[dict[str, Any]]) -> dict[str, Any]:
             history[name].append(float(r["probability"]))
         latest[name] = r
     top = sorted(
-        latest.values(),
-        key=lambda r: float(r["probability"]) if r.get("probability") is not None else -1,
+        [r for r in latest.values() if r.get("probability") is not None],
+        key=lambda r: float(r["probability"]),
         reverse=True,
     )[:8]
     movers = []
@@ -249,14 +257,8 @@ def _poly_block(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "latest": series[-1],
             })
     movers.sort(key=lambda x: abs(x["change"]), reverse=True)
-    probs = [float(r["probability"]) for r in latest.values() if r.get("probability") is not None]
-    consensus = None
-    if probs:
-        consensus = {
-            "avg_probability": round(sum(probs) / len(probs), 4),
-            "n_markets": len(probs),
-        }
-    return {
+    probs = [float(r["probability"]) for r in top]
+    block: dict[str, Any] = {
         "top_markets": [
             {
                 "name": r.get("name"),
@@ -265,11 +267,16 @@ def _poly_block(rows: list[dict[str, Any]]) -> dict[str, Any]:
             }
             for r in top
         ],
-        "probability_changes": movers[:8],
-        "fastest_movers": movers[:5],
-        "consensus": consensus,
-        "markdown": render_polymarket_intelligence(rows),
     }
+    if movers:
+        block["probability_changes"] = movers[:8]
+        block["fastest_movers"] = movers[:5]
+    if probs:
+        block["consensus"] = {
+            "avg_probability": round(sum(probs) / len(probs), 4),
+            "n_markets": len(probs),
+        }
+    return block
 
 
 def build_market_context(
@@ -277,105 +284,233 @@ def build_market_context(
     now: int | None = None,
     lookback_sec: int = LOOKBACK_SEC,
     conn: Any | None = None,
+    live_enrich: bool = True,
+    live_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a single analysis JSON. No interpretation — numbers and sourced fields only."""
+    """
+    Build analysis JSON.
+    S46.1: normalize macro/ETF to value/change/trend; live-fill SPX/Nasdaq/VIX/DXY/yields;
+    omit nulls; attach context_completeness.
+    """
     now_ts = int(now if now is not None else time.time())
     since = now_ts - int(lookback_sec)
-    availability: dict[str, str] = {}
 
     def _run(c: Any) -> dict[str, Any]:
         apply_migrations(c)
         snaps = _load_snapshots(c)
         latest = snaps[-1] if snaps else None
-        if latest:
-            availability["market_snapshots_g3"] = "ok"
-        else:
-            availability["market_snapshots_g3"] = "empty"
-
-        # BTC window metrics
-        btc_price = latest.get("btc_price") if latest else None
         s1h = _snapshot_near(snaps, now_ts - 3600) if snaps else None
         s24 = _snapshot_near(snaps, now_ts - 86400) if snaps else None
         s7 = _snapshot_near(snaps, now_ts - 7 * 86400) if snaps else None
+        obs = _load_observation_aliases(c, since_ts=since)
+
+        live = live_payload
+        if live is None and live_enrich:
+            try:
+                live = fetch_all_live_enrichment()
+            except Exception as exc:
+                logger.warning("live enrichment failed: %s", exc)
+                live = {"quotes": {}, "etf": {}}
+        live = live or {"quotes": {}, "etf": {}}
+        quotes = live.get("quotes") or {}
+
+        # Merge snapshot + observation proxies into quote fallbacks
+        def snap_pair(key: str) -> tuple[float | None, float | None]:
+            cur = None
+            if latest and latest.get(key) is not None:
+                cur = float(latest[key])
+            elif key in obs:
+                cur = float(obs[key])
+            prev = None
+            if s24 and s24.get(key) is not None:
+                prev = float(s24[key])
+            return cur, prev
+
+        spx_m = _prefer_metric(
+            quotes.get("spx"), *snap_pair("spx"), source_snap="snapshot:spx", unit="index",
+        )
+        qqq_m = _prefer_metric(
+            quotes.get("qqq"), *snap_pair("qqq"), source_snap="snapshot:qqq", unit="USD",
+        )
+        nasdaq_m = quotes.get("nasdaq")
+        if nasdaq_m is None and qqq_m is not None:
+            # Fallback label when only QQQ proxy available
+            nasdaq_m = {
+                **qqq_m,
+                "note": "NDX unavailable; using QQQ proxy levels",
+            }
+        vix_m = _prefer_metric(
+            quotes.get("vix"), *snap_pair("vix"), source_snap="snapshot:vix", unit="index",
+        )
+        dxy_m = _prefer_metric(
+            quotes.get("dxy"), *snap_pair("dxy"), source_snap="snapshot:dxy", unit="index",
+        )
+        gold_m = _prefer_metric(
+            quotes.get("gold"), *snap_pair("gold"), source_snap="snapshot:gold", unit="USD/oz",
+        )
+        oil_m = _prefer_metric(
+            quotes.get("oil"), *snap_pair("oil"), source_snap="snapshot:oil", unit="USD/bbl",
+        )
+        us10y_m = quotes.get("us10y")
+        us02y_m = quotes.get("us02y")
+
+        btc_price = latest.get("btc_price") if latest else None
         btc_prices = [
             float(r["btc_price"])
             for r in snaps
             if r.get("btc_price") is not None
             and int(r.get("snapshot_ts") or 0) >= now_ts - 86400
         ]
-        btc = {
-            "price": btc_price,
-            "change_1h_pct": _pct_change(btc_price, s1h.get("btc_price") if s1h else None),
-            "change_24h_pct": _pct_change(btc_price, s24.get("btc_price") if s24 else None),
-            "change_7d_pct": _pct_change(btc_price, s7.get("btc_price") if s7 else None),
-            "volume": latest.get("volume") if latest else None,
-            "dominance": latest.get("btc_dominance") if latest else None,
-            "realized_volatility": _realized_vol(btc_prices) if btc_prices else None,
-            "atr": latest.get("atr") if latest else None,
-        }
+        btc: dict[str, Any] = {}
+        if btc_price is not None:
+            btc["price"] = float(btc_price)
+        for label, snap in (("change_1h_pct", s1h), ("change_24h_pct", s24), ("change_7d_pct", s7)):
+            ch = _pct_change(btc_price, snap.get("btc_price") if snap else None)
+            if ch is not None:
+                btc[label] = ch
+        if latest and latest.get("volume") is not None:
+            btc["volume"] = float(latest["volume"])
+        if latest and latest.get("btc_dominance") is not None:
+            btc["dominance"] = float(latest["btc_dominance"])
+        rv = _realized_vol(btc_prices) if btc_prices else None
+        if rv is not None:
+            btc["realized_volatility"] = rv
+        if latest and latest.get("atr") is not None:
+            btc["atr"] = float(latest["atr"])
+        if "change_24h_pct" in btc:
+            btc["trend"] = trend_from_change(btc["change_24h_pct"])
 
-        # S&P / VIX — ATH distance needs ATH; unavailable → null
-        spx_price = latest.get("spx") if latest else None
-        spx_hist = [float(r["spx"]) for r in snaps if r.get("spx") is not None]
-        ath = max(spx_hist) if spx_hist else None
-        dist_ath = None
-        if spx_price is not None and ath is not None and ath != 0:
-            dist_ath = round(100.0 * (float(ath) - float(spx_price)) / float(ath), 4)
-        sp500 = {
-            "price": spx_price,
-            "change_pct": _pct_change(spx_price, s24.get("spx") if s24 else None),
-            "distance_to_ath_pct": dist_ath,
-            "ath": ath,
-        }
-        vix = {
-            "current": latest.get("vix") if latest else None,
-            "change_pct": _pct_change(
-                latest.get("vix") if latest else None,
-                s24.get("vix") if s24 else None,
-            ),
-        }
+        # Macro event rows — only keep Fed/CPI narrative when no numeric value;
+        # numeric series replaced by live metrics.
+        macro_rows = (
+            load_macro_rows(c, since_ts=since, limit=60)
+            if _table_exists(c, "market_macro_events")
+            else []
+        )
+        fed_headlines = []
+        cpi_headlines = []
+        for r in macro_rows:
+            name = str(r.get("name") or "").lower()
+            title = str(r.get("title") or r.get("summary") or "")[:200]
+            if not title:
+                continue
+            if "fed" in name or "fed" in title.lower():
+                fed_headlines.append(title)
+            if "cpi" in name or "cpi" in title.lower():
+                cpi_headlines.append(title)
 
-        macro_rows = load_macro_rows(c, since_ts=since, limit=60) if _table_exists(c, "market_macro_events") else []
-        availability["market_macro_events"] = "ok" if macro_rows else "empty"
-        macro = _macro_named(macro_rows)
-        # Prefer snapshot DXY/gold/oil when present
-        if latest:
-            if latest.get("dxy") is not None:
-                macro["dxy"] = {"value": latest.get("dxy"), "source": "snapshot"}
-            if latest.get("gold") is not None:
-                macro["gold"] = {"value": latest.get("gold"), "source": "snapshot"}
-            if latest.get("oil") is not None:
-                macro["oil"] = {"value": latest.get("oil"), "source": "snapshot"}
-        macro["markdown_snapshot"] = render_macro_intelligence(macro_rows)
+        macro: dict[str, Any] = {}
+        if dxy_m:
+            macro["dxy"] = dxy_m
+        if us10y_m:
+            macro["us10y"] = us10y_m
+        if us02y_m:
+            macro["us02y"] = us02y_m
+        if gold_m:
+            macro["gold"] = gold_m
+        if oil_m:
+            macro["oil"] = oil_m
+        if fed_headlines:
+            macro["fed"] = {"headlines": fed_headlines[:3], "source": "macro_events"}
+        if cpi_headlines:
+            macro["cpi"] = {"headlines": cpi_headlines[:3], "source": "macro_events"}
 
         events_raw = (
             load_recent_events(c, since_ts=since, limit=40)
             if _table_exists(c, "market_intel_events")
             else []
         )
-        availability["market_intel_events"] = "ok" if events_raw else "empty"
         events = [enrich_event_for_report(e, now=now_ts) for e in events_raw]
+
+        # ETF: numeric first
+        etf_live = live.get("etf") or {}
+        etf: dict[str, Any] = {"unit": etf_live.get("unit") or "USD_millions"}
+        if etf_live.get("source"):
+            etf["source"] = etf_live["source"]
+        for key in ("btc_etf", "eth_etf"):
+            block = etf_live.get(key)
+            if isinstance(block, dict) and (
+                block.get("netflow_5d") is not None or block.get("netflow_1d") is not None
+            ):
+                etf[key] = {
+                    k: v for k, v in block.items()
+                    if v is not None
+                }
+
+        # Optional news overlay (separate from numbers)
+        etf_news = _event_headlines(events, "etf")
+        if etf_news:
+            etf["related_headlines"] = etf_news
+
+        funding: dict[str, Any] = {}
+        if latest and latest.get("funding") is not None:
+            vals = [float(r["funding"]) for r in snaps if r.get("funding") is not None]
+            cur = float(latest["funding"])
+            funding["current"] = cur
+            if vals:
+                funding["average_funding"] = round(sum(vals) / len(vals), 8)
+                funding["extreme_funding"] = abs(cur) >= max(
+                    0.0003, abs(funding["average_funding"]) * 2.5,
+                )
+            funding["trend"] = trend_from_change(cur)
+
+        oi: dict[str, Any] = {}
+        if latest and latest.get("open_interest") is not None:
+            cur = float(latest["open_interest"])
+            oi["current"] = cur
+            d24 = _pct_change(cur, s24.get("open_interest") if s24 else None)
+            d7 = _pct_change(cur, s7.get("open_interest") if s7 else None)
+            if d24 is not None:
+                oi["delta_24h"] = d24
+            if d7 is not None:
+                oi["delta_7d"] = d7
+
+        liq: dict[str, Any] = {}
+        if latest and latest.get("liquidations") is not None:
+            liq["total_24h_proxy"] = float(latest["liquidations"])
+            liq["note"] = "G3 liquidations field may be funding-derived proxy"
+
+        fg: dict[str, Any] = {}
+        if latest and latest.get("fear_greed") is not None:
+            fg["current"] = float(latest["fear_greed"])
+            if s24 and s24.get("fear_greed") is not None:
+                fg["yesterday"] = float(s24["fear_greed"])
+            if s7 and s7.get("fear_greed") is not None:
+                fg["week"] = float(s7["fear_greed"])
+            fg["trend"] = trend_from_change(
+                (fg["current"] - fg["yesterday"]) if "yesterday" in fg else None,
+            )
+
+        whales = {}
+        whale_ev = _event_headlines(events, "whale", "transfer")
+        if whale_ev:
+            whales["largest_transfers"] = whale_ev
 
         poly_rows = (
             load_polymarket_rows(c, since_ts=since, limit=80)
             if _table_exists(c, "market_polymarket_signals")
             else []
         )
-        availability["market_polymarket_signals"] = "ok" if poly_rows else "empty"
 
-        return {
+        sp500_block = dict(spx_m) if spx_m else {}
+        # Keep backward-compatible aliases expected by prompts
+        if sp500_block and "price" not in sp500_block and "value" in sp500_block:
+            sp500_block["price"] = sp500_block["value"]
+
+        ctx: dict[str, Any] = {
             "generated_at": now_ts,
             "lookback_sec": lookback_sec,
             "btc": btc,
-            "sp500": sp500,
-            "vix": vix,
+            "sp500": sp500_block,
+            "nasdaq": dict(nasdaq_m) if nasdaq_m else {},
+            "vix": dict(vix_m) if vix_m else {},
             "macro": macro,
-            "etf": _etf_from_events(events),
-            "funding": _funding_block(latest, snaps),
-            "open_interest": _oi_block(latest, snaps, now_ts),
-            "liquidations": _liquidations_block(latest),
-            "fear_greed": _fear_greed_block(latest, snaps, now_ts),
-            "whales": _whales_from_events(events),
+            "etf": etf,
+            "funding": funding,
+            "open_interest": oi,
+            "liquidations": liq,
+            "fear_greed": fg,
+            "whales": whales,
             "polymarket": _poly_block(poly_rows),
             "intelligence": {
                 "top_events": [
@@ -390,18 +525,30 @@ def build_market_context(
                         "why_it_matters": e.get("why_it_matters"),
                         "narrative": e.get("narrative"),
                         "confirmed_by": e.get("confirmed_by"),
-                        "sources": e.get("sources"),
                         "source_count": e.get("source_count"),
                     }
                     for e in events[:12]
                 ],
             },
-            "data_availability": availability,
+            "live_enrichment": {
+                "enabled": bool(live_enrich),
+                "elapsed_ms": live.get("elapsed_ms"),
+                "quotes_fetched": sorted(quotes.keys()),
+            },
             "notes": [
-                "Context is factual aggregation only; LLM must not invent missing fields.",
-                "ETF netflow / true liquidation tape / whale exchange flows may be unavailable.",
+                "Numeric macro/index fields use value/change_24h/trend.",
+                "ETF block prefers Farside netflow (USD millions), not headlines.",
+                "Omit nulls; use context_completeness + missing_fields for gaps.",
             ],
         }
+
+        ctx = _prune(ctx)
+        completeness = compute_context_completeness(ctx)
+        ctx["context_completeness"] = completeness["context_completeness"]
+        ctx["completeness"] = completeness
+        if completeness["missing_fields"]:
+            ctx["data_gaps"] = completeness["missing_fields"]
+        return ctx
 
     if conn is not None:
         return _run(conn)
