@@ -70,6 +70,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     result = run_ai_analyst(
         flags=flags or None,
         force_template=bool(args.template),
+        live_enrich=not bool(args.no_live),
     )
     if args.json:
         print(json.dumps(result, indent=2, default=str))
