@@ -46,6 +46,14 @@ EventBus → Handlers (stubs)
 Terminal-owned navigation: `/start` `/home` `/markets` `/signals` `/positions`
 `/portfolio` `/account` `/settings` `/watch` `/alert`
 
+### AI Research Trader UI (S49)
+
+Primary (signal-centric): `/report` `/signals` `/open` `/stats` `/doctor`
+
+Debug full analytics: `/debug report`
+
+See [`docs/ai/TELEGRAM_COMMANDS.md`](../../docs/ai/TELEGRAM_COMMANDS.md).
+
 Watchlist: `/watch` `/watch add BTC` `/watch remove ETH` + ⭐ Favorite on signals.
 
 Alerts: `/alert` `/alert add BTC score>85` `/alert add NVDA LONG`

@@ -42,10 +42,14 @@ class TestCommandRegistrationS464(unittest.TestCase):
             self.assertIn(cmd, SUPPORTED_COMMANDS)
         self.assertIn("/market", SUPPORTED_COMMANDS)
         self.assertIn("/health", SUPPORTED_COMMANDS)
+        self.assertIn("/doctor", SUPPORTED_COMMANDS)
+        self.assertIn("/debug", SUPPORTED_COMMANDS)
 
     def test_is_ai_research_command(self) -> None:
         self.assertTrue(is_ai_research_command("/report"))
         self.assertTrue(is_ai_research_command("/market@MyBot"))
+        self.assertTrue(is_ai_research_command("/doctor"))
+        self.assertTrue(is_ai_research_command("/debug report"))
         self.assertFalse(is_ai_research_command("/status"))
         self.assertGreaterEqual(len(AI_RESEARCH_COMMANDS), 9)
         self.assertIn("/signals", AI_RESEARCH_COMMANDS)
@@ -131,11 +135,17 @@ class TestKeyboardAndCallbackS464(unittest.TestCase):
         rows = kb["inline_keyboard"]
         self.assertEqual(len(rows), 2)
         data = {btn["callback_data"] for row in rows for btn in row}
-        self.assertIn("ai:market", data)
-        self.assertIn("ai:events", data)
+        self.assertIn("ai:report", data)
+        self.assertIn("ai:signals", data)
+        self.assertIn("ai:open", data)
+        self.assertIn("ai:stats", data)
+        self.assertIn("ai:doctor", data)
+        # Research briefs removed from trader menu
+        self.assertNotIn("ai:market", data)
+        self.assertNotIn("ai:events", data)
 
     def test_parse_callback(self) -> None:
-        self.assertEqual(parse_ai_callback("ai:btc"), "btc")
+        self.assertEqual(parse_ai_callback("ai:report"), "report")
         self.assertIsNone(parse_ai_callback("term:home"))
 
     def test_progress_message(self) -> None:
@@ -209,10 +219,10 @@ class TestHandlersS464(unittest.TestCase):
         self.assertTrue(any("Report generation failed" in e for e in edits))
 
     @patch("bot.research.ai_analyst.telegram_terminal._regenerate_full")
-    @patch("bot.research.ai_analyst.telegram_terminal.build_report_completion_message")
+    @patch("bot.research.ai_analyst.telegram_terminal.build_trader_report_message")
     def test_interactive_report_success(self, mock_msg: MagicMock, mock_regen: MagicMock) -> None:
         mock_regen.return_value = {"ok": True}
-        mock_msg.return_value = "<b>done</b>"
+        mock_msg.return_value = "<b>BTC LONG</b>"
         edits: list[str] = []
 
         markups: list[dict | None] = []
@@ -224,8 +234,10 @@ class TestHandlersS464(unittest.TestCase):
 
         delivery = run_interactive_report(cmd="/report", edit_message=edit, reports_dir=self.reports)
         self.assertTrue(delivery.already_delivered)
-        self.assertIn("<b>done</b>", edits[-1])
+        self.assertIn("BTC LONG", edits[-1])
         self.assertIsNotNone(markups[-1])
+        data = {b["callback_data"] for row in markups[-1]["inline_keyboard"] for b in row}
+        self.assertIn("ai:doctor", data)
 
 
 class TestTelegramSettingsS464(unittest.TestCase):

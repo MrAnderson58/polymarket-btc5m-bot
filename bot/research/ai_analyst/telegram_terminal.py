@@ -1,4 +1,4 @@
-"""S46.4 — Telegram Research Terminal (AI Analyst primary interface)."""
+"""S49 — Trader UI & Signal-Centric Telegram (AI Analyst terminal)."""
 
 from __future__ import annotations
 
@@ -37,11 +37,27 @@ from bot.research.ai_analyst.telegram_formatter import (
     section_header,
     truncate_telegram,
 )
+from bot.research.ai_analyst.trader_report import (
+    format_doctor_telegram_html,
+    format_top_news_compact,
+    format_trader_report_html,
+    load_latest_signal_row,
+)
 
 logger = logging.getLogger(__name__)
 
-AI_RESEARCH_COMMANDS = frozenset({
+# Primary trader surface (menu + docs).
+TRADER_COMMANDS = frozenset({
     "/report",
+    "/signals",
+    "/open",
+    "/stats",
+    "/doctor",
+})
+
+# Debug / admin — still routable, hidden from trader menu.
+DEBUG_COMMANDS = frozenset({
+    "/debug",
     "/market",
     "/btc",
     "/macro",
@@ -50,13 +66,12 @@ AI_RESEARCH_COMMANDS = frozenset({
     "/narrative",
     "/context",
     "/health",
-    "/signals",
-    "/open",
     "/closed",
-    "/stats",
     "/leaderboard",
     "/daily",
 })
+
+AI_RESEARCH_COMMANDS = TRADER_COMMANDS | DEBUG_COMMANDS
 
 AI_CALLBACK_PREFIX = "ai:"
 
@@ -105,30 +120,42 @@ def normalize_ai_command(text: str) -> str:
     return text.strip().split()[0].split("@")[0].lower()
 
 
-def requires_interactive_handler(cmd: str) -> bool:
-    return cmd in {"/report", "/market"}
+def parse_ai_command_args(text: str) -> tuple[str, list[str]]:
+    parts = text.strip().split()
+    if not parts:
+        return "", []
+    cmd = parts[0].split("@")[0].lower()
+    return cmd, [p.lower() for p in parts[1:]]
+
+
+def requires_interactive_handler(cmd: str, args: list[str] | None = None) -> bool:
+    args = args or []
+    if cmd == "/report":
+        return True
+    if cmd == "/debug" and (not args or args[0] == "report"):
+        return True
+    return False
 
 
 def build_reports_keyboard() -> dict[str, Any]:
+    """S49 trader terminal keyboard — signal-centric only."""
     return {
         "inline_keyboard": [
             [
-                {"text": "Market", "callback_data": f"{AI_CALLBACK_PREFIX}market"},
-                {"text": "BTC", "callback_data": f"{AI_CALLBACK_PREFIX}btc"},
-                {"text": "Macro", "callback_data": f"{AI_CALLBACK_PREFIX}macro"},
-                {"text": "SP500", "callback_data": f"{AI_CALLBACK_PREFIX}sp500"},
+                {"text": "📈 Report", "callback_data": f"{AI_CALLBACK_PREFIX}report"},
+                {"text": "📊 Signals", "callback_data": f"{AI_CALLBACK_PREFIX}signals"},
+                {"text": "📂 Open", "callback_data": f"{AI_CALLBACK_PREFIX}open"},
             ],
             [
-                {"text": "Intelligence", "callback_data": f"{AI_CALLBACK_PREFIX}events"},
-                {"text": "Narratives", "callback_data": f"{AI_CALLBACK_PREFIX}narrative"},
-                {"text": "Health", "callback_data": f"{AI_CALLBACK_PREFIX}health"},
+                {"text": "📉 Stats", "callback_data": f"{AI_CALLBACK_PREFIX}stats"},
+                {"text": "⚙ Doctor", "callback_data": f"{AI_CALLBACK_PREFIX}doctor"},
             ],
         ],
     }
 
 
 def format_progress_message(done: dict[str, bool]) -> str:
-    lines = ["⏳ <b>Generating AI Market Report...</b>", ""]
+    lines = ["⏳ <b>Generating trader signal...</b>", ""]
     for step in _PROGRESS_STEPS:
         mark = "✓" if done.get(step) else "…"
         lines.append(f"{mark} {escape(step)}")
@@ -184,6 +211,7 @@ def _regenerate_partial(
 
 
 def format_events_html(ctx: dict[str, Any], *, limit: int = 10) -> str:
+    """Verbose intel (debug/admin). Trader path uses compact news formatter."""
     events = (ctx.get("intelligence") or {}).get("top_events") or []
     lines = [section_header("Intelligence Events", "📰"), ""]
     if not events:
@@ -247,7 +275,6 @@ def format_research_health_html(*, reports_dir: Path) -> str:
             status = f"✗ error ({exc})"
         lines.append(f"<b>{escape(label)}:</b> {escape(status)}")
 
-    # AI Analyst — report freshness
     mpath = report_path("market", reports_dir=reports_dir)
     age = file_age_minutes(mpath)
     if age is None:
@@ -266,20 +293,28 @@ def format_research_health_html(*, reports_dir: Path) -> str:
     return truncate_telegram("\n".join(lines))
 
 
+def build_trader_report_message(*, reports_dir: Path) -> str:
+    """S49 default /report body — signal card only."""
+    ctx = _load_context_json(reports_dir=reports_dir)
+    hist = load_latest_signal_row()
+    return format_trader_report_html(ctx, history_row=hist)
+
+
 def build_report_completion_message(*, reports_dir: Path) -> str:
+    """Legacy full editorial stack — used by /debug report only."""
     market_md = _read_report_text("market", reports_dir=reports_dir)
     telegram_md = _read_report_text("telegram", reports_dir=reports_dir)
-    ctx_path = report_path("context", reports_dir=reports_dir)
-    ctx: dict[str, Any] = {}
-    if ctx_path.is_file():
-        try:
-            ctx = json.loads(ctx_path.read_text(encoding="utf-8"))
-        except Exception:
-            ctx = {}
+    ctx = _load_context_json(reports_dir=reports_dir)
     ts_html = format_data_timestamp_html(ctx)
     exec_html = format_executive_summary_html(extract_executive_summary(market_md))
     tg_html = markdown_to_telegram_html(telegram_md)
+    news_html = format_top_news_compact(
+        (ctx.get("intelligence") or {}).get("top_events") or [],
+        limit=12,
+    )
     parts = [
+        section_header("Debug Report", "🛠"),
+        "",
         ts_html,
         "",
         format_separator(),
@@ -294,8 +329,19 @@ def build_report_completion_message(*, reports_dir: Path) -> str:
         "",
         format_separator(),
         "",
-        section_header("Reports", "📊"),
-        escape("Use buttons below — no re-generation."),
+        news_html,
+        "",
+        format_separator(),
+        "",
+        format_narrative_html(ctx),
+        "",
+        format_separator(),
+        "",
+        format_context_status_html(ctx),
+        "",
+        format_separator(),
+        "",
+        escape("Full analytics retained for AI / learning / ranking — not trader UI."),
     ]
     return truncate_telegram("\n".join(parts))
 
@@ -348,14 +394,47 @@ def deliver_report_key(
     return TelegramDelivery(text=text, parse_mode=settings.parse_mode)
 
 
+def _doctor_delivery(*, settings: TelegramTerminalSettings) -> TelegramDelivery:
+    from bot.research.market_events.doctor import run_doctor
+
+    text = format_doctor_telegram_html(run_doctor(skip_network=False))
+    return TelegramDelivery(
+        text=text,
+        parse_mode=settings.parse_mode,
+        reply_markup=build_reports_keyboard(),
+    )
+
+
 def handle_ai_research_command_sync(
     cmd: str,
     *,
+    args: list[str] | None = None,
     settings: TelegramTerminalSettings | None = None,
     reports_dir: Path | None = None,
 ) -> TelegramDelivery:
     settings = settings or load_telegram_terminal_settings()
     out_dir = reports_dir or REPORTS_DIR
+    args = args or []
+
+    if cmd == "/doctor":
+        return _doctor_delivery(settings=settings)
+
+    if cmd == "/debug":
+        topic = args[0] if args else "report"
+        if topic == "help":
+            return TelegramDelivery(
+                text=escape(
+                    "Debug mode: /debug report | /btc /macro /sp500 /events "
+                    "/narrative /context /health /daily /leaderboard /closed"
+                ),
+                parse_mode=settings.parse_mode,
+            )
+        # Non-interactive debug topics fall through to named handlers below
+        if topic in {"btc", "macro", "sp500", "events", "narrative", "context", "health",
+                     "market", "closed", "leaderboard", "daily"}:
+            cmd = f"/{topic}"
+        else:
+            raise ValueError("use /debug report for full analytics (interactive)")
 
     if cmd == "/btc":
         return deliver_report_key("btc", settings=settings, reports_dir=out_dir)
@@ -394,6 +473,7 @@ def handle_ai_research_command_sync(
         return TelegramDelivery(
             text=handle_s48_command(cmd),
             parse_mode=settings.parse_mode,
+            reply_markup=build_reports_keyboard() if cmd in {"/signals", "/open", "/stats"} else None,
         )
     raise ValueError(f"sync handler not supported for {cmd}")
 
@@ -404,11 +484,14 @@ def run_interactive_report(
     edit_message: Callable[[str, dict[str, Any] | None], bool],
     settings: TelegramTerminalSettings | None = None,
     reports_dir: Path | None = None,
+    args: list[str] | None = None,
 ) -> TelegramDelivery:
-    """Run /report or stale /market with progress edits on one message."""
+    """Run /report (trader card) or /debug report (full analytics) with progress edits."""
     settings = settings or load_telegram_terminal_settings()
     out_dir = reports_dir or REPORTS_DIR
+    args = args or []
     done: dict[str, bool] = {s: False for s in _PROGRESS_STEPS}
+    debug_mode = cmd == "/debug" or (cmd == "/report" and "debug" in args)
 
     def on_progress(state: dict[str, bool]) -> None:
         done.update(state)
@@ -447,7 +530,7 @@ def run_interactive_report(
                 already_delivered=True,
             )
 
-        # /report — always refresh live data + full regeneration (no report cache)
+        # Always refresh live data + full regeneration (artifacts kept for AI).
         result = _regenerate_full(
             reports_dir=out_dir,
             on_progress=on_progress,
@@ -456,7 +539,10 @@ def run_interactive_report(
         if not result.get("ok", True):
             raise RuntimeError(str(result.get("error") or "generation failed"))
 
-        final = build_report_completion_message(reports_dir=out_dir)
+        if debug_mode:
+            final = build_report_completion_message(reports_dir=out_dir)
+        else:
+            final = build_trader_report_message(reports_dir=out_dir)
         markup = build_reports_keyboard()
         edit_message(final, markup)
         return TelegramDelivery(
@@ -473,11 +559,35 @@ def run_interactive_report(
 
 
 def handle_ai_callback(action: str, *, reports_dir: Path | None = None) -> TelegramDelivery:
-    """Inline keyboard — serve cached artifacts only (no regeneration)."""
+    """Inline keyboard — trader actions (cached where possible)."""
     settings = load_telegram_terminal_settings()
     out_dir = reports_dir or REPORTS_DIR
     action = action.lower().strip()
 
+    if action == "report":
+        # Fast path: rebuild trader card from latest context (no LLM).
+        text = build_trader_report_message(reports_dir=out_dir)
+        return TelegramDelivery(
+            text=text,
+            parse_mode=settings.parse_mode,
+            reply_markup=build_reports_keyboard(),
+        )
+    if action == "signals":
+        return handle_ai_research_command_sync("/signals", settings=settings, reports_dir=out_dir)
+    if action == "open":
+        return handle_ai_research_command_sync("/open", settings=settings, reports_dir=out_dir)
+    if action == "stats":
+        return handle_ai_research_command_sync("/stats", settings=settings, reports_dir=out_dir)
+    if action == "doctor":
+        # Skip live HTTP on button tap for snappy UX
+        from bot.research.market_events.doctor import run_doctor
+        return TelegramDelivery(
+            text=format_doctor_telegram_html(run_doctor(skip_network=True)),
+            parse_mode=settings.parse_mode,
+            reply_markup=build_reports_keyboard(),
+        )
+
+    # Legacy debug callbacks still work if somehow invoked
     if action == "market":
         return deliver_report_key(
             "market", settings=settings, reports_dir=out_dir, regenerate_if_stale=False,

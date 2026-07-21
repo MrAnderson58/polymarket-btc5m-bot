@@ -394,7 +394,7 @@ def _handle_ai_research_slash(
     from bot.research.ai_analyst.config import load_telegram_terminal_settings
     from bot.research.ai_analyst.telegram_terminal import (
         handle_ai_research_command_sync,
-        normalize_ai_command,
+        parse_ai_command_args,
         requires_interactive_handler,
         run_interactive_report,
     )
@@ -403,7 +403,7 @@ def _handle_ai_research_slash(
     chat = message.get("chat") or {}
     chat_id = int(chat.get("id", 0))
     message_id = int(message.get("message_id", 0))
-    cmd = normalize_ai_command(text)
+    cmd, cmd_args = parse_ai_command_args(text)
     settings = load_telegram_terminal_settings()
 
     if stats is not None:
@@ -422,10 +422,10 @@ def _handle_ai_research_slash(
         return result
 
     try:
-        if requires_interactive_handler(cmd):
+        if requires_interactive_handler(cmd, cmd_args):
             progress_id = send_telegram_reply(
                 chat_id,
-                "⏳ <b>Generating AI Market Report...</b>",
+                "⏳ <b>Generating trader signal...</b>",
                 parse_mode=settings.parse_mode,
             )
             if progress_id is None:
@@ -442,6 +442,7 @@ def _handle_ai_research_slash(
 
             delivery = run_interactive_report(
                 cmd=cmd,
+                args=cmd_args,
                 edit_message=_edit,
             )
             result = InboundResult(
@@ -454,7 +455,7 @@ def _handle_ai_research_slash(
                 edited=delivery.already_delivered,
             )
         else:
-            delivery = handle_ai_research_command_sync(cmd)
+            delivery = handle_ai_research_command_sync(cmd, args=cmd_args)
             sent_id = send_telegram_reply(
                 chat_id,
                 delivery.text,

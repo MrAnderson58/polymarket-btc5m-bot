@@ -467,6 +467,8 @@ PURE_READONLY_COMMANDS = frozenset({
     "/history",
     "/artifacts",
     "/report",
+    "/doctor",
+    "/debug",
     "/btc",
     "/macro",
     "/sp500",
