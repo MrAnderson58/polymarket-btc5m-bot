@@ -169,6 +169,7 @@ DEFAULT_AGENTS: dict[str, AgentProfile] = {
     "s46_telegram": AgentProfile("s46_telegram", "telegram_post", "telegram_post.md"),
     "s46_json": AgentProfile("s46_json", "json_summary", "market_summary.json"),
     "s47_paper_signal": AgentProfile("s47_paper_signal", "paper_signal", "paper_signal.json"),
+    "s48_signal_ranking": AgentProfile("s48_signal_ranking", "signal_ranking", "signal_ranking.md"),
 }
 
 

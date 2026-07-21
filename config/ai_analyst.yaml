@@ -45,6 +45,9 @@ agents:
   s47_paper_signal:
     prompt: paper_signal
     output: paper_signal.json
+  s48_signal_ranking:
+    prompt: signal_ranking
+    output: signal_ranking.md
 
 telegram:
   report_cache_minutes: 15

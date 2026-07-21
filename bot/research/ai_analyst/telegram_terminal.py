@@ -50,6 +50,12 @@ AI_RESEARCH_COMMANDS = frozenset({
     "/narrative",
     "/context",
     "/health",
+    "/signals",
+    "/open",
+    "/closed",
+    "/stats",
+    "/leaderboard",
+    "/daily",
 })
 
 AI_CALLBACK_PREFIX = "ai:"
@@ -378,6 +384,15 @@ def handle_ai_research_command_sync(
     if cmd == "/health":
         return TelegramDelivery(
             text=format_research_health_html(reports_dir=out_dir),
+            parse_mode=settings.parse_mode,
+        )
+    from bot.research.ai_analyst.strategy_validation.telegram_views import (
+        S48_COMMANDS,
+        handle_s48_command,
+    )
+    if cmd in S48_COMMANDS:
+        return TelegramDelivery(
+            text=handle_s48_command(cmd),
             parse_mode=settings.parse_mode,
         )
     raise ValueError(f"sync handler not supported for {cmd}")

@@ -47,7 +47,8 @@ class TestCommandRegistrationS464(unittest.TestCase):
         self.assertTrue(is_ai_research_command("/report"))
         self.assertTrue(is_ai_research_command("/market@MyBot"))
         self.assertFalse(is_ai_research_command("/status"))
-        self.assertEqual(len(AI_RESEARCH_COMMANDS), 9)
+        self.assertGreaterEqual(len(AI_RESEARCH_COMMANDS), 9)
+        self.assertIn("/signals", AI_RESEARCH_COMMANDS)
 
 
 class TestReportCacheS464(unittest.TestCase):

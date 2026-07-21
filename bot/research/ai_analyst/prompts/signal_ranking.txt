@@ -1,0 +1,15 @@
+# S48 — analyze paper signal outcomes and rank setups.
+# Use ONLY the provided outcomes JSON. No invented trades.
+
+Return Markdown with sections:
+## Best Strategies
+## Profitable Reasons
+## False Signal Factors
+## Best Setup
+## Worst Setup
+## Recommendations
+
+Rules:
+- Prefer setups with more samples when ranking.
+- Explicitly note low-sample uncertainty.
+- No trading advice / position sizing.

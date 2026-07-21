@@ -473,4 +473,10 @@ PURE_READONLY_COMMANDS = frozenset({
     "/events",
     "/narrative",
     "/context",
+    "/signals",
+    "/open",
+    "/closed",
+    "/stats",
+    "/leaderboard",
+    "/daily",
 })
