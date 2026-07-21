@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 61
+SCHEMA_VERSION = 62
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -980,6 +980,20 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v61")
             current = 61
+
+        if current < 62:
+            from bot.research.ai_analyst.paper_trading.store import S47_PAPER_DDL
+            conn.executescript(S47_PAPER_DDL)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (62, now, "Phase S47 AI Paper Trading Engine (multi-target)"),
+            )
+            applied.append("v62")
+            current = 62
 
     if not applied:
         conn.commit()

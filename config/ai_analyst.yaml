@@ -42,6 +42,9 @@ agents:
   s46_json:
     prompt: json_summary
     output: market_summary.json
+  s47_paper_signal:
+    prompt: paper_signal
+    output: paper_signal.json
 
 telegram:
   report_cache_minutes: 15

@@ -1,4 +1,4 @@
-"""S46 CLI — python -m bot.research.ai_analyst run [--morning|--evening|...]"""
+"""S46/S47 CLI — python -m bot.research.ai_analyst run|paper ..."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Sequence
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m bot.research.ai_analyst",
-        description="S46 AI Research Analyst — context → LLM → reports",
+        description="S46 AI Research Analyst + S47 Paper Trading",
     )
     sub = p.add_subparsers(dest="command", required=True)
 
@@ -39,12 +39,37 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Only write market_context.json and exit",
     )
+
+    paper = sub.add_parser("paper", help="S47 AI paper trading engine")
+    paper.add_argument(
+        "--demo",
+        action="store_true",
+        help="Run end-to-end paper demo (signal → entry → TP1/TP2/TP3)",
+    )
+    paper.add_argument("--stats", action="store_true", help="Print strategy stats")
+    paper.add_argument("--json", action="store_true", help="JSON output")
     return p
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
+
+    if args.command == "paper":
+        from bot.research.ai_analyst.paper_trading.runner import run_paper_demo
+
+        result = run_paper_demo()
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+        else:
+            print(result.get("report") or "")
+            st = result.get("stats") or {}
+            print(
+                f"ok={result.get('ok')} events={len(result.get('events') or [])} "
+                f"WinRate={st.get('win_rate')}% PF={st.get('profit_factor')} "
+                f"Expectancy={st.get('expectancy')}R"
+            )
+        return 0 if result.get("ok") else 1
 
     if args.command != "run":
         parser.print_help()
