@@ -71,11 +71,12 @@ def send_telegram_reply(
     text: str,
     *,
     reply_markup: dict[str, Any] | None = None,
-) -> bool:
-    """Send reply to a specific chat (inbound ack). Never logs token."""
+    parse_mode: str | None = None,
+) -> int | None:
+    """Send reply to a specific chat (inbound ack). Returns message_id or None."""
     token = get_telegram_bot_token()
     if not token:
-        return False
+        return None
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload: dict[str, Any] = {
         "chat_id": chat_id,
@@ -84,11 +85,20 @@ def send_telegram_reply(
     }
     if reply_markup is not None:
         payload["reply_markup"] = reply_markup
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     try:
         resp = requests.post(url, json=payload, timeout=15)
-        return resp.ok and resp.json().get("ok", False)
+        if not resp.ok:
+            return None
+        data = resp.json()
+        if not data.get("ok"):
+            return None
+        result = data.get("result") or {}
+        mid = result.get("message_id")
+        return int(mid) if mid is not None else None
     except requests.RequestException:
-        return False
+        return None
 
 
 def edit_telegram_message(
@@ -97,6 +107,7 @@ def edit_telegram_message(
     text: str,
     *,
     reply_markup: dict[str, Any] | None = None,
+    parse_mode: str | None = None,
 ) -> bool:
     """Edit an existing Telegram message (inline navigation). Never logs token."""
     token = get_telegram_bot_token()
@@ -111,6 +122,8 @@ def edit_telegram_message(
     }
     if reply_markup is not None:
         payload["reply_markup"] = reply_markup
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     try:
         resp = requests.post(url, json=payload, timeout=15)
         if not resp.ok:
@@ -148,4 +161,4 @@ def send_telegram_message(text: str) -> bool:
     chat_id = get_telegram_chat_id()
     if not token or not chat_id:
         return False
-    return send_telegram_reply(chat_id, text)
+    return send_telegram_reply(chat_id, text) is not None

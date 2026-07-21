@@ -466,4 +466,11 @@ PURE_READONLY_COMMANDS = frozenset({
     "/cost",
     "/history",
     "/artifacts",
+    "/report",
+    "/btc",
+    "/macro",
+    "/sp500",
+    "/events",
+    "/narrative",
+    "/context",
 })

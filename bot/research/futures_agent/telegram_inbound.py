@@ -310,6 +310,186 @@ def _handle_terminal_slash(
     return result
 
 
+def _handle_ai_research_callback(
+    callback: dict[str, Any],
+    *,
+    stats: PollSessionStats | None = None,
+) -> InboundResult | None:
+    """S46.4 — AI Research inline keyboard (cached reports, no regeneration)."""
+    from bot.research.ai_analyst.telegram_terminal import (
+        handle_ai_callback,
+        parse_ai_callback,
+    )
+
+    t0 = time.perf_counter()
+    data = str(callback.get("data") or "")
+    action = parse_ai_callback(data)
+    if not action:
+        return None
+
+    cq_id = str(callback.get("id") or "")
+    message = callback.get("message") or {}
+    chat = message.get("chat") or {}
+    chat_id = int(chat.get("id", 0))
+    message_id = int(message.get("message_id", 0))
+
+    if stats is not None:
+        stats.record_received()
+
+    if not is_chat_allowed(chat_id):
+        answer_telegram_callback(cq_id)
+        result = InboundResult(
+            chat_id, message_id, None,
+            unauthorized=True, skipped=True,
+            ignore_reason=IGNORE_CHAT_NOT_ALLOWED,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+        )
+        _apply_inbound_stats(result, stats)
+        if stats is not None:
+            save_poll_stats(stats)
+        return result
+
+    try:
+        delivery = handle_ai_callback(action)
+        edited = edit_telegram_message(
+            chat_id,
+            message_id,
+            delivery.text,
+            reply_markup=delivery.reply_markup,
+            parse_mode=delivery.parse_mode,
+        )
+        answer_telegram_callback(cq_id)
+        result = InboundResult(
+            chat_id, message_id, delivery.text,
+            processed=True,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+            reply_markup=delivery.reply_markup,
+            edited=edited,
+            reply_sent=edited,
+            reply_failed=not edited,
+        )
+    except Exception as exc:
+        logger.exception("ai research callback failed: %s", exc)
+        answer_telegram_callback(cq_id)
+        result = InboundResult(
+            chat_id, message_id, f"AI Research failed: {exc}",
+            processed=True,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+        )
+
+    _apply_inbound_stats(result, stats)
+    if stats is not None:
+        stats.record_reply(sent=bool(result.reply_sent))
+        save_poll_stats(stats)
+    return result
+
+
+def _handle_ai_research_slash(
+    message: dict[str, Any],
+    text: str,
+    *,
+    stats: PollSessionStats | None = None,
+) -> InboundResult:
+    """S46.4 — AI Research Analyst Telegram commands."""
+    from bot.research.ai_analyst.config import load_telegram_terminal_settings
+    from bot.research.ai_analyst.telegram_terminal import (
+        handle_ai_research_command_sync,
+        normalize_ai_command,
+        requires_interactive_handler,
+        run_interactive_report,
+    )
+
+    t0 = time.perf_counter()
+    chat = message.get("chat") or {}
+    chat_id = int(chat.get("id", 0))
+    message_id = int(message.get("message_id", 0))
+    cmd = normalize_ai_command(text)
+    settings = load_telegram_terminal_settings()
+
+    if stats is not None:
+        stats.record_received()
+
+    if not is_chat_allowed(chat_id):
+        result = InboundResult(
+            chat_id, message_id, None,
+            unauthorized=True, skipped=True,
+            ignore_reason=IGNORE_CHAT_NOT_ALLOWED,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+        )
+        _apply_inbound_stats(result, stats)
+        if stats is not None:
+            save_poll_stats(stats)
+        return result
+
+    try:
+        if requires_interactive_handler(cmd):
+            progress_id = send_telegram_reply(
+                chat_id,
+                "⏳ <b>Generating AI Market Report...</b>",
+                parse_mode=settings.parse_mode,
+            )
+            if progress_id is None:
+                progress_id = message_id
+
+            def _edit(body: str, markup: dict[str, Any] | None) -> bool:
+                return edit_telegram_message(
+                    chat_id,
+                    progress_id,
+                    body,
+                    reply_markup=markup,
+                    parse_mode=settings.parse_mode,
+                )
+
+            delivery = run_interactive_report(
+                cmd=cmd,
+                edit_message=_edit,
+            )
+            result = InboundResult(
+                chat_id, progress_id, delivery.text,
+                processed=True,
+                processing_ms=int((time.perf_counter() - t0) * 1000),
+                reply_markup=delivery.reply_markup,
+                reply_sent=delivery.already_delivered,
+                reply_failed=not delivery.already_delivered,
+                edited=delivery.already_delivered,
+            )
+        else:
+            delivery = handle_ai_research_command_sync(cmd)
+            sent_id = send_telegram_reply(
+                chat_id,
+                delivery.text,
+                reply_markup=delivery.reply_markup,
+                parse_mode=delivery.parse_mode,
+            )
+            result = InboundResult(
+                chat_id, message_id, delivery.text,
+                processed=True,
+                processing_ms=int((time.perf_counter() - t0) * 1000),
+                reply_markup=delivery.reply_markup,
+                reply_sent=sent_id is not None,
+                reply_failed=sent_id is None,
+            )
+    except Exception as exc:
+        logger.exception("ai research command %s failed: %s", cmd, exc)
+        from bot.research.ai_analyst.telegram_formatter import format_error_html
+        err = format_error_html(str(exc))
+        sent_id = send_telegram_reply(chat_id, err, parse_mode=settings.parse_mode)
+        result = InboundResult(
+            chat_id, message_id, err,
+            processed=True,
+            processing_ms=int((time.perf_counter() - t0) * 1000),
+            reply_sent=sent_id is not None,
+            reply_failed=sent_id is None,
+        )
+
+    _apply_inbound_stats(result, stats)
+    if stats is not None:
+        stats.record_reply(sent=bool(result.reply_sent))
+        save_poll_stats(stats)
+    _record_last_message(chat_id, message_id)
+    return result
+
+
 def _handle_terminal_callback(
     callback: dict[str, Any],
     *,
@@ -391,6 +571,9 @@ def handle_update(
     # V6.1 — Terminal inline navigation (editMessageText); no trading actions.
     callback = update.get("callback_query")
     if callback:
+        data = str(callback.get("data") or "")
+        if data.startswith("ai:"):
+            return _handle_ai_research_callback(callback, stats=stats)
         return _handle_terminal_callback(callback, stats=stats)
 
     message = update.get("message") or update.get("edited_message")
@@ -403,6 +586,11 @@ def handle_update(
 
     text = extract_message_text(message)
     if text and text.strip().startswith("/"):
+        from bot.research.ai_analyst.telegram_terminal import is_ai_research_command
+
+        if is_ai_research_command(text.strip()):
+            return _handle_ai_research_slash(message, text.strip(), stats=stats)
+
         from bot.terminal.telegram.terminal_router import is_terminal_command
 
         if is_terminal_command(text.strip()):

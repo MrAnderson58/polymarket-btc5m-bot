@@ -34,6 +34,14 @@ class AgentProfile:
     output: str
 
 
+@dataclass(frozen=True)
+class TelegramTerminalSettings:
+    report_cache_minutes: int
+    enable_progress_messages: bool
+    default_report: str
+    parse_mode: str
+
+
 def _parse_simple_yaml(text: str) -> dict[str, Any]:
     """Minimal indented YAML subset (no dependency on PyYAML)."""
     root: dict[str, Any] = {}
@@ -174,3 +182,41 @@ def load_agent_profiles(cfg: dict[str, Any] | None = None) -> dict[str, AgentPro
         if prompt and output:
             out[str(agent_id)] = AgentProfile(str(agent_id), prompt, output)
     return out
+
+
+def load_telegram_terminal_settings(cfg: dict[str, Any] | None = None) -> TelegramTerminalSettings:
+    cfg = cfg or load_config()
+    tg = dict(cfg.get("telegram") or {})
+    return TelegramTerminalSettings(
+        report_cache_minutes=int(
+            os.getenv("AI_ANALYST_REPORT_CACHE_MINUTES")
+            or tg.get("report_cache_minutes")
+            or 15
+        ),
+        enable_progress_messages=str(
+            os.getenv("AI_ANALYST_ENABLE_PROGRESS")
+            or tg.get("enable_progress_messages")
+            or "true"
+        ).strip().lower() not in ("0", "false", "no"),
+        default_report=str(
+            os.getenv("AI_ANALYST_DEFAULT_REPORT")
+            or tg.get("default_report")
+            or "full"
+        ).strip().lower(),
+        parse_mode=str(
+            os.getenv("AI_ANALYST_TELEGRAM_PARSE_MODE")
+            or tg.get("parse_mode")
+            or "HTML"
+        ).strip().upper(),
+    )
+
+
+REPORT_ARTIFACTS: dict[str, str] = {
+    "market": "market_report.md",
+    "btc": "btc_brief.md",
+    "macro": "macro_brief.md",
+    "sp500": "sp500_brief.md",
+    "telegram": "telegram_post.md",
+    "context": "market_context.json",
+    "summary": "market_summary.json",
+}

@@ -6,7 +6,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from bot.research.ai_analyst.config import (
     REPORTS_DIR,
@@ -24,6 +24,17 @@ from bot.research.ai_analyst.reasoning_engine import (
 )
 
 logger = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[dict[str, bool]], None]
+
+_PROGRESS_TEMPLATE: dict[str, bool] = {
+    "Context": False,
+    "Intelligence": False,
+    "Macro": False,
+    "ETF": False,
+    "AI Analysis": False,
+    "Telegram Report": False,
+}
 
 FLAG_TO_AGENT: dict[str, str] = {
     "morning": "s46_morning",
@@ -113,8 +124,17 @@ def run_ai_analyst(
     now: int | None = None,
     live_enrich: bool = True,
     live_payload: dict[str, Any] | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     """Build context once, then generate selected artifacts."""
+    progress = dict(_PROGRESS_TEMPLATE)
+
+    def _tick(**updates: bool) -> None:
+        progress.update(updates)
+        if on_progress:
+            on_progress(dict(progress))
+
+    _tick()
     settings = load_llm_settings()
     if force_template:
         settings = LLMSettings(
@@ -148,6 +168,7 @@ def run_ai_analyst(
         live_payload=live_payload,
     )
     context = enrich_context_for_analysis(context)
+    _tick(Context=True, Intelligence=True, Macro=True, ETF=True)
     out_dir = reports_dir or REPORTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -170,6 +191,13 @@ def run_ai_analyst(
                 reports_dir=out_dir,
             )
         )
+        if profile.prompt == "telegram_post":
+            _tick(**{"AI Analysis": True, "Telegram Report": True})
+        elif profile.prompt == "full_report":
+            _tick(**{"AI Analysis": True})
+
+    if not any(a.get("prompt") == "telegram_post" for a in artifacts):
+        _tick(**{"AI Analysis": True, "Telegram Report": True})
 
     return {
         "ok": True,

@@ -42,7 +42,9 @@ agents:
   s46_json:
     prompt: json_summary
     output: market_summary.json
-  # Placeholders for S47–S52 (prompts not shipped yet)
-  # s47_macro_analyst:
-  #   prompt: macro_analyst
-  #   output: macro_analyst_report.md
+
+telegram:
+  report_cache_minutes: 15
+  enable_progress_messages: true
+  default_report: full
+  parse_mode: HTML

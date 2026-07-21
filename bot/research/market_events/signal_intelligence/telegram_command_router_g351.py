@@ -51,6 +51,13 @@ SUPPORTED_COMMANDS = frozenset({
     "/paper",
     "/learning-status",
     "/reversal-diagnostics",
+    "/report",
+    "/btc",
+    "/macro",
+    "/sp500",
+    "/events",
+    "/narrative",
+    "/context",
 })
 
 # Commands that INSERT/UPDATE — never open on readonly connection.
@@ -129,6 +136,10 @@ def _build_command_reply(conn: Any, cmd: str, args: list[str], *, chat_id: int |
     if cmd == "/help":
         return "\n".join([
             "G3.6 Commands",
+            "",
+            "AI Research (S46.4):",
+            "/report  /market  /btc  /macro  /sp500",
+            "/events  /narrative  /context  /health",
             "",
             "/status  /health",
             "/market  /ai BTC  /analyze BTC",
