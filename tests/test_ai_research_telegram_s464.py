@@ -207,10 +207,10 @@ class TestHandlersS464(unittest.TestCase):
         self.assertTrue(delivery.already_delivered)
         self.assertTrue(any("Report generation failed" in e for e in edits))
 
-    @patch("bot.research.ai_analyst.telegram_terminal.ensure_full_report_suite")
+    @patch("bot.research.ai_analyst.telegram_terminal._regenerate_full")
     @patch("bot.research.ai_analyst.telegram_terminal.build_report_completion_message")
-    def test_interactive_report_success(self, mock_msg: MagicMock, mock_suite: MagicMock) -> None:
-        mock_suite.return_value = (True, {"ok": True})
+    def test_interactive_report_success(self, mock_msg: MagicMock, mock_regen: MagicMock) -> None:
+        mock_regen.return_value = {"ok": True}
         mock_msg.return_value = "<b>done</b>"
         edits: list[str] = []
 

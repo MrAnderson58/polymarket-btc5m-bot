@@ -227,6 +227,7 @@ class TestContextAndRunS46(unittest.TestCase):
         report = (self.reports / "market_report.md").read_text()
         for section in (
             "## Executive Summary", "Today's Theme:", "Market Bias:",
+            "## Data Timestamp",
             "## Cross-Asset Relationships", "## Market Contradictions",
             "## Current Narrative", "## Bitcoin", "## Macro",
             "## Prediction Markets", "## Key Events", "## Conclusion",

@@ -11,6 +11,7 @@ from typing import Any, Protocol
 import requests
 
 from bot.research.ai_analyst.config import LLMSettings, load_llm_settings
+from bot.research.ai_analyst.data_timestamps import format_data_timestamp_block
 
 logger = logging.getLogger(__name__)
 
@@ -392,7 +393,12 @@ def _template_from_context(ctx: dict[str, Any], *, user: str) -> str:
         "Cross-asset setup reflects mixed macro and flow signals. Template analyst — context only.",
     ])
 
-    sections = [
+    ts_block = format_data_timestamp_block(ctx) if ctx.get("data_timestamps") else ""
+
+    sections = []
+    if ts_block:
+        sections.extend([ts_block, ""])
+    sections.extend([
         exec_summary,
         "",
         "## Global Market Overview",
@@ -515,7 +521,7 @@ def _template_from_context(ctx: dict[str, Any], *, user: str) -> str:
         "## Conclusion",
         f"Situational bias {_bias_label(bias)} with {risk} risk and {conf}% confidence. "
         "Research context only — not investment advice.",
-    ]
+    ])
     return "\n".join(sections)
 
 

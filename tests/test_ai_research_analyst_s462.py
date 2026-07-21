@@ -145,6 +145,7 @@ class TestReportStructureS462(unittest.TestCase):
         )
         report = (self.reports / "market_report.md").read_text()
         for section in (
+            "## Data Timestamp",
             "## Executive Summary",
             "Today's Theme:",
             "Market Bias:",

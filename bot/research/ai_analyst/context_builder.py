@@ -8,6 +8,7 @@ import math
 import time
 from typing import Any
 
+from bot.research.ai_analyst.data_timestamps import build_data_timestamps
 from bot.research.ai_analyst.market_data_fetch import (
     fetch_all_live_enrichment,
     metric_from_values,
@@ -354,7 +355,16 @@ def build_market_context(
         us10y_m = quotes.get("us10y")
         us02y_m = quotes.get("us02y")
 
-        btc_price = latest.get("btc_price") if latest else None
+        btc_snap_price = float(latest["btc_price"]) if latest and latest.get("btc_price") is not None else None
+        btc_snap_prev = float(s24["btc_price"]) if s24 and s24.get("btc_price") is not None else None
+        btc_m = _prefer_metric(
+            quotes.get("btc"),
+            btc_snap_price,
+            btc_snap_prev,
+            source_snap="snapshot:g3",
+            unit="USD",
+        )
+        btc_price = btc_m.get("value") if btc_m else btc_snap_price
         btc_prices = [
             float(r["btc_price"])
             for r in snaps
@@ -362,9 +372,26 @@ def build_market_context(
             and int(r.get("snapshot_ts") or 0) >= now_ts - 86400
         ]
         btc: dict[str, Any] = {}
-        if btc_price is not None:
+        if btc_m:
+            btc["price"] = float(btc_m["value"])
+            if btc_m.get("source"):
+                btc["source"] = btc_m["source"]
+            if btc_m.get("asof_ts") is not None:
+                btc["asof_ts"] = int(btc_m["asof_ts"])
+            if btc_m.get("change_24h_pct") is not None:
+                btc["change_24h_pct"] = float(btc_m["change_24h_pct"])
+            elif btc_m.get("change_24h") is not None and btc_m.get("prev"):
+                ch = _pct_change(btc_m["value"], btc_m["prev"])
+                if ch is not None:
+                    btc["change_24h_pct"] = ch
+        elif btc_price is not None:
             btc["price"] = float(btc_price)
+            btc["source"] = "snapshot:g3"
+            if latest and latest.get("snapshot_ts") is not None:
+                btc["asof_ts"] = int(latest["snapshot_ts"])
         for label, snap in (("change_1h_pct", s1h), ("change_24h_pct", s24), ("change_7d_pct", s7)):
+            if label == "change_24h_pct" and "change_24h_pct" in btc:
+                continue
             ch = _pct_change(btc_price, snap.get("btc_price") if snap else None)
             if ch is not None:
                 btc[label] = ch
@@ -532,6 +559,7 @@ def build_market_context(
             },
             "live_enrichment": {
                 "enabled": bool(live_enrich),
+                "fetched_at": live.get("fetched_at"),
                 "elapsed_ms": live.get("elapsed_ms"),
                 "quotes_fetched": sorted(quotes.keys()),
             },
@@ -548,6 +576,13 @@ def build_market_context(
         ctx["completeness"] = completeness
         if completeness["missing_fields"]:
             ctx["data_gaps"] = completeness["missing_fields"]
+        snap_ts = int(latest["snapshot_ts"]) if latest and latest.get("snapshot_ts") else None
+        ctx["data_timestamps"] = build_data_timestamps(
+            ctx,
+            now_ts=now_ts,
+            latest_snapshot_ts=snap_ts,
+            events_raw=events_raw,
+        )
         return ctx
 
     if conn is not None:

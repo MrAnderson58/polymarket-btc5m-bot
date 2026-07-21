@@ -141,6 +141,25 @@ def format_error_html(reason: str) -> str:
     )
 
 
+def format_data_timestamp_html(ctx: dict[str, Any]) -> str:
+    ts = ctx.get("data_timestamps") or {}
+    lines = [
+        section_header("Data Timestamp", "🕐"),
+        "",
+        f"<b>Market:</b> {escape(str(ts.get('market') or 'unknown'))}",
+        f"<b>Macro:</b> {escape(str(ts.get('macro') or 'unknown'))}",
+        f"<b>Intelligence:</b> {escape(str(ts.get('intelligence') or 'unknown'))}",
+        f"<b>Context:</b> {escape(str(ts.get('context') or 'unknown'))}",
+    ]
+    sources = ts.get("sources") or {}
+    if sources.get("btc") or sources.get("sp500"):
+        lines.append(
+            f"<b>Price sources:</b> BTC={escape(str(sources.get('btc') or '—'))}, "
+            f"SP500={escape(str(sources.get('sp500') or '—'))}"
+        )
+    return "\n".join(lines)
+
+
 def format_context_status_html(ctx: dict[str, Any]) -> str:
     quality = ctx.get("analysis_quality") or {}
     completeness = ctx.get("context_completeness") or quality.get("context_completeness")

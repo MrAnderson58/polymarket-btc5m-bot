@@ -1,5 +1,7 @@
 Write a full MARKET RESEARCH REPORT in Markdown.
 
+Note: A ## Data Timestamp block is prepended automatically — do not duplicate it.
+
 Use EXACTLY these ## sections in order:
 
 ## Executive Summary

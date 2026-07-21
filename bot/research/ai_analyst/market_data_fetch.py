@@ -17,6 +17,7 @@ _TIMEOUT = 15.0
 
 # Yahoo Finance chart symbols
 _YAHOO = {
+    "btc": "BTC-USD",
     "spx": "^GSPC",
     "nasdaq": "^NDX",
     "qqq": "QQQ",
@@ -115,6 +116,7 @@ def fetch_live_macro_quotes() -> dict[str, dict[str, Any]]:
     """Fetch SPX/Nasdaq/VIX/DXY/yields/gold/oil as normalized metrics."""
     out: dict[str, dict[str, Any]] = {}
     units = {
+        "btc": "USD",
         "us10y": "%",
         "us02y": "%",
         "vix": "index",
@@ -211,12 +213,19 @@ def trend_from_change(change: float | None, *, eps: float = 1e-6) -> str:
 
 
 def fetch_all_live_enrichment() -> dict[str, Any]:
-    """One-shot enrichment payload for context_builder."""
+    """One-shot enrichment payload for context_builder (always live; no cache)."""
     t0 = time.perf_counter()
+    fetched_at = int(time.time())
     quotes = fetch_live_macro_quotes()
     etf = fetch_etf_netflows()
     return {
         "quotes": quotes,
         "etf": etf,
+        "fetched_at": fetched_at,
         "elapsed_ms": round((time.perf_counter() - t0) * 1000.0, 1),
     }
+
+
+def refresh_market_data() -> dict[str, Any]:
+    """Explicit live refresh — call before /report context build."""
+    return fetch_all_live_enrichment()

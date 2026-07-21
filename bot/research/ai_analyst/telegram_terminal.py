@@ -28,6 +28,7 @@ from bot.research.ai_analyst.telegram_formatter import (
     escape,
     extract_executive_summary,
     format_context_status_html,
+    format_data_timestamp_html,
     format_error_html,
     format_executive_summary_html,
     format_report_body_html,
@@ -147,11 +148,17 @@ def _read_report_text(key: str, *, reports_dir: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _regenerate_full(*, reports_dir: Path, on_progress: Callable[[dict[str, bool]], None] | None) -> dict[str, Any]:
+def _regenerate_full(
+    *,
+    reports_dir: Path,
+    on_progress: Callable[[dict[str, bool]], None] | None,
+    refresh_live_data: bool = False,
+) -> dict[str, Any]:
     return run_ai_analyst(
         flags=None,
         reports_dir=reports_dir,
         on_progress=on_progress,
+        refresh_live_data=refresh_live_data,
     )
 
 
@@ -160,11 +167,13 @@ def _regenerate_partial(
     *,
     reports_dir: Path,
     on_progress: Callable[[dict[str, bool]], None] | None,
+    refresh_live_data: bool = False,
 ) -> dict[str, Any]:
     return run_ai_analyst(
         flags=flags,
         reports_dir=reports_dir,
         on_progress=on_progress,
+        refresh_live_data=refresh_live_data,
     )
 
 
@@ -254,9 +263,21 @@ def format_research_health_html(*, reports_dir: Path) -> str:
 def build_report_completion_message(*, reports_dir: Path) -> str:
     market_md = _read_report_text("market", reports_dir=reports_dir)
     telegram_md = _read_report_text("telegram", reports_dir=reports_dir)
+    ctx_path = report_path("context", reports_dir=reports_dir)
+    ctx: dict[str, Any] = {}
+    if ctx_path.is_file():
+        try:
+            ctx = json.loads(ctx_path.read_text(encoding="utf-8"))
+        except Exception:
+            ctx = {}
+    ts_html = format_data_timestamp_html(ctx)
     exec_html = format_executive_summary_html(extract_executive_summary(market_md))
     tg_html = markdown_to_telegram_html(telegram_md)
     parts = [
+        ts_html,
+        "",
+        format_separator(),
+        "",
         exec_html,
         "",
         format_separator(),
@@ -294,11 +315,17 @@ def deliver_report_key(
 
     def _regen() -> dict[str, Any]:
         if key == "market":
-            return _regenerate_full(reports_dir=out_dir, on_progress=on_progress)
+            return _regenerate_full(
+                reports_dir=out_dir, on_progress=on_progress, refresh_live_data=True,
+            )
         flags = _REPORT_FLAGS.get(key)
         if flags:
-            return _regenerate_partial(flags, reports_dir=out_dir, on_progress=on_progress)
-        return _regenerate_full(reports_dir=out_dir, on_progress=on_progress)
+            return _regenerate_partial(
+                flags, reports_dir=out_dir, on_progress=on_progress, refresh_live_data=True,
+            )
+        return _regenerate_full(
+            reports_dir=out_dir, on_progress=on_progress, refresh_live_data=True,
+        )
 
     if regenerate_if_stale:
         ensure_fresh_report(
@@ -387,7 +414,11 @@ def run_interactive_report(
                 ensure_full_report_suite(
                     settings=settings,
                     reports_dir=out_dir,
-                    regenerate=lambda: _regenerate_full(reports_dir=out_dir, on_progress=on_progress),
+                    regenerate=lambda: _regenerate_full(
+                        reports_dir=out_dir,
+                        on_progress=on_progress,
+                        refresh_live_data=True,
+                    ),
                 )
             text = format_report_body_html(
                 _read_report_text("market", reports_dir=out_dir),
@@ -401,19 +432,13 @@ def run_interactive_report(
                 already_delivered=True,
             )
 
-        # /report — full suite
-        regenerated, result = ensure_full_report_suite(
-            settings=settings,
+        # /report — always refresh live data + full regeneration (no report cache)
+        result = _regenerate_full(
             reports_dir=out_dir,
-            regenerate=lambda: _regenerate_full(reports_dir=out_dir, on_progress=on_progress),
+            on_progress=on_progress,
+            refresh_live_data=True,
         )
-        if not regenerated and result is None:
-            # force progress ticks when cache hit
-            for step in _PROGRESS_STEPS:
-                done[step] = True
-                on_progress(done)
-
-        if result is not None and not result.get("ok", True):
+        if not result.get("ok", True):
             raise RuntimeError(str(result.get("error") or "generation failed"))
 
         final = build_report_completion_message(reports_dir=out_dir)

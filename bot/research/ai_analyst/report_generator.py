@@ -16,6 +16,7 @@ from bot.research.ai_analyst.config import (
     load_llm_settings,
 )
 from bot.research.ai_analyst.context_builder import build_market_context, dump_context_json
+from bot.research.ai_analyst.data_timestamps import format_data_timestamp_block
 from bot.research.ai_analyst.llm_client import LLMClient, LLMResponse, get_llm_client
 from bot.research.ai_analyst.prompt_builder import build_messages
 from bot.research.ai_analyst.reasoning_engine import (
@@ -97,9 +98,11 @@ def generate_artifact(
             text = text.strip().strip('"')[:280]
         elif profile.prompt == "telegram_post":
             text = text.strip()[:1200]
-        if profile.prompt == "full_report" and "## Analysis Quality" not in text:
+        if profile.prompt == "full_report":
+            if "## Data Timestamp" not in text:
+                text = format_data_timestamp_block(context) + "\n\n" + text
             quality = (context.get("analysis_quality") or {})
-            if quality:
+            if quality and "## Analysis Quality" not in text:
                 text = text.rstrip() + "\n\n" + format_analysis_quality_block(quality)
         out_path.write_text(text.rstrip() + "\n", encoding="utf-8")
 
@@ -125,6 +128,7 @@ def run_ai_analyst(
     live_enrich: bool = True,
     live_payload: dict[str, Any] | None = None,
     on_progress: ProgressCallback | None = None,
+    refresh_live_data: bool = False,
 ) -> dict[str, Any]:
     """Build context once, then generate selected artifacts."""
     progress = dict(_PROGRESS_TEMPLATE)
@@ -135,6 +139,10 @@ def run_ai_analyst(
             on_progress(dict(progress))
 
     _tick()
+    if refresh_live_data:
+        from bot.research.ai_analyst.market_data_fetch import refresh_market_data
+        live_payload = refresh_market_data()
+        live_enrich = True
     settings = load_llm_settings()
     if force_template:
         settings = LLMSettings(
