@@ -151,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
             "stop-all",
             "status",
             "health",
+            "doctor",
             "telegram-status",
             "restart-telegram",
             "ai-worker-run",
@@ -396,6 +397,11 @@ def main(argv: list[str] | None = None) -> int:
         default=100,
         help="sqlite-lock-smoke: commands per type (default 100)",
     )
+    parser.add_argument(
+        "--skip-network",
+        action="store_true",
+        help="doctor: skip live HTTP / Telegram getMe probes",
+    )
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
 
@@ -424,6 +430,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "health":
         from bot.research.market_events.process_manager import system_health_report
         print(system_health_report())
+        return 0
+
+    if args.command == "doctor":
+        from bot.research.market_events.doctor import run_doctor
+        print(run_doctor(skip_network=bool(args.skip_network)))
         return 0
 
     if args.command == "telegram-status":
