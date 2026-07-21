@@ -23,7 +23,12 @@ def build_messages(
     prompts_dir: Path | None = None,
 ) -> tuple[str, str]:
     """Return (system, user) messages. Analysis instructions live in prompt files."""
-    system = load_prompt("system_base", prompts_dir=prompts_dir)
+    base = load_prompt("system_base", prompts_dir=prompts_dir)
+    try:
+        rules = load_prompt("reasoning_rules", prompts_dir=prompts_dir)
+        system = f"{base}\n\n{rules}"
+    except FileNotFoundError:
+        system = base
     task = load_prompt(prompt_name, prompts_dir=prompts_dir)
     payload = json.dumps(context, ensure_ascii=False, indent=2, default=str)
     user = (

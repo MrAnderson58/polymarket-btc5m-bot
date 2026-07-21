@@ -1,23 +1,86 @@
-Write a full market research report in Markdown with EXACTLY these sections (## headings):
+Write a full MARKET RESEARCH REPORT in Markdown.
+
+Use EXACTLY these ## sections in order:
 
 ## Executive Summary
-## Global Market Overview
-## Bitcoin
-## S&P500
-## Macro
-## ETF
-## Derivatives
-## Prediction Markets
-## Key Events
-## Risk Factors
-## Positive Drivers
-## Negative Drivers
-## Next 24 Hours
-## Conclusion
+Start with these five labeled blocks (plain text labels, not bullets):
+Today's Theme:
+Market Bias:
+Confidence:
+Key Drivers:
+Main Risks:
 
-Constraints:
-- English
-- Analytical memo style
-- Use only the context JSON
-- No trading recommendations
-- If a section lacks data, write one sentence noting limited coverage
+Then 2–3 sentences connecting the theme to cross-asset dynamics.
+Confidence should align with analysis_quality.confidence when present.
+
+## Global Market Overview
+Explain the risk environment in prose (not a data table).
+Cover: risk appetite, dollar, yields, crypto, equities.
+### Key Takeaways
+
+## Cross-Asset Relationships
+Analyze ONLY pairs listed in reasoning_hints.cross_asset_pairs_available.
+Subsections (skip if data missing): Stocks vs BTC, Dollar vs BTC, Yields vs BTC, VIX vs BTC, Gold vs BTC.
+For each: explain the relationship and current tension — no price targets.
+### Key Takeaways
+
+## Market Contradictions
+Use reasoning_hints.contradictions_detected plus any others you infer from context.
+Format: "X BUT Y" with one paragraph explaining the tension.
+If none: say "No major contradictions detected in available data."
+### Key Takeaways
+
+## Current Narrative
+Use reasoning_hints.narrative_candidates as seeds.
+For each narrative (3–6 max), provide:
+- Narrative name
+- Strength (Strong/Moderate/Weak)
+- Evidence (from context only)
+### Key Takeaways
+
+## Bitcoin
+Explain market state, drivers, risks, BTC↔macro links.
+Answer: why important? impact on BTC? what changed?
+### Key Takeaways
+
+## S&P500
+Same reasoning framework for equities.
+### Key Takeaways
+
+## Macro
+Regime read: dollar, rates, commodities. Impact on risk assets, BTC, SP500.
+### Key Takeaways
+
+## ETF
+Interpret numeric netflows (not headlines). Link to BTC demand narrative.
+### Key Takeaways
+
+## Derivatives
+Funding, OI, liquidations — interpret positioning, not raw repeats.
+### Key Takeaways
+
+## Prediction Markets
+What consensus implies — descriptive only.
+### Key Takeaways
+
+## Key Events
+Top intel events with WHY they matter (use why_it_matters when present).
+### Key Takeaways
+
+## Risk Factors
+### Key Takeaways
+
+## Positive Drivers
+### Key Takeaways
+
+## Negative Drivers
+### Key Takeaways
+
+## Next 24 Hours
+What to monitor (not trade).
+### Key Takeaways
+
+## Conclusion
+Synthesis in 3–5 sentences.
+
+Constraints: English, institutional tone, context-only, no trading advice.

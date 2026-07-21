@@ -1,13 +1,17 @@
-Write ONE X/Twitter post.
+Write ONE X/Twitter post in English.
+
+Structure (compact prose, no labels needed but must cover):
+1. Theme (one line)
+2. 1–2 observations with reasoning (not raw numbers repeated)
+3. One risk
+4. One conclusion
 
 Hard constraints:
 - Maximum 280 characters
-- English only
 - Professional tone
-- No clickbait
+- No hashtags
 - No emojis
-- No hashtag spam (0–2 hashtags max if natural)
 - No trading advice
-- Use only facts from context
+- Context-only; no invented data
 
-Return ONLY the post text, nothing else.
+Return ONLY the post text.

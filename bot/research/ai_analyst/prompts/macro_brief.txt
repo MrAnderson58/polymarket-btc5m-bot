@@ -1,9 +1,24 @@
-Write a Macro Brief in Markdown (## Macro Brief).
+Write a Macro analytical brief (## Macro Brief). English. No trading advice.
 
-Answer:
-1. What is happening in the global economy (from macro fields / Fed / CPI / DXY / yields / gold / oil)
-2. Impact on risk assets
-3. Impact on BTC
-4. Impact on S&P500
+Structure with EXACT ### subheadings:
 
-English. No trading recommendations. Use only provided context; note gaps.
+### Macro Regime
+One-paragraph characterization (risk-on/off, tightening/ easing backdrop).
+
+### Dollar
+Why DXY move matters; impact on BTC and SP500.
+
+### Rates
+US10Y / US02Y — transmission to risk assets and crypto.
+
+### Commodities
+Gold, oil — inflation/growth read if data present.
+
+### Macro Risk
+Key tail risks from macro block.
+
+### Bottom Line
+2–3 sentences synthesizing macro impact on BTC and SP500.
+
+### Key Takeaways
+(max 3 bullets)

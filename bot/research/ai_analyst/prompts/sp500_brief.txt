@@ -1,9 +1,21 @@
-Write an S&P500 Brief in Markdown (## S&P500 Brief).
+Write an S&P500 analytical brief (## S&P500 Brief). English. No trading advice.
 
-Answer:
-1. Equity market state (price / change / distance to ATH / VIX if present)
-2. Sector leaders — only if present in context; otherwise state unavailable
-3. Investor sentiment (VIX / Fear & Greed if present)
-4. Linkage to BTC (correlation narrative only if data supports)
+Structure with EXACT ### subheadings:
 
-English. No trading recommendations. Use only provided context.
+### Risk Appetite
+Interpret equity tone using SP500, VIX, Fear & Greed.
+
+### Breadth
+Sector/breadth only if in context; else state unavailable.
+
+### Volatility
+VIX read and what it implies for equities.
+
+### BTC Correlation
+How equity move relates to BTC given context (no fabricated correlation stats).
+
+### Bottom Line
+2–3 sentences.
+
+### Key Takeaways
+(max 3 bullets)

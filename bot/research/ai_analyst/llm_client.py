@@ -74,6 +74,37 @@ def _task_header(user: str) -> str:
     return (user or "").lower()
 
 
+def _macro_line(macro: dict[str, Any], key: str) -> str:
+    block = macro.get(key) or {}
+    if isinstance(block, dict):
+        val = block.get("value")
+        ch = block.get("change_24h")
+        trend = block.get("trend")
+        if val is not None:
+            parts = [f"{key.upper()} {val}"]
+            if ch is not None:
+                parts.append(f"Δ24h {ch}")
+            if trend:
+                parts.append(f"({trend})")
+            return " ".join(parts)
+    return ""
+
+
+def _bias_label(bias: str) -> str:
+    return {
+        "bullish": "Moderately Bullish",
+        "bearish": "Moderately Bearish",
+        "neutral": "Neutral",
+    }.get(bias, "Mixed")
+
+
+def _key_takeaways(*items: str) -> str:
+    lines = ["### Key Takeaways"]
+    for item in items[:3]:
+        lines.append(f"- {item}")
+    return "\n".join(lines)
+
+
 def _template_from_context(ctx: dict[str, Any], *, user: str) -> str:
     """Rule-based report when LLM unavailable (still produces all artifacts)."""
     btc = ctx.get("btc") or {}
@@ -85,6 +116,11 @@ def _template_from_context(ctx: dict[str, Any], *, user: str) -> str:
     fg = ctx.get("fear_greed") or {}
     fund = ctx.get("funding") or {}
     oi = ctx.get("open_interest") or {}
+    hints = ctx.get("reasoning_hints") or {}
+    quality = ctx.get("analysis_quality") or {}
+    contradictions = hints.get("contradictions_detected") or []
+    narratives = hints.get("narrative_candidates") or []
+    pairs = hints.get("cross_asset_pairs_available") or []
 
     lead = events[0].get("title") if events else "Limited event coverage in lookback"
     bias = "neutral"
@@ -97,12 +133,42 @@ def _template_from_context(ctx: dict[str, Any], *, user: str) -> str:
             bias = "bearish"
 
     btc_px = btc.get("price")
-    spx_px = spx.get("price")
+    spx_px = spx.get("value") or spx.get("price")
     risk = "MEDIUM"
     if (fg.get("current") is not None and float(fg["current"]) <= 25) or abs(sent) > 0.4:
         risk = "HIGH"
     elif abs(sent) < 0.1:
         risk = "LOW"
+
+    conf = quality.get("confidence") or 50
+    theme = (
+        f"Risk assets show a {bias} tilt; lead narrative: {str(lead)[:120]}."
+        if events else "Data coverage limited — interpret with caution."
+    )
+    drivers = []
+    etf = ctx.get("etf") or {}
+    btc_etf = etf.get("btc_etf") or {}
+    if btc_etf.get("netflow_5d") is not None:
+        drivers.append(f"ETF 5d netflow {btc_etf.get('netflow_5d')} USD millions")
+    if events:
+        drivers.append(str(lead)[:80])
+    vix = ctx.get("vix") or {}
+    if vix.get("trend"):
+        drivers.append(f"VIX trend {vix.get('trend')}")
+    if not drivers:
+        drivers.append("Insufficient driver data in context")
+
+    risks = []
+    if fg.get("current") is not None and float(fg["current"]) < 40:
+        risks.append(f"Fear & Greed still cautious ({fg.get('current')})")
+    dxy_line = _macro_line(macro, "dxy")
+    if dxy_line:
+        risks.append(f"Dollar backdrop: {dxy_line}")
+    y10_line = _macro_line(macro, "us10y")
+    if y10_line:
+        risks.append(f"Rates: {y10_line}")
+    if not risks:
+        risks.append("Event-driven volatility; check data_gaps in context")
 
     task = _task_header(user)
     if "exact keys" in task or "json object" in task or "market_bias" in task:
@@ -111,55 +177,74 @@ def _template_from_context(ctx: dict[str, Any], *, user: str) -> str:
             "risk_level": risk,
             "main_theme": str(lead)[:180],
             "btc_summary": (
-                f"BTC price={btc_px}; 24h={btc.get('change_24h_pct')}; "
-                f"dominance={btc.get('dominance')}"
+                f"BTC {btc_px}; 24h {btc.get('change_24h_pct')}% — "
+                f"{'flat despite supportive flows' if bias == 'bullish' else 'tracking macro tone'}"
             ),
-            "sp500_summary": f"SPX price={spx_px}; change={spx.get('change_pct')}",
-            "macro_summary": (
-                f"DXY={macro.get('dxy')}; US10Y={macro.get('us10y')}; "
-                f"Fed={macro.get('fed')}"
-            ),
+            "sp500_summary": f"SPX {spx_px}; trend {spx.get('trend') or 'n/a'}",
+            "macro_summary": "; ".join(filter(None, [
+                _macro_line(macro, "dxy"), _macro_line(macro, "us10y"),
+            ])) or "Macro fields sparse",
             "top_events": [str(e.get("title") or "")[:120] for e in events[:5]],
-            "top_risks": [
-                "Data gaps in snapshot fields" if btc_px is None else "Event-driven volatility",
-                f"Funding={fund.get('current')}; OI={oi.get('current')}",
-            ],
-            "next_24h": "Monitor event freshness, funding extremes, and macro prints in context.",
+            "top_risks": risks[:5],
+            "next_24h": "Monitor ETF flows, intel freshness, funding, and macro prints.",
+            "analysis_quality": quality,
         }, ensure_ascii=False, indent=2)
 
     if "280 characters" in task or "x/twitter" in task:
+        obs = str(lead)[:70] if events else "Mixed signals"
+        risk_bit = risks[0][:50] if risks else f"Risk {risk}"
         parts = [
-            f"Market bias {bias}.",
-            f"Lead: {str(lead)[:90]}.",
-            f"Risk {risk}. Context only.",
+            f"{theme[:90]}",
+            f"{obs}.",
+            f"Risk: {risk_bit}.",
+            "Context only.",
         ]
         return " ".join(parts)[:280]
 
     if "telegram" in task or "русский" in task:
         lines = [
-            f"Обзор рынка ({bias}, риск {risk}).",
-            f"Главное: {str(lead)[:160]}",
-            f"BTC: {btc_px}; SPX: {spx_px}; F&G: {fg.get('current')}",
-            "Только контекст, не рекомендация.",
+            "📰 Market Snapshot",
+            f"Рынок {bias}, риск {risk}. {str(lead)[:140]}",
+            "",
+            "📈 Main Driver",
+            drivers[0][:160],
+            "",
+            "⚠ Main Risk",
+            risks[0][:160],
+            "",
+            "₿ Bitcoin",
+            f"BTC {btc_px}; 24h {btc.get('change_24h_pct')}% — интерпретация по контексту.",
+            "",
+            "📊 Equities",
+            f"SPX {spx_px}; VIX {vix.get('value')}.",
+            "",
+            "🏛 Macro",
+            (_macro_line(macro, "dxy") or "Macro data limited")[:120],
+            "",
+            "👀 What to Watch",
+            "ETF потоки, свежие intel-события, funding.",
+            "",
+            "(No trading advice)",
         ]
-        return "\n".join(lines)[:800]
+        return "\n".join(lines)[:1200]
 
     if "morning brief" in task:
         return "\n".join([
             "## Morning Brief",
-            f"**Bias:** {bias} | **Risk:** {risk}",
-            f"**Lead:** {lead}",
-            f"**BTC:** price={btc_px}, 24h={btc.get('change_24h_pct')}",
-            f"**Macro:** DXY={macro.get('dxy')}, US10Y={macro.get('us10y')}",
+            f"**Bias:** {_bias_label(bias)} | **Risk:** {risk} | **Confidence:** {conf}%",
+            f"**Theme:** {theme}",
+            f"**Macro:** {_macro_line(macro, 'dxy') or 'n/a'}; {_macro_line(macro, 'us10y') or 'n/a'}",
+            f"**BTC:** {btc_px} (24h {btc.get('change_24h_pct')}%)",
+            f"**Watch:** {drivers[0]}",
             "**Note:** Template mode — LLM not configured. No trading advice.",
         ])
 
     if "evening brief" in task:
         return "\n".join([
             "## Evening Brief",
-            f"**Day bias:** {bias} | **Risk:** {risk}",
+            f"**Day bias:** {_bias_label(bias)} | **Risk:** {risk}",
             f"**What moved:** {lead}",
-            f"**BTC 24h:** {btc.get('change_24h_pct')} | **SPX change:** {spx.get('change_pct')}",
+            f"**BTC 24h:** {btc.get('change_24h_pct')}% | **SPX:** {spx.get('change_pct') or spx.get('change_24h')}",
             "**Overnight watch:** funding, OI delta, fresh intel events.",
             "**Note:** Template mode. No trading advice.",
         ])
@@ -167,98 +252,271 @@ def _template_from_context(ctx: dict[str, Any], *, user: str) -> str:
     if "btc brief" in task or "bitcoin-only" in task:
         return "\n".join([
             "## BTC Brief",
-            f"1. Drivers: {lead}",
-            f"2. Changes: 1h={btc.get('change_1h_pct')}, 24h={btc.get('change_24h_pct')}, "
-            f"7d={btc.get('change_7d_pct')}",
-            f"3. Risks: funding={fund.get('current')}, fear_greed={fg.get('current')}",
-            f"4. Supports: dominance={btc.get('dominance')}, volume={btc.get('volume')}",
-            "5. Watch: ETF/intel events and funding extremes in context.",
+            "",
+            "### Market State",
+            f"BTC trades near {btc_px}; 24h change {btc.get('change_24h_pct')}%. "
+            f"Lead intel: {lead}. Template reasoning — check ETF and macro for offsetting forces.",
+            "",
+            "### Bullish Factors",
+            "- " + (drivers[0] if drivers else "Limited bullish evidence in context"),
+            "- Positive intel sentiment when present in top_events",
+            "",
+            "### Bearish Factors",
+            "- " + (risks[0] if risks else "Macro/funding risks per context"),
+            f"- Funding {fund.get('current')}; elevated funding can cap upside",
+            "",
+            "### Critical Levels",
+            "Not available in context.",
+            "",
+            "### What to Watch Next",
+            "- ETF netflows and intel event freshness",
+            "- Funding and open interest shifts",
+            "- Dollar and yield moves vs BTC",
+            "",
+            _key_takeaways(
+                "BTC tone follows macro + flow mix in context",
+                "Watch contradictions between flows and price",
+                "No trade advice — monitoring only",
+            ),
+            "",
             "No trading advice.",
         ])
 
     if "macro brief" in task:
         return "\n".join([
             "## Macro Brief",
-            f"Economy snapshot: DXY={macro.get('dxy')}, US10Y={macro.get('us10y')}, "
-            f"US02Y={macro.get('us02y')}, Gold={macro.get('gold')}, Oil={macro.get('oil')}, "
-            f"Fed={macro.get('fed')}, CPI={macro.get('cpi')}.",
-            "Risk assets: sensitivity rises when DXY/Fed narrative dominates context.",
-            f"BTC: linked via risk tone; lead event={lead}",
-            f"S&P500: price={spx_px}; VIX={ctx.get('vix', {}).get('current')}",
+            "",
+            "### Macro Regime",
+            f"{'Risk-on with macro cross-currents' if bias == 'bullish' else 'Cautious macro backdrop'}. "
+            "Dollar and yields set the tone for risk assets.",
+            "",
+            "### Dollar",
+            _macro_line(macro, "dxy") or "DXY data unavailable — limits USD read.",
+            "A firmer dollar typically pressures BTC and multinationals.",
+            "",
+            "### Rates",
+            _macro_line(macro, "us10y") or "US10Y unavailable.",
+            _macro_line(macro, "us02y") or "",
+            "",
+            "### Commodities",
+            _macro_line(macro, "gold") or "Gold: n/a",
+            _macro_line(macro, "oil") or "Oil: n/a",
+            "",
+            "### Macro Risk",
+            f"Fed narrative: {macro.get('fed') or 'see context'}; risk level {risk}.",
+            "",
+            "### Bottom Line",
+            f"Macro transmission to BTC via risk tone; SPX at {spx_px}.",
+            "",
+            _key_takeaways(
+                "Macro sets the ceiling/floor for risk appetite",
+                "Rates and USD are primary BTC headwind/tailwind",
+                "Gaps reduce conviction — see data_gaps",
+            ),
+            "",
             "No trading advice.",
         ])
 
     if "s&p500 brief" in task or "sp500 brief" in task:
         return "\n".join([
             "## S&P500 Brief",
-            f"State: price={spx_px}, change={spx.get('change_pct')}, "
-            f"ATH distance={spx.get('distance_to_ath_pct')}",
-            f"Sentiment: VIX={ctx.get('vix', {}).get('current')}, F&G={fg.get('current')}",
-            "Sector leaders: unavailable in context.",
-            f"BTC link: shared risk tone; BTC={btc_px}",
+            "",
+            "### Risk Appetite",
+            f"SPX {spx_px}; trend {spx.get('trend') or 'n/a'}. "
+            f"F&G {fg.get('current')}. Equities reflect {bias} bias.",
+            "",
+            "### Breadth",
+            "Sector breadth unavailable in context.",
+            "",
+            "### Volatility",
+            f"VIX {vix.get('value')} ({vix.get('trend') or 'n/a'}). "
+            "Lower VIX supports equity risk-taking when confirmed by price.",
+            "",
+            "### BTC Correlation",
+            f"BTC {btc_px} — shared risk tone; both sensitive to macro and flows.",
+            "",
+            "### Bottom Line",
+            f"Equities {_bias_label(bias).lower()} with {risk} macro risk.",
+            "",
+            _key_takeaways(
+                "VIX and sentiment gauge equity comfort",
+                "BTC moves often align with equity risk days",
+                "Breadth data would sharpen the read",
+            ),
+            "",
             "No trading advice.",
         ])
 
-    # Full report default
+    # Full report default (S46.2 structure)
     ev_lines = []
     for e in events[:5]:
         ev_lines.append(
-            f"- {e.get('title')} | impact={e.get('market_impact')} | "
-            f"{e.get('polarity')} | {str(e.get('why_it_matters') or '')[:160]}"
+            f"- **{e.get('title')}** — {str(e.get('why_it_matters') or e.get('summary') or '')[:160]}"
         )
     if not ev_lines:
         ev_lines = ["- Limited intel event coverage"]
 
-    return "\n".join([
+    cross_lines = []
+    for pair in pairs:
+        cross_lines.append(f"**{pair}:** Relationship active in context — interpret co-movement, not forecast.")
+    if not cross_lines:
+        cross_lines = ["- Insufficient paired data for cross-asset analysis"]
+
+    contra_lines = []
+    for c in contradictions:
+        contra_lines.append(f"- {c}")
+    if not contra_lines:
+        contra_lines = ["- No major contradictions detected in available data"]
+
+    narr_lines = []
+    for n in narratives[:5]:
+        narr_lines.append(
+            f"- **{n.get('narrative')}** ({n.get('strength')}): {n.get('evidence')}"
+        )
+
+    exec_summary = "\n".join([
         "## Executive Summary",
-        f"Bias {bias}, risk {risk}. Lead development: {lead}. "
-        "Template analyst used (no LLM). Context-only; not trading advice.",
+        "",
+        f"Today's Theme:\n{theme}",
+        "",
+        f"Market Bias:\n{_bias_label(bias)}",
+        "",
+        f"Confidence:\n{conf}%",
+        "",
+        "Key Drivers:",
+        *[f"• {d}" for d in drivers[:4]],
+        "",
+        "Main Risks:",
+        *[f"• {r}" for r in risks[:4]],
+        "",
+        "Cross-asset setup reflects mixed macro and flow signals. Template analyst — context only.",
+    ])
+
+    sections = [
+        exec_summary,
         "",
         "## Global Market Overview",
-        f"BTC={btc_px}, SPX={spx_px}, VIX={ctx.get('vix', {}).get('current')}, "
-        f"F&G={fg.get('current')}.",
+        f"Risk environment: {risk}. BTC {btc_px}, SPX {spx_px}, VIX {vix.get('value')}, "
+        f"F&G {fg.get('current')}. Dollar and yields shape the backdrop.",
+        _key_takeaways(
+            "Macro and flows jointly set risk tone",
+            "BTC and equities share macro sensitivity",
+            "Check contradictions below for tension points",
+        ),
+        "",
+        "## Cross-Asset Relationships",
+        *cross_lines,
+        _key_takeaways(
+            "Compare direction, not isolated prints",
+            "Dollar/yields often lead crypto lag",
+            "Gold can diverge when real rates shift",
+        ),
+        "",
+        "## Market Contradictions",
+        *contra_lines,
+        _key_takeaways(
+            "Contradictions flag unstable narratives",
+            "Flows vs price is a common BTC tension",
+            "Resolve with fresh data, not assumptions",
+        ),
+        "",
+        "## Current Narrative",
+        *narr_lines,
+        _key_takeaways(
+            "Narratives need evidence from context",
+            "Strength reflects data density",
+            "Weak themes imply limited coverage",
+        ),
         "",
         "## Bitcoin",
-        f"Price={btc_px}; 1h={btc.get('change_1h_pct')}; 24h={btc.get('change_24h_pct')}; "
-        f"7d={btc.get('change_7d_pct')}; vol={btc.get('volume')}; "
-        f"dominance={btc.get('dominance')}; rv={btc.get('realized_volatility')}.",
+        f"BTC near {btc_px}; 1h {btc.get('change_1h_pct')}%, 24h {btc.get('change_24h_pct')}%. "
+        f"Dominance {btc.get('dominance')}. Drivers: {drivers[0] if drivers else 'n/a'}.",
+        _key_takeaways(
+            "Price action vs flows defines near-term tone",
+            "Derivatives positioning matters for squeeze risk",
+            "Macro headwinds can offset ETF demand",
+        ),
         "",
         "## S&P500",
-        f"Price={spx_px}; change={spx.get('change_pct')}; "
-        f"ATH distance={spx.get('distance_to_ath_pct')}.",
+        f"SPX {spx_px}; change {spx.get('change_pct') or spx.get('change_24h')}; "
+        f"ATH distance {spx.get('distance_to_ath_pct')}.",
+        _key_takeaways(
+            "Equity trend supports or drags BTC beta",
+            "VIX compression aids risk-on",
+            "Breadth unknown limits conviction",
+        ),
         "",
         "## Macro",
-        f"DXY={macro.get('dxy')}; US10Y={macro.get('us10y')}; US02Y={macro.get('us02y')}; "
-        f"Gold={macro.get('gold')}; Oil={macro.get('oil')}; Fed={macro.get('fed')}; "
-        f"CPI={macro.get('cpi')}; PPI={macro.get('ppi')}; NFP={macro.get('nfp')}.",
+        "; ".join(filter(None, [
+            _macro_line(macro, "dxy"), _macro_line(macro, "us10y"),
+            _macro_line(macro, "us02y"), _macro_line(macro, "gold"),
+            _macro_line(macro, "oil"),
+        ])) or "Macro block sparse.",
+        _key_takeaways(
+            "Dollar and yields are primary transmission",
+            "Commodities inform inflation growth mix",
+            "Fed/CPI fields anchor regime call",
+        ),
         "",
         "## ETF",
-        json.dumps(ctx.get("etf") or {}, ensure_ascii=False),
+        json.dumps(etf, ensure_ascii=False)[:800],
+        "Numeric netflows interpret institutional demand — link to BTC, not headline noise.",
+        _key_takeaways(
+            "Sustained inflows support medium-term bid",
+            "Flat price + inflows = absorption or lag",
+            "ETH ETF adds alt risk context",
+        ),
         "",
         "## Derivatives",
-        f"Funding={fund}; OI={oi}; Liquidations={ctx.get('liquidations')}.",
+        f"Funding {fund}; OI {oi}; Liquidations {ctx.get('liquidations')}.",
+        "Elevated funding suggests crowded longs; watch for mean reversion.",
+        _key_takeaways(
+            "Funding extremes flag positioning stress",
+            "OI changes confirm trend participation",
+            "Liquidations can accelerate moves",
+        ),
         "",
         "## Prediction Markets",
-        json.dumps(poly, ensure_ascii=False)[:1500],
+        json.dumps(poly, ensure_ascii=False)[:1200],
+        _key_takeaways(
+            "Polymarket reflects event-priced risk",
+            "Compare to spot narrative for gaps",
+            "Low liquidity limits signal weight",
+        ),
         "",
         "## Key Events",
         *ev_lines,
+        _key_takeaways(
+            "Intel events drive narrative shifts",
+            "Use why_it_matters for transmission",
+            "Freshness affects relevance",
+        ),
         "",
         "## Risk Factors",
-        f"Fear&Greed={fg}; data_availability={ctx.get('data_availability')}.",
+        f"Fear&Greed {fg.get('current')}; completeness {quality.get('context_completeness')}%.",
+        _key_takeaways(*risks[:3]),
         "",
         "## Positive Drivers",
-        "- See bullish intel events / ETF inflow narratives when present in context.",
+        *[f"- {d}" for d in drivers[:3]],
+        _key_takeaways("See bullish intel and ETF when present", "Macro tailwinds if DXY soft", "Risk-on equity tone helps BTC"),
         "",
         "## Negative Drivers",
-        "- See bearish intel / macro tightening narratives when present in context.",
+        *[f"- {r}" for r in risks[:3]],
+        _key_takeaways("Macro tightening weighs on beta", "Low sentiment caps rallies", "Event risk from intel calendar"),
         "",
         "## Next 24 Hours",
-        "Watch funding extremes, fresh intel events, and macro prints listed in context.",
+        "Watch funding extremes, fresh intel events, macro prints, and ETF flow updates.",
+        _key_takeaways(
+            "Monitor contradictions for resolution",
+            "Overnight macro can reprice crypto",
+            "No trade actions — observation only",
+        ),
         "",
         "## Conclusion",
-        f"Situational bias {bias} with risk {risk}. Research context only — not advice.",
-    ])
+        f"Situational bias {_bias_label(bias)} with {risk} risk and {conf}% confidence. "
+        "Research context only — not investment advice.",
+    ]
+    return "\n".join(sections)
 
 
 class AnthropicLLMClient:

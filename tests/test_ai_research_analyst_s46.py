@@ -21,7 +21,7 @@ from bot.research.ai_analyst.cli import main as cli_main
 class TestPromptsS46(unittest.TestCase):
     def test_prompts_exist(self) -> None:
         for name in (
-            "system_base", "full_report", "morning_brief", "evening_brief",
+            "system_base", "reasoning_rules", "full_report", "morning_brief", "evening_brief",
             "btc_brief", "macro_brief", "sp500_brief", "x_post",
             "telegram_post", "json_summary",
         ):
@@ -222,12 +222,15 @@ class TestContextAndRunS46(unittest.TestCase):
         x_text = (self.reports / "x_post.md").read_text().strip()
         self.assertLessEqual(len(x_text), 280)
         tg = (self.reports / "telegram_post.md").read_text().strip()
-        self.assertLessEqual(len(tg), 800)
+        self.assertLessEqual(len(tg), 1200)
 
         report = (self.reports / "market_report.md").read_text()
         for section in (
-            "## Executive Summary", "## Bitcoin", "## Macro",
+            "## Executive Summary", "Today's Theme:", "Market Bias:",
+            "## Cross-Asset Relationships", "## Market Contradictions",
+            "## Current Narrative", "## Bitcoin", "## Macro",
             "## Prediction Markets", "## Key Events", "## Conclusion",
+            "## Analysis Quality",
         ):
             self.assertIn(section, report)
 

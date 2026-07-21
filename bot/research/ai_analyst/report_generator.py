@@ -18,6 +18,10 @@ from bot.research.ai_analyst.config import (
 from bot.research.ai_analyst.context_builder import build_market_context, dump_context_json
 from bot.research.ai_analyst.llm_client import LLMClient, LLMResponse, get_llm_client
 from bot.research.ai_analyst.prompt_builder import build_messages
+from bot.research.ai_analyst.reasoning_engine import (
+    enrich_context_for_analysis,
+    format_analysis_quality_block,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +85,11 @@ def generate_artifact(
         if profile.prompt == "x_post":
             text = text.strip().strip('"')[:280]
         elif profile.prompt == "telegram_post":
-            text = text.strip()[:800]
+            text = text.strip()[:1200]
+        if profile.prompt == "full_report" and "## Analysis Quality" not in text:
+            quality = (context.get("analysis_quality") or {})
+            if quality:
+                text = text.rstrip() + "\n\n" + format_analysis_quality_block(quality)
         out_path.write_text(text.rstrip() + "\n", encoding="utf-8")
 
     return {
@@ -139,6 +147,7 @@ def run_ai_analyst(
         live_enrich=live_enrich,
         live_payload=live_payload,
     )
+    context = enrich_context_for_analysis(context)
     out_dir = reports_dir or REPORTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
