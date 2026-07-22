@@ -3,7 +3,7 @@
 Virtual account: $100 start, $100 margin per trade, 20x leverage ($2,000 notional).
 Does not modify Decision Engine, G3, or production trading paths.
 
-S54 — optional trailing-after-TP1 (TRAIL_AFTER_TP1=False by default).
+S54 — trailing-after-TP1 (TRAIL_AFTER_TP1=True by default; set False for Classic).
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ EXIT_STOP = "STOP"
 EXIT_TIMEOUT = "TIMEOUT"
 EXIT_TRAILING = "TRAILING"
 
-# ===== S54 (defaults off — Classic TP1 close) =====
-TRAIL_AFTER_TP1 = False
+# ===== S54 (production default: trailing after TP1) =====
+TRAIL_AFTER_TP1 = True
 TRAIL_DISTANCE_MODE = "ENTRY_TO_TP1"
 TRAIL_DISTANCE_MULTIPLIER = 1.0
 LOG_TRAILING_EVENTS = True
@@ -52,9 +52,9 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def refresh_trailing_config_from_env() -> None:
-    """Reload S54 flags from environment (tests / ops). Defaults stay Classic."""
+    """Reload S54 flags from environment (tests / ops)."""
     global TRAIL_AFTER_TP1, TRAIL_DISTANCE_MODE, TRAIL_DISTANCE_MULTIPLIER, LOG_TRAILING_EVENTS
-    TRAIL_AFTER_TP1 = _env_bool("TRAIL_AFTER_TP1", False)
+    TRAIL_AFTER_TP1 = _env_bool("TRAIL_AFTER_TP1", True)
     TRAIL_DISTANCE_MODE = os.environ.get("TRAIL_DISTANCE_MODE", "ENTRY_TO_TP1").strip() or "ENTRY_TO_TP1"
     try:
         TRAIL_DISTANCE_MULTIPLIER = float(os.environ.get("TRAIL_DISTANCE_MULTIPLIER", "1.0"))

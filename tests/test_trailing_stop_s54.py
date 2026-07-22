@@ -218,7 +218,7 @@ class TestTickClassicParityS54(unittest.TestCase):
         old = os.environ.pop("TRAIL_AFTER_TP1", None)
         try:
             s42.refresh_trailing_config_from_env()
-            self.assertFalse(s42.TRAIL_AFTER_TP1)
+            self.assertTrue(s42.TRAIL_AFTER_TP1)
         finally:
             if old is not None:
                 os.environ["TRAIL_AFTER_TP1"] = old
