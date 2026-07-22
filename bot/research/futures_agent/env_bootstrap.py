@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 
 _ENV_SNAPSHOT: dict[str, str] | None = None
 _BOOTSTRAPPED = False
+# Keys missing from os.environ at the last reset_bootstrap_for_tests() call.
+# Prevents load_dotenv from silently restoring secrets tests intentionally cleared.
+_DOTENV_SKIP_KEYS: frozenset[str] = frozenset()
 
 AGENT_ENV_KEYS = (
     "FUTURES_AGENT_DATABASE_URL",
@@ -69,7 +72,16 @@ def bootstrap_config() -> dict[str, str]:
     _ENV_SNAPSHOT = dict(os.environ)
     path = env_file_path()
     if path.is_file():
-        load_dotenv(path, override=False)
+        if _DOTENV_SKIP_KEYS:
+            # Test isolation: do not restore keys cleared before reset_bootstrap_for_tests().
+            dotenv_vars = parse_env_file(path)
+            for key, val in dotenv_vars.items():
+                if key in _DOTENV_SKIP_KEYS:
+                    continue
+                if key not in os.environ:
+                    os.environ[key] = val
+        else:
+            load_dotenv(path, override=False)
     _BOOTSTRAPPED = True
     return _ENV_SNAPSHOT
 
@@ -232,10 +244,16 @@ def fallback_reason(cfg: AgentDbConfig, *, dotenv_vars: dict[str, str] | None = 
 
 
 def reset_bootstrap_for_tests() -> None:
-    """Clear bootstrap cache — test isolation only."""
-    global _BOOTSTRAPPED, _ENV_SNAPSHOT
+    """Clear bootstrap cache — test isolation only.
+
+    AGENT_ENV_KEYS absent from the process environment at reset time are blocked
+    from being re-filled by the next bootstrap_config() dotenv load. That keeps
+    intentional clears (e.g. popping TELEGRAM_BOT_TOKEN before selftest) sticky.
+    """
+    global _BOOTSTRAPPED, _ENV_SNAPSHOT, _DOTENV_SKIP_KEYS
     _BOOTSTRAPPED = False
     _ENV_SNAPSHOT = None
+    _DOTENV_SKIP_KEYS = frozenset(k for k in AGENT_ENV_KEYS if k not in os.environ)
 
 
 def configure_unit_test_db_isolation(sqlite_path: str) -> None:
