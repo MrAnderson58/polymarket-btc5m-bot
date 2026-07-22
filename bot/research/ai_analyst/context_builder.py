@@ -9,6 +9,10 @@ import time
 from typing import Any
 
 from bot.research.ai_analyst.data_timestamps import build_data_timestamps
+from bot.research.ai_analyst.intelligence_compression import (
+    build_market_signal_events,
+    compress_intelligence_for_llm,
+)
 from bot.research.ai_analyst.market_data_fetch import (
     fetch_all_live_enrichment,
     metric_from_values,
@@ -513,6 +517,19 @@ def build_market_context(
         if whale_ev:
             whales["largest_transfers"] = whale_ev
 
+        market_signals = build_market_signal_events(
+            etf=etf,
+            funding=funding,
+            whales=whales,
+            macro=macro,
+        )
+        top_events_llm, compression_meta = compress_intelligence_for_llm(
+            events,
+            market_signals=market_signals,
+            now=now_ts,
+            limit=8,
+        )
+
         poly_rows = (
             load_polymarket_rows(c, since_ts=since, limit=80)
             if _table_exists(c, "market_polymarket_signals")
@@ -540,22 +557,9 @@ def build_market_context(
             "whales": whales,
             "polymarket": _poly_block(poly_rows),
             "intelligence": {
-                "top_events": [
-                    {
-                        "title": e.get("title"),
-                        "symbols": e.get("symbols"),
-                        "sentiment": e.get("sentiment"),
-                        "polarity": e.get("polarity"),
-                        "importance": e.get("importance"),
-                        "confidence": e.get("confidence"),
-                        "market_impact": e.get("market_impact"),
-                        "why_it_matters": e.get("why_it_matters"),
-                        "narrative": e.get("narrative"),
-                        "confirmed_by": e.get("confirmed_by"),
-                        "source_count": e.get("source_count"),
-                    }
-                    for e in events[:12]
-                ],
+                "top_events": top_events_llm,
+                "top_events_text": compression_meta.get("summary"),
+                "compression": compression_meta,
             },
             "live_enrichment": {
                 "enabled": bool(live_enrich),

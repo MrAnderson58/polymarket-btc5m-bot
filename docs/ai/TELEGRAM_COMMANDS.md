@@ -38,6 +38,7 @@ Also available (hidden from trader menu):
 1. Human sees **signal + essentials** only (~30–40 lines).
 2. Full text, AI summary, embeddings, entities, categories, impact, links, reasoning, and market reaction stay in storage for AI / learning / ranking / validation.
 3. News lines are `icon + headline` only (🟢 / 🟡 / 🔴) — no article bodies.
+4. **S50:** Before LLM, intelligence passes normalize → dedup → cluster → score → `top_events` (≤8). Full records stay in SQLite.
 
 ## Related CLI
 

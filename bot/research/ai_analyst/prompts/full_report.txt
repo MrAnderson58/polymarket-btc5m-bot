@@ -66,7 +66,9 @@ What consensus implies — descriptive only.
 ### Key Takeaways
 
 ## Key Events
-Top intel events with WHY they matter (use why_it_matters when present).
+Use ONLY intelligence.top_events (pre-compressed ranked list, ≤8 items).
+Each item: title + impact + polarity. Do not expand into full articles.
+Summarize the top 3–5 in prose with WHY they matter for BTC/risk assets.
 ### Key Takeaways
 
 ## Risk Factors

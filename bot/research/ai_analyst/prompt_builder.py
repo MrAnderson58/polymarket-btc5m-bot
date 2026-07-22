@@ -30,9 +30,26 @@ def build_messages(
     except FileNotFoundError:
         system = base
     task = load_prompt(prompt_name, prompts_dir=prompts_dir)
+    intel = context.get("intelligence") or {}
+    top_text = intel.get("top_events_text")
+    compression = intel.get("compression") or {}
+    stats = compression.get("stats") or {}
+    preface_lines = [
+        "Pre-compressed intelligence (S50): use ONLY intelligence.top_events "
+        "(typically ≤8 items). Do not invent additional headlines.",
+    ]
+    if stats:
+        preface_lines.append(
+            f"Pipeline: raw={stats.get('raw_count')} → deduped={stats.get('deduped_count')} "
+            f"→ clustered={stats.get('clustered_count')} → top={stats.get('top_count')}."
+        )
+    if top_text:
+        preface_lines.extend(["", str(top_text)])
+    preface = "\n".join(preface_lines)
     payload = json.dumps(context, ensure_ascii=False, indent=2, default=str)
     user = (
         f"{task}\n\n"
+        f"{preface}\n\n"
         "--- MARKET CONTEXT JSON (authoritative; do not invent beyond this) ---\n"
         f"{payload}\n"
         "--- END CONTEXT ---"
