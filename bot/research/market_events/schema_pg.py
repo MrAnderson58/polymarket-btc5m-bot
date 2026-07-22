@@ -85,6 +85,7 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     46: "Phase S1.1 Validation Signal Pipeline",
     47: "Phase S2.0 Trading Decision Engine MVP",
     48: "Phase S2.3 Telegram Signal Inbox",
+    64: "Phase S54 experimental TP1 trailing stop columns",
 }
 
 
@@ -205,6 +206,11 @@ def apply_pg_migrations(conn: Any) -> list[str]:
             desc = MIGRATION_DESCRIPTIONS.get(ver, f"v{ver}")
             _record_migration(conn, ver, desc)
             applied.append(f"v{ver}")
+        try:
+            from bot.research.market_events.event_schema import _ensure_s54_trailing_columns
+            _ensure_s54_trailing_columns(conn)
+        except Exception:
+            pass
 
     conn.commit()
     return applied

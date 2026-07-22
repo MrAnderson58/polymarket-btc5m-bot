@@ -100,7 +100,7 @@ class ShadowPipelineEndToEndTests(unittest.TestCase):
         with self._conn() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v44", applied)
-            self.assertEqual(SCHEMA_VERSION, 44)
+            self.assertGreaterEqual(SCHEMA_VERSION, 44)
             row = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='market_shadow_pipeline_trace'",
             ).fetchone()

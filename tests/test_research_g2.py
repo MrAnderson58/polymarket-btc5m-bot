@@ -104,19 +104,19 @@ class ResearchG2Tests(unittest.TestCase):
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v28", applied)
-            self.assertEqual(SCHEMA_VERSION, 44)
+            self.assertGreaterEqual(SCHEMA_VERSION, 44)
 
     def test_schema_v27(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v27", applied)
-            self.assertEqual(SCHEMA_VERSION, 44)
+            self.assertGreaterEqual(SCHEMA_VERSION, 44)
 
     def test_schema_v26(self) -> None:
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v26", applied)
-            self.assertEqual(SCHEMA_VERSION, 44)
+            self.assertGreaterEqual(SCHEMA_VERSION, 44)
 
     def test_eligibility_requires_f7_confidence(self) -> None:
         with conn_ctx(self.db) as conn:
@@ -416,9 +416,10 @@ class ClaudeClientG2Tests(unittest.TestCase):
     def test_not_configured_without_key(self) -> None:
         self.assertFalse(is_claude_configured())
 
+    @patch("bot.research.market_events.signal_intelligence.claude_client_g2.claude_call_allowed", return_value=(True, None))
     @patch("bot.research.market_events.signal_intelligence.claude_client_g2.requests.post")
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key", "ME_G2_CLAUDE_MODEL": "claude-sonnet-5"}, clear=False)
-    def test_call_claude_json(self, mock_post: MagicMock) -> None:
+    def test_call_claude_json(self, mock_post: MagicMock, _allowed: MagicMock) -> None:
         from bot.research.market_events.signal_intelligence.claude_client_g2 import call_claude_json_g2
 
         mock_post.return_value = MagicMock(

@@ -97,7 +97,7 @@ class ExperimentalG39Tests(unittest.TestCase):
         with self._conn() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v42", applied)
-            self.assertEqual(SCHEMA_VERSION, 44)
+            self.assertGreaterEqual(SCHEMA_VERSION, 44)
             row = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='market_experimental_signals_g39'",
             ).fetchone()

@@ -2,12 +2,15 @@
 
 Virtual account: $100 start, $100 margin per trade, 20x leverage ($2,000 notional).
 Does not modify Decision Engine, G3, or production trading paths.
+
+S54 — optional trailing-after-TP1 (TRAIL_AFTER_TP1=False by default).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from datetime import datetime
 from typing import Any
@@ -32,6 +35,35 @@ EXIT_TP1 = "TP1"
 EXIT_TP2 = "TP2"
 EXIT_STOP = "STOP"
 EXIT_TIMEOUT = "TIMEOUT"
+EXIT_TRAILING = "TRAILING"
+
+# ===== S54 (defaults off — Classic TP1 close) =====
+TRAIL_AFTER_TP1 = False
+TRAIL_DISTANCE_MODE = "ENTRY_TO_TP1"
+TRAIL_DISTANCE_MULTIPLIER = 1.0
+LOG_TRAILING_EVENTS = True
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def refresh_trailing_config_from_env() -> None:
+    """Reload S54 flags from environment (tests / ops). Defaults stay Classic."""
+    global TRAIL_AFTER_TP1, TRAIL_DISTANCE_MODE, TRAIL_DISTANCE_MULTIPLIER, LOG_TRAILING_EVENTS
+    TRAIL_AFTER_TP1 = _env_bool("TRAIL_AFTER_TP1", False)
+    TRAIL_DISTANCE_MODE = os.environ.get("TRAIL_DISTANCE_MODE", "ENTRY_TO_TP1").strip() or "ENTRY_TO_TP1"
+    try:
+        TRAIL_DISTANCE_MULTIPLIER = float(os.environ.get("TRAIL_DISTANCE_MULTIPLIER", "1.0"))
+    except (TypeError, ValueError):
+        TRAIL_DISTANCE_MULTIPLIER = 1.0
+    LOG_TRAILING_EVENTS = _env_bool("LOG_TRAILING_EVENTS", True)
+
+
+refresh_trailing_config_from_env()
 
 _TRADES = "market_events_paper_trades_s42"
 _ACCOUNT = "market_events_paper_account_s42"
@@ -103,6 +135,281 @@ def _tp_hit(is_long: bool, price: float, level: float) -> bool:
 
 def _sl_hit(is_long: bool, price: float, sl: float) -> bool:
     return price <= sl if is_long else price >= sl
+
+
+def _row_get(row: Any, key: str, default: Any = None) -> Any:
+    try:
+        keys = row.keys() if hasattr(row, "keys") else None
+        if keys is not None and key not in keys:
+            return default
+        val = row[key]
+        return default if val is None else val
+    except Exception:
+        return default
+
+
+def _log_trailing(event: str, **fields: Any) -> None:
+    if not LOG_TRAILING_EVENTS:
+        return
+    extra = " ".join(f"{k}={v}" for k, v in fields.items())
+    logger.info("S54 %s %s", event, extra)
+
+
+def trail_distance_from_entry_tp1(
+    entry: float,
+    tp1: float,
+    *,
+    multiplier: float | None = None,
+) -> float:
+    """S54 distance = abs(tp1 - entry) * TRAIL_DISTANCE_MULTIPLIER."""
+    mult = TRAIL_DISTANCE_MULTIPLIER if multiplier is None else float(multiplier)
+    return abs(float(tp1) - float(entry)) * mult
+
+
+def initial_trailing_stop(
+    *,
+    is_long: bool,
+    entry: float,
+    tp1: float,
+    multiplier: float | None = None,
+) -> tuple[float, float, float]:
+    """
+    Returns (extreme_price, trailing_stop, distance).
+    LONG: extreme=highest=tp1, stop=tp1-distance
+    SHORT: extreme=lowest=tp1, stop=tp1+distance
+    """
+    distance = trail_distance_from_entry_tp1(entry, tp1, multiplier=multiplier)
+    if is_long:
+        highest = float(tp1)
+        return highest, highest - distance, distance
+    lowest = float(tp1)
+    return lowest, lowest + distance, distance
+
+
+def ratchet_trailing_stop(
+    *,
+    is_long: bool,
+    price: float,
+    distance: float,
+    trailing_stop: float,
+    highest: float,
+    lowest: float,
+) -> tuple[float, float, float, bool]:
+    """
+    Update extremes and ratchet trailing stop (never loosens).
+    Returns (highest, lowest, trailing_stop, moved).
+    """
+    moved = False
+    if is_long:
+        new_highest = max(highest, price)
+        new_stop = new_highest - distance
+        # Stop never moves down
+        if new_stop > trailing_stop:
+            trailing_stop = new_stop
+            moved = True
+        return new_highest, min(lowest, price) if lowest else price, trailing_stop, moved
+
+    new_lowest = min(lowest, price)
+    new_stop = new_lowest + distance
+    # Stop never moves up (against short)
+    if new_stop < trailing_stop:
+        trailing_stop = new_stop
+        moved = True
+    return max(highest, price) if highest else price, new_lowest, trailing_stop, moved
+
+
+def simulate_exit_on_path(
+    prices: list[float],
+    *,
+    entry: float,
+    stop: float | None,
+    tp1: float | None,
+    tp2: float | None,
+    direction: str,
+    trail_after_tp1: bool,
+    multiplier: float = 1.0,
+    timeout_bars: int | None = None,
+) -> dict[str, Any]:
+    """
+    Pure A/B simulator over a price path.
+    Classic: close on TP1. Experimental: activate trailing after TP1.
+    """
+    is_long = str(direction).upper() == "LONG"
+    trailing_active = False
+    trail_stop = 0.0
+    distance = 0.0
+    highest = entry
+    lowest = entry
+    extreme_run = 0.0  # max favorable excursion after TP1 (price units beyond tp1)
+
+    for i, price in enumerate(prices):
+        if stop is not None and not trailing_active and _sl_hit(is_long, price, float(stop)):
+            pnl = _pnl_pct(entry, price, is_long=is_long)
+            return {
+                "mode": "trailing" if trail_after_tp1 else "classic",
+                "exit_reason": EXIT_STOP,
+                "exit_price": price,
+                "bar": i,
+                "pnl_pct": pnl,
+                "pnl_usd": _margin_pnl_usd(pnl),
+                "trailing_active": False,
+                "max_run_after_tp1": 0.0,
+            }
+
+        if tp2 is not None and tp2 > 0 and _tp_hit(is_long, price, float(tp2)):
+            pnl = _pnl_pct(entry, price, is_long=is_long)
+            return {
+                "mode": "trailing" if trail_after_tp1 else "classic",
+                "exit_reason": EXIT_TP2,
+                "exit_price": price,
+                "bar": i,
+                "pnl_pct": pnl,
+                "pnl_usd": _margin_pnl_usd(pnl),
+                "trailing_active": trailing_active,
+                "max_run_after_tp1": extreme_run,
+            }
+
+        if trailing_active:
+            highest, lowest, trail_stop, _moved = ratchet_trailing_stop(
+                is_long=is_long,
+                price=price,
+                distance=distance,
+                trailing_stop=trail_stop,
+                highest=highest,
+                lowest=lowest,
+            )
+            if tp1 is not None:
+                if is_long:
+                    extreme_run = max(extreme_run, highest - float(tp1))
+                else:
+                    extreme_run = max(extreme_run, float(tp1) - lowest)
+            if _sl_hit(is_long, price, trail_stop):
+                pnl = _pnl_pct(entry, price, is_long=is_long)
+                tp1_pnl = _pnl_pct(entry, float(tp1 or entry), is_long=is_long)
+                return {
+                    "mode": "trailing",
+                    "exit_reason": EXIT_TRAILING,
+                    "exit_price": price,
+                    "bar": i,
+                    "pnl_pct": pnl,
+                    "pnl_usd": _margin_pnl_usd(pnl),
+                    "trailing_active": True,
+                    "max_run_after_tp1": extreme_run,
+                    "additional_pnl_usd": _margin_pnl_usd(pnl) - _margin_pnl_usd(tp1_pnl),
+                    "trailing_stop": trail_stop,
+                }
+        elif tp1 is not None and tp1 > 0 and _tp_hit(is_long, price, float(tp1)):
+            if trail_after_tp1:
+                extreme, trail_stop, distance = initial_trailing_stop(
+                    is_long=is_long, entry=entry, tp1=float(tp1), multiplier=multiplier,
+                )
+                highest = extreme if is_long else max(entry, price)
+                lowest = extreme if not is_long else min(entry, price)
+                trailing_active = True
+                # Same-bar ratchet if price already beyond TP1
+                highest, lowest, trail_stop, _ = ratchet_trailing_stop(
+                    is_long=is_long,
+                    price=price,
+                    distance=distance,
+                    trailing_stop=trail_stop,
+                    highest=highest,
+                    lowest=lowest,
+                )
+                if is_long:
+                    extreme_run = max(0.0, highest - float(tp1))
+                else:
+                    extreme_run = max(0.0, float(tp1) - lowest)
+                if _sl_hit(is_long, price, trail_stop):
+                    pnl = _pnl_pct(entry, price, is_long=is_long)
+                    tp1_pnl = _pnl_pct(entry, float(tp1), is_long=is_long)
+                    return {
+                        "mode": "trailing",
+                        "exit_reason": EXIT_TRAILING,
+                        "exit_price": price,
+                        "bar": i,
+                        "pnl_pct": pnl,
+                        "pnl_usd": _margin_pnl_usd(pnl),
+                        "trailing_active": True,
+                        "max_run_after_tp1": extreme_run,
+                        "additional_pnl_usd": _margin_pnl_usd(pnl) - _margin_pnl_usd(tp1_pnl),
+                    }
+            else:
+                pnl = _pnl_pct(entry, price, is_long=is_long)
+                return {
+                    "mode": "classic",
+                    "exit_reason": EXIT_TP1,
+                    "exit_price": price,
+                    "bar": i,
+                    "pnl_pct": pnl,
+                    "pnl_usd": _margin_pnl_usd(pnl),
+                    "trailing_active": False,
+                    "max_run_after_tp1": 0.0,
+                }
+
+        if timeout_bars is not None and i + 1 >= timeout_bars:
+            pnl = _pnl_pct(entry, price, is_long=is_long)
+            return {
+                "mode": "trailing" if trail_after_tp1 else "classic",
+                "exit_reason": EXIT_TIMEOUT,
+                "exit_price": price,
+                "bar": i,
+                "pnl_pct": pnl,
+                "pnl_usd": _margin_pnl_usd(pnl),
+                "trailing_active": trailing_active,
+                "max_run_after_tp1": extreme_run,
+            }
+
+    last = prices[-1] if prices else entry
+    pnl = _pnl_pct(entry, last, is_long=is_long)
+    return {
+        "mode": "trailing" if trail_after_tp1 else "classic",
+        "exit_reason": EXIT_TIMEOUT,
+        "exit_price": last,
+        "bar": max(0, len(prices) - 1),
+        "pnl_pct": pnl,
+        "pnl_usd": _margin_pnl_usd(pnl),
+        "trailing_active": trailing_active,
+        "max_run_after_tp1": extreme_run,
+    }
+
+
+def compare_classic_vs_trailing(
+    prices: list[float],
+    *,
+    entry: float,
+    stop: float | None,
+    tp1: float | None,
+    tp2: float | None,
+    direction: str,
+    multiplier: float | None = None,
+) -> dict[str, Any]:
+    """Run the same path under Classic and Experimental trailing modes."""
+    mult = TRAIL_DISTANCE_MULTIPLIER if multiplier is None else float(multiplier)
+    classic = simulate_exit_on_path(
+        prices,
+        entry=entry,
+        stop=stop,
+        tp1=tp1,
+        tp2=tp2,
+        direction=direction,
+        trail_after_tp1=False,
+        multiplier=mult,
+    )
+    trailing = simulate_exit_on_path(
+        prices,
+        entry=entry,
+        stop=stop,
+        tp1=tp1,
+        tp2=tp2,
+        direction=direction,
+        trail_after_tp1=True,
+        multiplier=mult,
+    )
+    return {
+        "classic": classic,
+        "trailing": trailing,
+        "extra_pnl_usd": float(trailing["pnl_usd"]) - float(classic["pnl_usd"]),
+    }
 
 
 def _day_start_local(ts: int | None = None) -> int:
@@ -225,6 +532,7 @@ def _close_trade(
     exit_price: float,
     exit_reason: str,
     now: int,
+    trailing_exit_reason: str | None = None,
 ) -> None:
     entry = float(row["entry"])
     is_long = str(row["direction"]).upper() == "LONG"
@@ -238,6 +546,9 @@ def _close_trade(
     risk = abs(entry - stop) if abs(entry - stop) > 0 else entry * 0.01
     reward = abs(exit_price - entry)
     rr = round(reward / risk, 2) if risk > 0 else 0.0
+    trail_reason = trailing_exit_reason
+    if trail_reason is None and exit_reason == EXIT_TRAILING:
+        trail_reason = "trailing_stop"
 
     execute_with_retry(
         conn,
@@ -246,6 +557,7 @@ def _close_trade(
           status = ?, closed_at = ?, holding_seconds = ?,
           mfe_pct = ?, mae_pct = ?, pnl_pct = ?, pnl_usd = ?,
           result = ?, exit_reason = ?, exit_price = ?, rr_achieved = ?,
+          trailing_exit_reason = COALESCE(?, trailing_exit_reason),
           updated_at = ?
         WHERE id = ?
         """,
@@ -261,6 +573,7 @@ def _close_trade(
             exit_reason,
             exit_price,
             rr,
+            trail_reason,
             now,
             int(row["id"]),
         ),
@@ -275,8 +588,60 @@ def _close_trade(
     )
 
 
+def _activate_trailing_after_tp1(
+    conn: Any,
+    *,
+    row: Any,
+    price: float,
+    now: int,
+    is_long: bool,
+) -> dict[str, float]:
+    """Mark TP1 reached and arm trailing stop; position stays OPEN."""
+    entry = float(row["entry"])
+    tp1 = float(row["tp1"])
+    extreme, trail_stop, distance = initial_trailing_stop(
+        is_long=is_long, entry=entry, tp1=tp1,
+    )
+    highest = extreme if is_long else max(entry, price, extreme)
+    lowest = extreme if not is_long else min(entry, price, extreme)
+    highest, lowest, trail_stop, moved = ratchet_trailing_stop(
+        is_long=is_long,
+        price=price,
+        distance=distance,
+        trailing_stop=trail_stop,
+        highest=highest,
+        lowest=lowest,
+    )
+    trade_id = int(row["id"])
+    _log_trailing("TP1 reached", trade_id=trade_id, price=price, tp1=tp1)
+    _log_trailing("Trailing activated", trade_id=trade_id, distance=distance)
+    _log_trailing("Initial trailing stop", trade_id=trade_id, trailing_stop=trail_stop)
+    if moved:
+        _log_trailing("Trailing stop moved", trade_id=trade_id, trailing_stop=trail_stop, price=price)
+
+    execute_with_retry(
+        conn,
+        f"""
+        UPDATE {_TRADES} SET
+          trailing_active = 1,
+          trailing_stop = ?,
+          highest_price_after_tp1 = ?,
+          lowest_price_after_tp1 = ?,
+          updated_at = ?
+        WHERE id = ?
+        """,
+        (trail_stop, highest, lowest, now, trade_id),
+    )
+    return {
+        "trailing_stop": trail_stop,
+        "highest": highest,
+        "lowest": lowest,
+        "distance": distance,
+    }
+
+
 def tick_open_paper_trades_s42(conn: Any) -> int:
-    """Update MFE/MAE and close open paper trades."""
+    """Update MFE/MAE and close open paper trades (Classic or S54 trailing)."""
     rows = conn.execute(
         f"SELECT * FROM {_TRADES} WHERE status = ? ORDER BY created_at ASC",
         (STATUS_OPEN,),
@@ -306,7 +671,85 @@ def tick_open_paper_trades_s42(conn: Any) -> int:
         sl = _safe_float(row["stop"])
         tp1 = _safe_float(row["tp1"])
         tp2 = _safe_float(row["tp2"])
+        trailing_active = int(_row_get(row, "trailing_active", 0) or 0) == 1
 
+        # --- S54 trailing management (after TP1) ---
+        if trailing_active:
+            distance = trail_distance_from_entry_tp1(entry, float(tp1 or entry))
+            highest = float(_row_get(row, "highest_price_after_tp1", price) or price)
+            lowest = float(_row_get(row, "lowest_price_after_tp1", price) or price)
+            trail_stop = float(_row_get(row, "trailing_stop", entry) or entry)
+            highest, lowest, new_stop, moved = ratchet_trailing_stop(
+                is_long=is_long,
+                price=price,
+                distance=distance,
+                trailing_stop=trail_stop,
+                highest=highest,
+                lowest=lowest,
+            )
+            if moved or highest != float(_row_get(row, "highest_price_after_tp1", 0) or 0) \
+                    or lowest != float(_row_get(row, "lowest_price_after_tp1", 0) or 0):
+                if moved:
+                    _log_trailing(
+                        "Trailing stop moved",
+                        trade_id=int(row["id"]),
+                        trailing_stop=new_stop,
+                        price=price,
+                    )
+                execute_with_retry(
+                    conn,
+                    f"""
+                    UPDATE {_TRADES} SET
+                      trailing_stop = ?,
+                      highest_price_after_tp1 = ?,
+                      lowest_price_after_tp1 = ?,
+                      updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (new_stop, highest, lowest, now, int(row["id"])),
+                )
+                trail_stop = new_stop
+
+            if tp2 is not None and tp2 > 0 and _tp_hit(is_long, price, tp2):
+                _close_trade(
+                    conn, row=row, exit_price=price, exit_reason=EXIT_TP2, now=now,
+                    trailing_exit_reason="tp2",
+                )
+                continue
+            if _sl_hit(is_long, price, trail_stop):
+                tp1_pnl = _pnl_pct(entry, float(tp1 or entry), is_long=is_long)
+                exit_pnl = _pnl_pct(entry, price, is_long=is_long)
+                captured = _margin_pnl_usd(exit_pnl) - _margin_pnl_usd(tp1_pnl)
+                _log_trailing(
+                    "Trailing exit",
+                    trade_id=int(row["id"]),
+                    price=price,
+                    trailing_stop=trail_stop,
+                )
+                _log_trailing(
+                    "Trailing profit captured",
+                    trade_id=int(row["id"]),
+                    additional_pnl_usd=round(captured, 4),
+                )
+                _close_trade(
+                    conn, row=row, exit_price=price, exit_reason=EXIT_TRAILING, now=now,
+                    trailing_exit_reason="trailing_stop",
+                )
+                continue
+            if sl is not None and _sl_hit(is_long, price, sl):
+                _close_trade(
+                    conn, row=row, exit_price=price, exit_reason=EXIT_STOP, now=now,
+                    trailing_exit_reason="emergency_stop",
+                )
+                continue
+            if now - int(row["created_at"]) >= TIMEOUT_SECONDS:
+                _close_trade(
+                    conn, row=row, exit_price=price, exit_reason=EXIT_TIMEOUT, now=now,
+                    trailing_exit_reason="emergency_timeout",
+                )
+            continue
+
+        # --- Classic path (and TP1 → optional trail arm) ---
         if sl is not None and _sl_hit(is_long, price, sl):
             _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_STOP, now=now)
             continue
@@ -314,6 +757,22 @@ def tick_open_paper_trades_s42(conn: Any) -> int:
             _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TP2, now=now)
             continue
         if tp1 is not None and tp1 > 0 and _tp_hit(is_long, price, tp1):
+            if TRAIL_AFTER_TP1:
+                state = _activate_trailing_after_tp1(
+                    conn, row=row, price=price, now=now, is_long=is_long,
+                )
+                # Same tick: exit if already through TP2 or trailing stop
+                if tp2 is not None and tp2 > 0 and _tp_hit(is_long, price, tp2):
+                    _close_trade(
+                        conn, row=row, exit_price=price, exit_reason=EXIT_TP2, now=now,
+                        trailing_exit_reason="tp2",
+                    )
+                elif _sl_hit(is_long, price, float(state["trailing_stop"])):
+                    _close_trade(
+                        conn, row=row, exit_price=price, exit_reason=EXIT_TRAILING, now=now,
+                        trailing_exit_reason="trailing_stop",
+                    )
+                continue
             _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TP1, now=now)
             continue
         if now - int(row["created_at"]) >= TIMEOUT_SECONDS:
@@ -766,7 +1225,13 @@ def format_paper_performance_s42(
         f"Breakeven Trades {dash['breakeven_trades']}",
         f"Winrate         {dash['winrate_pct']:.1f}%",
         f"Margin/trade    ${CAPITAL_PER_TRADE_USD:.0f} @ {LEVERAGE}x",
+        "",
+        "S54 Trailing mode",
+        f"  TRAIL_AFTER_TP1={TRAIL_AFTER_TP1}  (Classic when False)",
+        f"  DISTANCE_MODE={TRAIL_DISTANCE_MODE}  x{TRAIL_DISTANCE_MULTIPLIER}",
     ]
+    trail = trailing_stats_s42(conn)
+    lines.extend(_format_trailing_stats_block(trail))
     if symbol:
         sym = symbol.upper()
         sym_rows = conn.execute(
@@ -780,6 +1245,153 @@ def format_paper_performance_s42(
             f"  Trades {agg['signals']}  WIN {agg['win']}  LOSS {agg['loss']}",
             f"  Accuracy {agg['accuracy_pct']:.1f}%  PnL ${agg['paper_pnl_usd']:+.2f}",
         ])
+    return "\n".join(lines)
+
+
+def trailing_stats_s42(conn: Any) -> dict[str, Any]:
+    """Aggregate S54 trailing metrics from closed paper trades."""
+    empty = {
+        "trailing_exits": 0,
+        "avg_trailing_profit_usd": 0.0,
+        "avg_additional_profit_after_tp1_usd": 0.0,
+        "max_additional_run_after_tp1": 0.0,
+        "avg_giveback_after_tp1": 0.0,
+        "trailing_stop_hit_pct": 0.0,
+        "extra_pnl_generated_usd": 0.0,
+        "classic_tp1_exits": 0,
+        "armed_trailing_trades": 0,
+    }
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT entry, direction, tp1, exit_price, exit_reason, pnl_usd,
+                   trailing_active, trailing_exit_reason,
+                   highest_price_after_tp1, lowest_price_after_tp1
+            FROM {_TRADES}
+            WHERE status = ?
+            """,
+            (STATUS_CLOSED,),
+        ).fetchall()
+    except Exception:
+        return empty
+
+    trailing_exits = []
+    classic_tp1 = 0
+    armed = 0
+    extras: list[float] = []
+    runs: list[float] = []
+    givebacks: list[float] = []
+
+    for r in rows:
+        exit_reason = str(r["exit_reason"] or "")
+        trail_exit = str(r["trailing_exit_reason"] or "")
+        was_armed = int(r["trailing_active"] or 0) == 1 or exit_reason == EXIT_TRAILING
+        if was_armed:
+            armed += 1
+        if exit_reason == EXIT_TP1:
+            classic_tp1 += 1
+
+        is_trail_hit = exit_reason == EXIT_TRAILING or trail_exit == "trailing_stop"
+        if not is_trail_hit:
+            continue
+
+        trailing_exits.append(r)
+        entry = float(r["entry"])
+        tp1 = _safe_float(r["tp1"]) or entry
+        is_long = str(r["direction"]).upper() == "LONG"
+        actual = float(r["pnl_usd"] or 0)
+        classic_usd = _margin_pnl_usd(_pnl_pct(entry, tp1, is_long=is_long))
+        extras.append(actual - classic_usd)
+        hi = _safe_float(r["highest_price_after_tp1"])
+        lo = _safe_float(r["lowest_price_after_tp1"])
+        if is_long and hi is not None:
+            run = hi - tp1
+            peak_usd = _margin_pnl_usd(_pnl_pct(entry, hi, is_long=True))
+        elif (not is_long) and lo is not None:
+            run = tp1 - lo
+            peak_usd = _margin_pnl_usd(_pnl_pct(entry, lo, is_long=False))
+        else:
+            run = 0.0
+            peak_usd = actual
+        runs.append(max(0.0, run))
+        givebacks.append(max(0.0, peak_usd - actual))
+
+    n_trail = len(trailing_exits)
+    hit_pct = round(100.0 * n_trail / armed, 1) if armed else 0.0
+    return {
+        "trailing_exits": n_trail,
+        "avg_trailing_profit_usd": round(sum(float(r["pnl_usd"] or 0) for r in trailing_exits) / n_trail, 2) if n_trail else 0.0,
+        "avg_additional_profit_after_tp1_usd": round(sum(extras) / len(extras), 2) if extras else 0.0,
+        "max_additional_run_after_tp1": round(max(runs), 6) if runs else 0.0,
+        "avg_giveback_after_tp1": round(sum(givebacks) / len(givebacks), 2) if givebacks else 0.0,
+        "trailing_stop_hit_pct": hit_pct,
+        "extra_pnl_generated_usd": round(sum(extras), 2) if extras else 0.0,
+        "classic_tp1_exits": classic_tp1,
+        "armed_trailing_trades": armed,
+    }
+
+
+def _format_trailing_stats_block(stats: dict[str, Any]) -> list[str]:
+    return [
+        "",
+        "Trailing stats (S54)",
+        f"  Trailing exits              {stats['trailing_exits']}",
+        f"  Classic TP1 exits           {stats['classic_tp1_exits']}",
+        f"  Avg trailing profit         ${stats['avg_trailing_profit_usd']:+.2f}",
+        f"  Avg additional after TP1    ${stats['avg_additional_profit_after_tp1_usd']:+.2f}",
+        f"  Max additional run after TP1 {stats['max_additional_run_after_tp1']}",
+        f"  Avg giveback after TP1      ${stats['avg_giveback_after_tp1']:+.2f}",
+        f"  Trailing stop hit %         {stats['trailing_stop_hit_pct']:.1f}%",
+        f"  Extra PnL from trailing     ${stats['extra_pnl_generated_usd']:+.2f}",
+    ]
+
+
+def format_classic_vs_trailing_ab(
+    paths: list[dict[str, Any]],
+) -> str:
+    """
+    Compare Classic vs Trailing on identical synthetic/historical price paths.
+    Each path: {prices, entry, stop, tp1, tp2, direction, id?}.
+    """
+    if not paths:
+        return "Classic vs Trailing A/B\n\n(no paths)"
+    classic_pnl = 0.0
+    trail_pnl = 0.0
+    classic_reasons: dict[str, int] = {}
+    trail_reasons: dict[str, int] = {}
+    lines = [
+        "Classic vs Trailing A/B",
+        f"Paths: {len(paths)}",
+        "",
+    ]
+    for i, p in enumerate(paths):
+        cmp_ = compare_classic_vs_trailing(
+            list(p["prices"]),
+            entry=float(p["entry"]),
+            stop=_safe_float(p.get("stop")),
+            tp1=_safe_float(p.get("tp1")),
+            tp2=_safe_float(p.get("tp2")),
+            direction=str(p.get("direction") or "LONG"),
+            multiplier=_safe_float(p.get("multiplier")),
+        )
+        c, t = cmp_["classic"], cmp_["trailing"]
+        classic_pnl += float(c["pnl_usd"])
+        trail_pnl += float(t["pnl_usd"])
+        classic_reasons[str(c["exit_reason"])] = classic_reasons.get(str(c["exit_reason"]), 0) + 1
+        trail_reasons[str(t["exit_reason"])] = trail_reasons.get(str(t["exit_reason"]), 0) + 1
+        label = p.get("id") or f"#{i + 1}"
+        lines.append(
+            f"{label}: Classic {c['exit_reason']} ${c['pnl_usd']:+.2f}  |  "
+            f"Trail {t['exit_reason']} ${t['pnl_usd']:+.2f}  "
+            f"(Δ ${cmp_['extra_pnl_usd']:+.2f})"
+        )
+    lines.extend([
+        "",
+        "Summary",
+        f"  Classic total PnL   ${classic_pnl:+.2f}  exits={classic_reasons}",
+        f"  Trailing total PnL  ${trail_pnl:+.2f}  exits={trail_reasons}",
+        f"  Extra from trailing ${trail_pnl - classic_pnl:+.2f}",
+    ])
     return "\n".join(lines)
 
 
@@ -867,12 +1479,21 @@ def format_trading_audit_report(conn: Any | None = None) -> str:
 
 
 __all__ = [
+    "TRAIL_AFTER_TP1",
+    "compare_classic_vs_trailing",
+    "format_classic_vs_trailing_ab",
     "format_paper_performance_s42",
     "format_trading_audit_report",
+    "initial_trailing_stop",
     "list_open_trades_s42",
     "paper_day_stats_s42",
     "paper_performance_dashboard_s42",
     "paper_trade_counts_s42",
+    "ratchet_trailing_stop",
+    "refresh_trailing_config_from_env",
     "run_paper_performance_cycle_s42",
+    "simulate_exit_on_path",
+    "tick_open_paper_trades_s42",
+    "trailing_stats_s42",
     "_max_drawdown_pct_from_pnl_usd",
 ]

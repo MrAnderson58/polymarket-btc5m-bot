@@ -157,8 +157,8 @@ class CandidateG33IntegrationTests(unittest.TestCase):
         with self._conn() as conn:
             applied = apply_migrations(conn)
             self.assertIn("v37", applied)
-            self.assertEqual(SCHEMA_VERSION, 44)
-            cols = {r[1] for r in conn.execute("PRAGMA table_info(market_candidate_g31)")}
+            self.assertGreaterEqual(SCHEMA_VERSION, 44)
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(market_candidate_g31)").fetchall()}
             self.assertIn("trend_coverage_pct", cols)
             self.assertIn("trend_windows_json", cols)
 

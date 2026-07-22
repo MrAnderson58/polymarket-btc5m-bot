@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 63
+SCHEMA_VERSION = 64
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -1008,6 +1008,22 @@ def apply_migrations(conn: Any) -> list[str]:
             )
             applied.append("v63")
             current = 63
+
+        if current < 64:
+            _ensure_s54_trailing_columns(conn)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (64, now, "Phase S54 experimental TP1 trailing stop columns"),
+            )
+            applied.append("v64")
+            current = 64
+
+    # Idempotent repair for DBs that skipped v64 recording.
+    _ensure_s54_trailing_columns(conn)
 
     if not applied:
         conn.commit()
@@ -3317,6 +3333,11 @@ CREATE TABLE IF NOT EXISTS market_events_paper_trades_s42 (
     capital_usd REAL NOT NULL,
     leverage INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
+    trailing_active INTEGER NOT NULL DEFAULT 0,
+    trailing_stop REAL,
+    highest_price_after_tp1 REAL,
+    lowest_price_after_tp1 REAL,
+    trailing_exit_reason TEXT,
     UNIQUE(s40_signal_type, s40_signal_id)
 );
 
@@ -3386,6 +3407,65 @@ def _ensure_n11_enriched_columns(conn: Any) -> None:
                 conn.execute(sql)
             except Exception:
                 pass
+
+
+def _ensure_s54_trailing_columns(conn: Any) -> None:
+    """Additive S54 trailing-stop columns on paper trades (safe if already present)."""
+    cols: set[str] = set()
+    try:
+        cols = {
+            str(r[1])
+            for r in conn.execute("PRAGMA table_info(market_events_paper_trades_s42)").fetchall()
+        }
+    except Exception:
+        try:
+            rows = conn.execute(
+                """
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'market_events_paper_trades_s42'
+                """,
+            ).fetchall()
+            cols = {str(r[0] if not hasattr(r, "keys") else r["column_name"]) for r in rows}
+        except Exception:
+            cols = set()
+    if not cols:
+        return
+    for col, sql in (
+        (
+            "trailing_active",
+            "ALTER TABLE market_events_paper_trades_s42 "
+            "ADD COLUMN trailing_active INTEGER NOT NULL DEFAULT 0",
+        ),
+        (
+            "trailing_stop",
+            "ALTER TABLE market_events_paper_trades_s42 ADD COLUMN trailing_stop REAL",
+        ),
+        (
+            "highest_price_after_tp1",
+            "ALTER TABLE market_events_paper_trades_s42 "
+            "ADD COLUMN highest_price_after_tp1 REAL",
+        ),
+        (
+            "lowest_price_after_tp1",
+            "ALTER TABLE market_events_paper_trades_s42 "
+            "ADD COLUMN lowest_price_after_tp1 REAL",
+        ),
+        (
+            "trailing_exit_reason",
+            "ALTER TABLE market_events_paper_trades_s42 "
+            "ADD COLUMN trailing_exit_reason TEXT",
+        ),
+    ):
+        if col not in cols:
+            try:
+                conn.execute(sql)
+            except Exception:
+                try:
+                    # PostgreSQL: IF NOT EXISTS
+                    pg_sql = sql.replace("ADD COLUMN ", "ADD COLUMN IF NOT EXISTS ")
+                    conn.execute(pg_sql)
+                except Exception:
+                    pass
 
 
 def _ensure_s45_quality_columns(conn: Any) -> None:

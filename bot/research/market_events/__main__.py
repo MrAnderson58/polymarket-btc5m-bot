@@ -153,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
             "health",
             "doctor",
             "trading-audit",
+            "report",
             "telegram-status",
             "restart-telegram",
             "ai-worker-run",
@@ -443,6 +444,21 @@ def main(argv: list[str] | None = None) -> int:
             format_trading_audit_report,
         )
         print(format_trading_audit_report())
+        return 0
+
+    if args.command == "report":
+        # S54 ops alias — paper performance report (includes Classic/Trailing stats).
+        if _audit_s42_db_path(command="report") != 0:
+            return 1
+        from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
+            format_paper_performance_s42,
+        )
+        try:
+            with market_events_readonly_connection() as conn:
+                print(format_paper_performance_s42(conn))
+        except Exception as exc:
+            print(f"report failed: {exc}")
+            return 1
         return 0
 
     if args.command == "telegram-status":

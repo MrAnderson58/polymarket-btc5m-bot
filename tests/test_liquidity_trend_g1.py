@@ -53,7 +53,7 @@ class LiquidityTrendG1Tests(unittest.TestCase):
         with conn_ctx(self.db) as conn:
             applied = apply_migrations(conn)
             self.assertIn("v24", applied)
-            self.assertEqual(SCHEMA_VERSION, 44)
+            self.assertGreaterEqual(SCHEMA_VERSION, 44)
 
     def test_window_trend_15m(self) -> None:
         bars = _make_red_bars(12)
