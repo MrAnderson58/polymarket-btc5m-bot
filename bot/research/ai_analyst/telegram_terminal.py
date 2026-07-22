@@ -294,10 +294,15 @@ def format_research_health_html(*, reports_dir: Path) -> str:
 
 
 def build_trader_report_message(*, reports_dir: Path) -> str:
-    """S49 default /report body — signal card only."""
+    """S49/S52 default /report body — signal card only."""
     ctx = _load_context_json(reports_dir=reports_dir)
     hist = load_latest_signal_row()
-    return format_trader_report_html(ctx, history_row=hist)
+    try:
+        from bot.research.ai_analyst.signal_consistency.repository import get_repository
+        open_n = get_repository().count_open_trades()
+    except Exception:
+        open_n = 0
+    return format_trader_report_html(ctx, history_row=hist, open_count=open_n)
 
 
 def build_report_completion_message(*, reports_dir: Path) -> str:

@@ -76,11 +76,11 @@ class TestTraderReportFormatterS49(unittest.TestCase):
             tp2=66000,
             tp3=68000,
             risk_pct=1.0,
-            confidence=72,
-            reasons=["ETF inflows", "Neutral funding", "Bullish structure"],
+            confidence=55,
+            reasons=["ETF +420M", "Funding neutral", "OI rising +2.1%"],
         )
         ctx = {
-            "analysis_quality": {"confidence": 68},
+            "analysis_quality": {"confidence": 78},
             "macro": {"dxy": {"change_pct": -0.2}, "us10y": {"yield": 4.2}},
             "etf": {"btc_etf": {"netflow_1d": 420, "netflow_5d": 900, "trend": "Bullish"}},
             "intelligence": {
@@ -90,27 +90,27 @@ class TestTraderReportFormatterS49(unittest.TestCase):
                 ],
             },
         }
-        html = format_trader_report_html(ctx, signal=sig)
+        html = format_trader_report_html(ctx, signal=sig, open_count=1)
         self.assertIn("BTC LONG", html)
-        self.assertIn("Confidence", html)
+        self.assertIn("TRADE CONFIDENCE", html)
+        self.assertIn("MARKET CONDITIONS", html)
         self.assertIn("Entry", html)
         self.assertIn("Stop", html)
         self.assertIn("TP1", html)
-        self.assertIn("TP2", html)
-        self.assertIn("TP3", html)
-        self.assertIn("Risk", html)
-        self.assertIn("Market Score", html)
-        self.assertIn("Macro", html)
-        self.assertIn("Flow", html)
-        self.assertIn("TOP NEWS", html)
-        self.assertIn("AI VERDICT", html)
-        self.assertIn("ETF inflows", html)
+        self.assertIn("ETF +420M", html)
+        self.assertNotIn("Bullish structure", html)
         self.assertNotIn("Why it matters", html)
-        self.assertLessEqual(html.count("\n"), 45)
+        self.assertIn("below market conditions", html)
+        self.assertLessEqual(html.count("\n"), 50)
 
     def test_wait_when_no_signal(self) -> None:
-        html = format_trader_report_html({"intelligence": {"top_events": []}}, signal=None)
+        html = format_trader_report_html(
+            {"intelligence": {"top_events": []}, "analysis_quality": {"confidence": 40}},
+            signal=None,
+            open_count=0,
+        )
         self.assertIn("WAIT", html)
+        self.assertIn("MARKET CONDITIONS", html)
 
 
 class TestTelegramMenuS49(unittest.TestCase):

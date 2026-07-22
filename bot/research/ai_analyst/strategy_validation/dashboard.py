@@ -101,6 +101,19 @@ def build_dashboard(
 
 
 def format_dashboard(dash: dict[str, Any]) -> str:
+    trades = int(dash.get("trades") or 0)
+    open_n = int(dash.get("open_trades") or 0)
+    if trades <= 0:
+        lines = [
+            "STRATEGY DASHBOARD",
+            "",
+            f"Open trades: {open_n}",
+            "",
+            "Статистика появится после первой закрытой сделки.",
+            "Stats will appear after the first closed trade.",
+        ]
+        return "\n".join(lines)
+
     pf = dash.get("profit_factor")
     pf_s = "inf" if pf is None and dash.get("profit_factor_raw") == float("inf") else (
         f"{pf:.2f}" if isinstance(pf, (int, float)) else str(pf)
@@ -110,7 +123,7 @@ def format_dashboard(dash: dict[str, Any]) -> str:
     return "\n".join([
         "STRATEGY DASHBOARD",
         "",
-        f"Trades: {dash.get('trades', 0)}  Open: {dash.get('open_trades', 0)}",
+        f"Trades: {trades}  Open: {open_n}",
         f"Win: {dash.get('wins', 0)}  Loss: {dash.get('losses', 0)}  BE: {dash.get('breakeven', 0)}",
         f"Win Rate: {dash.get('win_rate', 0)}%",
         f"Profit Factor: {pf_s}",

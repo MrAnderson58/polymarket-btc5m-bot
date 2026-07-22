@@ -29,6 +29,48 @@ S48_COMMANDS = frozenset({
 })
 
 
+def format_open_telegram() -> str:
+    try:
+        repo = get_repository()
+        rows = repo.list_open_trades(limit=20)
+        pending = None if rows else repo.latest_signal()
+    except Exception as exc:
+        logger.warning("s48 open load failed: %s", exc)
+        rows, pending = [], None
+    lines = [section_header("Open Trades", "📂"), ""]
+    if not rows:
+        lines.append(escape("Нет открытых сделок / No open trades."))
+        if pending and str(pending.get("status") or "").upper() in {
+            "PENDING", "TRIGGERED", "",
+        }:
+            lines.extend([
+                "",
+                section_header("Current AI Signal", "📡"),
+                "",
+                f"<b>{escape(str(pending.get('market')))} "
+                f"{escape(str(pending.get('direction')))}</b> "
+                f"({escape(str(pending.get('status') or 'PENDING'))})",
+                f"conf={escape(str(pending.get('confidence')))} "
+                f"entry {escape(str(pending.get('entry_low')))}-"
+                f"{escape(str(pending.get('entry_high')))}",
+                f"SL {escape(str(pending.get('stop_loss')))}  "
+                f"TP {escape(str(pending.get('tp1')))}/"
+                f"{escape(str(pending.get('tp2')))}/"
+                f"{escape(str(pending.get('tp3')))}",
+            ])
+        else:
+            lines.append(escape("Активный AI-сигнал появится после следующего /report."))
+        return truncate_telegram("\n".join(lines))
+    for r in rows:
+        lines.extend([
+            f"<b>{escape(r['symbol'])} {escape(r['direction'])}</b>",
+            f"entry={escape(str(r['entry']))} rem={escape(str(r['size_remaining']))}",
+            f"MFE={escape(str(r.get('mfe_pct')))}% MAE={escape(str(r.get('mae_pct')))}%",
+            "",
+        ])
+    return truncate_telegram("\n".join(lines))
+
+
 def format_signals_telegram(*, limit: int = 12) -> str:
     try:
         rows = get_repository().list_signals(limit=limit)
@@ -37,7 +79,8 @@ def format_signals_telegram(*, limit: int = 12) -> str:
         rows = []
     lines = [section_header("Signals", "📡"), ""]
     if not rows:
-        lines.append(escape("(no signals in history)"))
+        lines.append(escape("История сигналов пуста — появится после первого AI-сигнала."))
+        lines.append(escape("Signal history is empty — will appear after the first AI signal."))
         return truncate_telegram("\n".join(lines))
     for r in rows:
         lines.extend([
@@ -53,26 +96,6 @@ def format_signals_telegram(*, limit: int = 12) -> str:
     return truncate_telegram("\n".join(lines))
 
 
-def format_open_telegram() -> str:
-    try:
-        rows = get_repository().list_open_trades(limit=20)
-    except Exception as exc:
-        logger.warning("s48 open load failed: %s", exc)
-        rows = []
-    lines = [section_header("Open Trades", "📂"), ""]
-    if not rows:
-        lines.append(escape("(none open)"))
-        return truncate_telegram("\n".join(lines))
-    for r in rows:
-        lines.extend([
-            f"<b>{escape(r['symbol'])} {escape(r['direction'])}</b>",
-            f"entry={escape(str(r['entry']))} rem={escape(str(r['size_remaining']))}",
-            f"MFE={escape(str(r.get('mfe_pct')))}% MAE={escape(str(r.get('mae_pct')))}%",
-            "",
-        ])
-    return truncate_telegram("\n".join(lines))
-
-
 def format_closed_telegram(*, limit: int = 15) -> str:
     try:
         rows = get_repository().list_outcomes(limit=limit)
@@ -81,7 +104,8 @@ def format_closed_telegram(*, limit: int = 15) -> str:
         rows = []
     lines = [section_header("Closed Outcomes", "✅"), ""]
     if not rows:
-        lines.append(escape("(none closed)"))
+        lines.append(escape("Статистика появится после первой закрытой сделки."))
+        lines.append(escape("Stats will appear after the first closed trade."))
         return truncate_telegram("\n".join(lines))
     for o in rows:
         lines.extend([

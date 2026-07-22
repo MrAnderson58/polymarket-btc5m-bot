@@ -22,6 +22,17 @@ def format_daily_report(
     open_count: int = 0,
 ) -> str:
     dash = build_dashboard(outcomes_today, open_count=open_count)
+    if int(dash.get("trades") or 0) <= 0:
+        return "\n".join([
+            "Signals today",
+            "",
+            f"Open trades:\n{open_count}",
+            "",
+            f"Signals created today:\n{signals_today}",
+            "",
+            "Статистика появится после первой закрытой сделки.",
+            "Stats will appear after the first closed trade.",
+        ])
     ranking = build_ranking_report(outcomes_today)
     best = ranking.get("best_setup") or {}
     worst = ranking.get("worst_setup") or {}
