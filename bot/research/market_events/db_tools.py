@@ -131,6 +131,25 @@ def format_db_info(cfg: MarketEventsDbConfig | None = None) -> str:
             lines.append(f"schema_version: {ver} (target {SCHEMA_VERSION})")
             lines.append(f"market_events_tables: {len(ALL_TABLES)}")
             lines.append(f"total_rows: {_total_rows(conn)}")
+            lines.extend(["", "Active trading tables:"])
+            key_tables = (
+                "market_events_paper_trades_s42",
+                "market_events_paper_account_s42",
+                "ai_paper_trades_s47",
+                "ai_signal_history_s48",
+                "ai_signal_outcomes_s48",
+            )
+            for table in key_tables:
+                n = _table_count(conn, table)
+                lines.append(f"  {table}: {n}")
+
+            from bot.research.ai_analyst.signal_consistency.repository import (
+                COMMAND_DATA_SOURCES,
+            )
+            lines.extend(["", "Command → data source:"])
+            for cmd, src in COMMAND_DATA_SOURCES.items():
+                lines.append(f"  {cmd}")
+                lines.append(f"    → {src}")
 
             if cfg.backend == "sqlite":
                 journal = conn.execute("PRAGMA journal_mode").fetchone()[0]

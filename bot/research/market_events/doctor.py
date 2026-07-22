@@ -199,7 +199,7 @@ def _check_telegram_bot(*, skip_network: bool = False) -> Check:
 
 
 def _check_paper_trading() -> tuple[Check, int]:
-    """S51: open count from SignalTruthRepository (S47 only — same as /open)."""
+    """S53: open count from Paper Trading S42 (same as /open / paper-performance)."""
     try:
         running = any(
             _proc_running(key)
@@ -207,14 +207,14 @@ def _check_paper_trading() -> tuple[Check, int]:
         )
         from bot.research.ai_analyst.signal_consistency.repository import get_repository
 
-        open_n = get_repository().count_open_trades()
-        return Check("Running", running, "process up" if running else "no paper process", critical=False), open_n
+        open_n = get_repository().count_paper_open_trades()
+        return Check("Running", running, "S42 paper book" if running else "no paper process", critical=False), open_n
     except Exception as exc:
         return Check("Running", False, str(exc)[:80], critical=False), 0
 
 
 def _signals_today() -> int:
-    """S51: same COUNT as /signals day window via SignalTruthRepository."""
+    """S53: AI signals today from S48 (separate entity from Paper opens)."""
     try:
         from bot.research.ai_analyst.signal_consistency.repository import get_repository
         return get_repository().count_signals_today()

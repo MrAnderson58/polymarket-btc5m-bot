@@ -152,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
             "status",
             "health",
             "doctor",
+            "trading-audit",
             "telegram-status",
             "restart-telegram",
             "ai-worker-run",
@@ -435,6 +436,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         from bot.research.market_events.doctor import run_doctor
         print(run_doctor(skip_network=bool(args.skip_network)))
+        return 0
+
+    if args.command == "trading-audit":
+        from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
+            format_trading_audit_report,
+        )
+        print(format_trading_audit_report())
         return 0
 
     if args.command == "telegram-status":

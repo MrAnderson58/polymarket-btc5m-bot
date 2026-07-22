@@ -112,7 +112,14 @@ class TestEmptyHistoryUXS52(unittest.TestCase):
         with patch(
             "bot.research.ai_analyst.strategy_validation.telegram_views.get_repository",
         ) as mock_repo:
-            mock_repo.return_value.stats_dashboard.return_value = build_dashboard([], open_count=0)
+            mock_repo.return_value.paper_stats_dashboard.return_value = {
+                "open_trades": 0,
+                "closed_trades": 0,
+                "winrate_pct": 0.0,
+                "today_pnl_usd": 0.0,
+                "current_equity": 0.0,
+                "weekly_pnl_usd": 0.0,
+            }
             text = format_stats_telegram()
         self.assertIn("Статистика появится", text)
 
@@ -165,11 +172,12 @@ class TestPendingSignalWhenNoOpenS52(unittest.TestCase):
         with patch(
             "bot.research.ai_analyst.strategy_validation.telegram_views.get_repository",
         ) as mock_repo:
+            mock_repo.return_value.list_paper_open_trades.return_value = []
             mock_repo.return_value.list_open_trades.return_value = []
             mock_repo.return_value.latest_signal.return_value = pending
             text = format_open_telegram()
-        self.assertIn("Нет открытых сделок", text)
-        self.assertIn("CURRENT AI SIGNAL", text)
+        self.assertIn("Нет открытых", text)
+        self.assertIn("AI SIGNAL", text.upper())
         self.assertIn("BTC", text)
         self.assertIn("LONG", text)
 

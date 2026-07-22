@@ -783,8 +783,93 @@ def format_paper_performance_s42(
     return "\n".join(lines)
 
 
+def list_open_trades_s42(conn: Any, *, limit: int = 20) -> list[dict[str, Any]]:
+    """Open paper trades for Telegram /open (S53 primary paper book)."""
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT id, symbol, direction, entry, stop, tp1, tp2, status,
+                   created_at, mfe_pct, mae_pct, capital_usd, leverage,
+                   s40_signal_type, s40_signal_id
+            FROM {_TRADES}
+            WHERE status = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (STATUS_OPEN, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        logger.warning("list_open_trades_s42 failed: %s", exc)
+        return []
+
+
+def format_trading_audit_report(conn: Any | None = None) -> str:
+    """
+    S53 — Paper Trading Audit: storage backend, open/closed, WR, PnL, equity, UI sync.
+    """
+    def _body(c: Any) -> str:
+        from bot.research.ai_analyst.signal_consistency.repository import get_repository
+
+        dash = paper_performance_dashboard_s42(c)
+        repo = get_repository()
+        ai_open = repo.count_ai_open_trades(c)
+        ai_signals_today = repo.count_signals_today(conn=c)
+        paper_open = int(dash.get("open_trades") or 0)
+        ui_open = repo.count_paper_open_trades(c)
+        ui_synced = ui_open == paper_open
+        lines = [
+            "Paper Trading Audit",
+            "",
+            "Storage backend:",
+            _TRADES,
+            "",
+            "Open:",
+            str(paper_open),
+            "",
+            "Closed:",
+            str(int(dash.get("closed_trades") or 0)),
+            "",
+            "Win Rate:",
+            f"{float(dash.get('winrate_pct') or 0):.1f}%",
+            "",
+            "PnL Today:",
+            f"${float(dash.get('today_pnl_usd') or 0):+.2f}",
+            "",
+            "Equity:",
+            f"${float(dash.get('current_equity') or 0):,.2f}",
+            "",
+            "Data source:",
+            _TRADES,
+            "",
+            "UI status:",
+            "Synced ✓" if ui_synced else f"Diverged ✗ (UI open={ui_open} vs storage={paper_open})",
+            "",
+            "----------------",
+            "Entity map",
+            "",
+            "paper-performance  →  market_events_paper_trades_s42",
+            "doctor Open Trades  →  market_events_paper_trades_s42",
+            "/open               →  market_events_paper_trades_s42",
+            "/stats              →  market_events_paper_trades_s42 (+ account)",
+            "/signals            →  ai_signal_history_s48  (AI signals, separate)",
+            "doctor Signals today →  ai_signal_history_s48",
+            "",
+            f"AI paper opens (S47, separate): {ai_open}",
+            f"AI signals today (S48): {ai_signals_today}",
+        ]
+        return "\n".join(lines)
+
+    if conn is not None:
+        return _body(conn)
+    with market_events_readonly_connection() as c:
+        return _body(c)
+
+
 __all__ = [
     "format_paper_performance_s42",
+    "format_trading_audit_report",
+    "list_open_trades_s42",
     "paper_day_stats_s42",
     "paper_performance_dashboard_s42",
     "paper_trade_counts_s42",

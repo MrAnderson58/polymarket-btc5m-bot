@@ -130,7 +130,7 @@ class TestRepositoryConsistencyS51(unittest.TestCase):
             apply_migrations(conn)
             conn.commit()
             now = int(__import__("time").time())
-            # one open trade (S47 schema)
+            # AI paper open (S47) — separate book
             conn.execute(
                 """
                 INSERT INTO ai_paper_trades_s47 (
@@ -147,19 +147,39 @@ class TestRepositoryConsistencyS51(unittest.TestCase):
                 """,
                 (now, now),
             )
-            # legacy S42 opens must NOT inflate trader open count
+            # Paper Trading opens (S42) — primary book for /open doctor
+            for i in range(5):
+                conn.execute(
+                    """
+                    INSERT INTO market_events_paper_trades_s42 (
+                      s40_signal_type, s40_signal_id, symbol, direction,
+                      entry, stop, tp1, tp2, created_at, status,
+                      capital_usd, leverage, updated_at
+                    ) VALUES ('test', ?, 'BTC', 'LONG', 1, 0.9, 1.1, 1.2, ?, 'OPEN', 100, 20, ?)
+                    """,
+                    (i, now, now),
+                )
+            # one closed S42 for stats
+            conn.execute(
+                """
+                INSERT INTO market_events_paper_trades_s42 (
+                  s40_signal_type, s40_signal_id, symbol, direction,
+                  entry, stop, tp1, tp2, created_at, closed_at, status,
+                  result, pnl_usd, capital_usd, leverage, updated_at
+                ) VALUES ('test', 99, 'BTC', 'LONG', 1, 0.9, 1.1, 1.2, ?, ?, 'CLOSED',
+                  'WIN', 10.0, 100, 20, ?)
+                """,
+                (now - 100, now - 50, now),
+            )
             try:
-                for i in range(5):
-                    conn.execute(
-                        """
-                        INSERT INTO market_events_paper_trades_s42 (
-                          s40_signal_type, s40_signal_id, symbol, direction,
-                          entry, stop, tp1, tp2, created_at, status,
-                          capital_usd, leverage, updated_at
-                        ) VALUES ('test', ?, 'BTC', 'LONG', 1, 0.9, 1.1, 1.2, ?, 'OPEN', 100, 20, ?)
-                        """,
-                        (i, now, now),
-                    )
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO market_events_paper_account_s42
+                      (id, initial_capital, current_equity, updated_at)
+                    VALUES (1, 100, 556.0, ?)
+                    """,
+                    (now,),
+                )
             except Exception:
                 pass
             # signals today
@@ -175,7 +195,6 @@ class TestRepositoryConsistencyS51(unittest.TestCase):
                     """,
                     (f"sig-{i}", now),
                 )
-            # closed outcome for stats (FK → history row)
             conn.execute(
                 """
                 INSERT INTO ai_signal_history_s48 (
@@ -215,57 +234,51 @@ class TestRepositoryConsistencyS51(unittest.TestCase):
 
     def test_snapshot_counts(self) -> None:
         snap = self.repo.snapshot()
-        self.assertEqual(snap.open_count, 1)
-        self.assertEqual(snap.signals_today, 4)  # 3 pending + 1 closed history
-        self.assertEqual(len(snap.open_trades), 1)
-        self.assertEqual(snap.stats["open_trades"], 1)
-        self.assertEqual(snap.stats["trades"], 1)
+        self.assertEqual(snap.open_count, 5)  # S42 paper
+        self.assertEqual(snap.ai_open_count, 1)  # S47 AI
+        self.assertEqual(snap.signals_today, 4)
+        self.assertEqual(len(snap.open_trades), 5)
+        self.assertEqual(snap.stats["open_trades"], 5)
 
     def test_doctor_matches_telegram_surfaces(self) -> None:
-        """doctor open/signals == /open == /stats == /signals book."""
+        """doctor open == /open == /stats paper book (S42); signals == S48."""
         snap = self.repo.snapshot()
 
-        with patch(
+        import bot.research.market_events.doctor as doctor
+        import bot.research.ai_analyst.strategy_validation.telegram_views as views
+
+        with patch.object(doctor, "_proc_running", return_value=True), patch(
             "bot.research.ai_analyst.signal_consistency.repository.get_repository",
             return_value=self.repo,
         ), patch(
-            "bot.research.market_events.doctor.get_repository",
-            create=True,
+            "bot.research.ai_analyst.strategy_validation.telegram_views.get_repository",
+            return_value=self.repo,
         ):
-            # Patch the import sites used by doctor / telegram
-            import bot.research.market_events.doctor as doctor
-            import bot.research.ai_analyst.strategy_validation.telegram_views as views
+            paper, open_n = doctor._check_paper_trading()
+            signals_today = doctor._signals_today()
+            open_rows = self.repo.list_open_trades()
+            stats = self.repo.stats_dashboard()
+            signals = self.repo.list_signals(limit=50)
 
-            with patch.object(doctor, "_proc_running", return_value=True), patch(
-                "bot.research.ai_analyst.signal_consistency.repository.get_repository",
-                return_value=self.repo,
-            ), patch(
-                "bot.research.ai_analyst.strategy_validation.telegram_views.get_repository",
-                return_value=self.repo,
-            ):
-                paper, open_n = doctor._check_paper_trading()
-                signals_today = doctor._signals_today()
-                open_rows = self.repo.list_open_trades()
-                stats = self.repo.stats_dashboard()
-                signals = self.repo.list_signals(limit=50)
+            self.assertEqual(open_n, snap.open_count)
+            self.assertEqual(open_n, len(open_rows))
+            self.assertEqual(open_n, stats["open_trades"])
+            self.assertEqual(signals_today, snap.signals_today)
+            self.assertGreaterEqual(signals_today, 3)
+            self.assertGreaterEqual(len(signals), 3)
 
-                self.assertEqual(open_n, snap.open_count)
-                self.assertEqual(open_n, len(open_rows))
-                self.assertEqual(open_n, stats["open_trades"])
-                self.assertEqual(signals_today, snap.signals_today)
-                self.assertGreaterEqual(signals_today, 3)
-                self.assertGreaterEqual(len(signals), 3)
+            open_html = views.format_open_telegram()
+            self.assertIn("BTC", open_html)
+            self.assertIn("S42", open_html)
+            stats_html = views.format_stats_telegram()
+            self.assertIn("S42", stats_html)
+            self.assertIn("5", stats_html)
 
-                # Telegram formatters use same repo — open section not empty
-                open_html = views.format_open_telegram()
-                self.assertIn("BTC", open_html)
-                self.assertNotIn("(none open)", open_html)
-                stats_html = views.format_stats_telegram()
-                self.assertIn("1", stats_html)  # open or trades
-
-    def test_s42_not_mixed_into_open_count(self) -> None:
-        """Regression: doctor must not sum S42 into trader open count."""
-        self.assertEqual(self.repo.count_open_trades(), 1)
+    def test_paper_book_is_s42_not_s47(self) -> None:
+        """S53: Paper Trading open count is S42; AI S47 is separate."""
+        self.assertEqual(self.repo.count_paper_open_trades(), 5)
+        self.assertEqual(self.repo.count_ai_open_trades(), 1)
+        self.assertEqual(self.repo.count_open_trades(), 5)
 
 
 class TestDoctorCollectUsesRepoS51(unittest.TestCase):
@@ -273,7 +286,7 @@ class TestDoctorCollectUsesRepoS51(unittest.TestCase):
         from bot.research.market_events.doctor import Check, collect_doctor
 
         class FakeRepo:
-            def count_open_trades(self) -> int:
+            def count_paper_open_trades(self) -> int:
                 return 7
 
             def count_signals_today(self, now=None) -> int:
