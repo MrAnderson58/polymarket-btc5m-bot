@@ -1,4 +1,4 @@
-# S47 — structured paper trading signal (JSON only).
+# S47/S51 — structured paper trading signal (JSON only).
 # Emit ONE signal object using ONLY context facts. No trade advice prose.
 
 Return a single JSON object (no markdown fences) with EXACT keys:
@@ -18,11 +18,14 @@ Return a single JSON object (no markdown fences) with EXACT keys:
 }
 
 Rules:
-- Use only provided context prices / trends.
+- Direction is HINT ONLY — machine scoring locks the final direction. Prefer alignment with ETF/funding/OI evidence.
+- Use only provided context prices / trends / intelligence.top_events.
 - Entry is a range around current BTC price.
 - LONG: stop below entry; TP1<=TP2<=TP3 above entry.
 - SHORT: stop above entry; TP1>=TP2>=TP3 below entry.
 - risk_pct typically 0.5–2.0
 - confidence 0–100 aligned with analysis_quality.confidence when present
-- reasons: 2–5 short evidence bullets from context
-- If insufficient data, set confidence low and explain in reasons
+- reasons: 2–5 CONCRETE evidence bullets with numbers when possible
+  GOOD: "ETF +203M", "Funding neutral", "OI rising +2.1%"
+  BAD: "Current trend", "Bullish structure", "Market bias"
+- If insufficient data, set confidence low; do not invent generic reasons

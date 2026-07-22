@@ -202,13 +202,10 @@ def resolve_trader_signal(
 
 
 def load_latest_signal_row() -> dict[str, Any] | None:
+    """S51 — latest signal from SignalTruthRepository (same book as /signals)."""
     try:
-        from bot.research.market_events.db import market_events_readonly_connection
-        from bot.research.ai_analyst.strategy_validation.store import load_signal_history
-
-        with market_events_readonly_connection() as conn:
-            rows = load_signal_history(conn, limit=1)
-            return rows[0] if rows else None
+        from bot.research.ai_analyst.signal_consistency.repository import get_repository
+        return get_repository().latest_signal()
     except Exception:
         return None
 

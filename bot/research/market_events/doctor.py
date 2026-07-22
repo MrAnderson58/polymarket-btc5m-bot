@@ -199,47 +199,25 @@ def _check_telegram_bot(*, skip_network: bool = False) -> Check:
 
 
 def _check_paper_trading() -> tuple[Check, int]:
-    open_n = 0
+    """S51: open count from SignalTruthRepository (S47 only — same as /open)."""
     try:
         running = any(
             _proc_running(key)
             for key in ("shock-paper-core", "shock-paper-tradfi", "g3-live", "learning")
         )
-        from bot.research.market_events.db import market_events_readonly_connection
+        from bot.research.ai_analyst.signal_consistency.repository import get_repository
 
-        with market_events_readonly_connection() as conn:
-            for table in ("ai_paper_trades_s47", "market_events_paper_trades_s42"):
-                try:
-                    row = conn.execute(
-                        f"SELECT COUNT(*) AS n FROM {table} WHERE status = 'OPEN'",
-                    ).fetchone()
-                    open_n += int((row["n"] if row else 0) or 0)
-                except Exception:
-                    continue
+        open_n = get_repository().count_open_trades()
         return Check("Running", running, "process up" if running else "no paper process", critical=False), open_n
     except Exception as exc:
         return Check("Running", False, str(exc)[:80], critical=False), 0
 
 
 def _signals_today() -> int:
+    """S51: same COUNT as /signals day window via SignalTruthRepository."""
     try:
-        from bot.research.market_events.db import market_events_readonly_connection
-
-        start = int(
-            datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-        )
-        with market_events_readonly_connection() as conn:
-            try:
-                row = conn.execute(
-                    """
-                    SELECT COUNT(*) AS n FROM ai_signal_history_s48
-                    WHERE created_at >= ?
-                    """,
-                    (start,),
-                ).fetchone()
-                return int((row["n"] if row else 0) or 0)
-            except Exception:
-                return 0
+        from bot.research.ai_analyst.signal_consistency.repository import get_repository
+        return get_repository().count_signals_today()
     except Exception:
         return 0
 

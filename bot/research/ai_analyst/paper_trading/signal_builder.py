@@ -1,10 +1,19 @@
-"""S47 — optional rule-based signal builder from market context (no LLM required)."""
+"""S47/S51 — rule-based signal builder: machine direction + concrete reasons."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from bot.research.ai_analyst.paper_trading.signals import TradingSignal
+from bot.research.ai_analyst.signal_consistency.confidence import calibrate_from_repository
+from bot.research.ai_analyst.signal_consistency.direction import (
+    lock_direction,
+    score_direction_from_context,
+)
+from bot.research.ai_analyst.signal_consistency.reasons import (
+    merge_concrete_reasons,
+    reasons_from_direction_factors,
+)
 
 
 def build_signal_from_context(
@@ -12,53 +21,59 @@ def build_signal_from_context(
     *,
     strategy: str = "ai_context",
     risk_pct: float = 1.0,
+    proposed_direction: str | None = None,
+    llm_reasons: list[str] | None = None,
+    calibrate: bool = True,
 ) -> TradingSignal | None:
     """
-    Build a BTC paper signal from context when price + bias are available.
-    Returns None when insufficient data.
+    Build a BTC paper signal from context.
+
+    Direction is locked by machine score (LLM cannot flip it).
+    Reasons must be concrete (ETF / Funding / OI / …) — vague phrases dropped.
     """
     btc = ctx.get("btc") or {}
     price = btc.get("price")
     if price is None:
         return None
     price = float(price)
-    quality = ctx.get("analysis_quality") or {}
-    confidence = float(quality.get("confidence") or ctx.get("context_completeness") or 50)
-    trend = str(btc.get("trend") or "").lower()
-    change = btc.get("change_24h_pct")
-    reasons: list[str] = []
 
-    if trend == "bullish" or (change is not None and float(change) > 0):
-        direction = "LONG"
+    decision = score_direction_from_context(ctx)
+    direction = lock_direction(proposed_direction, decision)
+    if direction == "WAIT" or not decision.is_actionable:
+        return None
+
+    if direction == "LONG":
         entry_low = round(price * 0.998, 2)
         entry_high = round(price * 1.002, 2)
         stop = round(price * 0.985, 2)
         tp1 = round(price * 1.01, 2)
         tp2 = round(price * 1.02, 2)
         tp3 = round(price * 1.035, 2)
-        reasons.append("BTC trend/bias supportive for long paper setup")
-    elif trend == "bearish" or (change is not None and float(change) < 0):
-        direction = "SHORT"
+    else:
         entry_low = round(price * 0.998, 2)
         entry_high = round(price * 1.002, 2)
         stop = round(price * 1.015, 2)
         tp1 = round(price * 0.99, 2)
         tp2 = round(price * 0.98, 2)
         tp3 = round(price * 0.965, 2)
-        reasons.append("BTC trend/bias supportive for short paper setup")
-    else:
-        return None
 
-    etf = ((ctx.get("etf") or {}).get("btc_etf") or {})
-    if etf.get("netflow_5d") is not None:
-        nf = float(etf["netflow_5d"])
-        if nf > 0 and direction == "LONG":
-            reasons.append(f"Positive ETF 5d netflow ({nf})")
-        elif nf < 0 and direction == "SHORT":
-            reasons.append(f"Negative ETF 5d netflow ({nf})")
-
+    reasons = merge_concrete_reasons(
+        reasons_from_direction_factors(decision.factors),
+        llm_reasons,
+        limit=6,
+    )
     if not reasons:
-        reasons.append("Derived from available market context only")
+        # Last-resort concrete placeholders from score factors only
+        reasons = reasons_from_direction_factors(decision.factors) or [
+            f"Machine score {decision.score:+.0f}",
+        ]
+
+    conf = float(decision.confidence_raw)
+    if calibrate:
+        try:
+            conf = calibrate_from_repository(conf)
+        except Exception:
+            pass
 
     sig = TradingSignal(
         symbol="BTC",
@@ -70,7 +85,7 @@ def build_signal_from_context(
         tp2=tp2,
         tp3=tp3,
         risk_pct=risk_pct,
-        confidence=min(100.0, max(0.0, confidence)),
+        confidence=min(100.0, max(0.0, conf)),
         reasons=reasons,
         strategy=strategy,
     )

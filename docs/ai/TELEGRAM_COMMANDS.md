@@ -39,6 +39,7 @@ Also available (hidden from trader menu):
 2. Full text, AI summary, embeddings, entities, categories, impact, links, reasoning, and market reaction stay in storage for AI / learning / ranking / validation.
 3. News lines are `icon + headline` only (🟢 / 🟡 / 🔴) — no article bodies.
 4. **S50:** Before LLM, intelligence passes normalize → dedup → cluster → score → `top_events` (≤8). Full records stay in SQLite.
+5. **S51:** `/signals` `/open` `/stats` `/report` `doctor` share `SignalTruthRepository` (S47 opens + S48 history). Direction is machine-locked; reasons must be concrete.
 
 ## Related CLI
 

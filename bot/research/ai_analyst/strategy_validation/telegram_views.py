@@ -1,24 +1,20 @@
-"""S48 — Telegram views backed by SQLite (or empty fallbacks)."""
+"""S48 — Telegram views backed by S51 SignalTruthRepository (single source)."""
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
+from bot.research.ai_analyst.signal_consistency.repository import get_repository
 from bot.research.ai_analyst.strategy_validation.daily_report import (
     day_start_ts,
     format_daily_report,
 )
-from bot.research.ai_analyst.strategy_validation.dashboard import (
-    build_dashboard,
-    format_dashboard,
-)
+from bot.research.ai_analyst.strategy_validation.dashboard import format_dashboard
 from bot.research.ai_analyst.strategy_validation.ranking import (
     build_ranking_report,
     format_leaderboard,
     format_ranking,
 )
-from bot.research.ai_analyst.strategy_validation.store import load_outcomes, load_signal_history
 from bot.research.ai_analyst.telegram_formatter import escape, section_header, truncate_telegram
 
 logger = logging.getLogger(__name__)
@@ -33,15 +29,9 @@ S48_COMMANDS = frozenset({
 })
 
 
-def _conn_readonly():
-    from bot.research.market_events.db import market_events_readonly_connection
-    return market_events_readonly_connection()
-
-
 def format_signals_telegram(*, limit: int = 12) -> str:
     try:
-        with _conn_readonly() as conn:
-            rows = load_signal_history(conn, limit=limit)
+        rows = get_repository().list_signals(limit=limit)
     except Exception as exc:
         logger.warning("s48 signals load failed: %s", exc)
         rows = []
@@ -65,15 +55,7 @@ def format_signals_telegram(*, limit: int = 12) -> str:
 
 def format_open_telegram() -> str:
     try:
-        with _conn_readonly() as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM ai_paper_trades_s47
-                WHERE status = 'OPEN'
-                ORDER BY opened_at DESC LIMIT 20
-                """,
-            ).fetchall()
-            rows = [dict(r) for r in rows]
+        rows = get_repository().list_open_trades(limit=20)
     except Exception as exc:
         logger.warning("s48 open load failed: %s", exc)
         rows = []
@@ -93,8 +75,7 @@ def format_open_telegram() -> str:
 
 def format_closed_telegram(*, limit: int = 15) -> str:
     try:
-        with _conn_readonly() as conn:
-            rows = load_outcomes(conn, limit=limit)
+        rows = get_repository().list_outcomes(limit=limit)
     except Exception as exc:
         logger.warning("s48 closed load failed: %s", exc)
         rows = []
@@ -114,18 +95,11 @@ def format_closed_telegram(*, limit: int = 15) -> str:
 
 def format_stats_telegram() -> str:
     try:
-        with _conn_readonly() as conn:
-            outcomes = load_outcomes(conn, limit=500)
-            try:
-                open_n = int(conn.execute(
-                    "SELECT COUNT(*) AS n FROM ai_paper_trades_s47 WHERE status='OPEN'",
-                ).fetchone()["n"] or 0)
-            except Exception:
-                open_n = 0
+        dash = get_repository().stats_dashboard(outcome_limit=500)
     except Exception as exc:
         logger.warning("s48 stats load failed: %s", exc)
-        outcomes, open_n = [], 0
-    dash = build_dashboard(outcomes, open_count=open_n)
+        from bot.research.ai_analyst.strategy_validation.dashboard import build_dashboard
+        dash = build_dashboard([], open_count=0)
     text = format_dashboard(dash)
     return truncate_telegram(
         section_header("Strategy Stats", "📊") + "\n\n" + escape(text)
@@ -134,8 +108,7 @@ def format_stats_telegram() -> str:
 
 def format_leaderboard_telegram() -> str:
     try:
-        with _conn_readonly() as conn:
-            outcomes = load_outcomes(conn, limit=500)
+        outcomes = get_repository().list_outcomes(limit=500)
     except Exception as exc:
         logger.warning("s48 leaderboard load failed: %s", exc)
         outcomes = []
@@ -148,17 +121,11 @@ def format_leaderboard_telegram() -> str:
 
 def format_daily_telegram() -> str:
     try:
-        with _conn_readonly() as conn:
-            start = day_start_ts()
-            outcomes = load_outcomes(conn, limit=200, since_ts=start)
-            signals = load_signal_history(conn, limit=200)
-            signals_today = sum(1 for s in signals if int(s.get("created_at") or 0) >= start)
-            try:
-                open_n = int(conn.execute(
-                    "SELECT COUNT(*) AS n FROM ai_paper_trades_s47 WHERE status='OPEN'",
-                ).fetchone()["n"] or 0)
-            except Exception:
-                open_n = 0
+        repo = get_repository()
+        start = day_start_ts()
+        outcomes = repo.list_outcomes(limit=200, since_ts=start)
+        signals_today = repo.count_signals_today()
+        open_n = repo.count_open_trades()
     except Exception as exc:
         logger.warning("s48 daily load failed: %s", exc)
         outcomes, signals_today, open_n = [], 0, 0

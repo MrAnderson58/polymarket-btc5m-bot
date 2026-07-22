@@ -1,4 +1,4 @@
-"""S50 — Intelligence compression: normalize → dedup → cluster → score → top events.
+"""S50/S51 — Intelligence compression: normalize → multi-key dedup → cluster → score → top events.
 
 Machine filters the firehose; the LLM receives only a ranked short list.
 Full event records remain in SQLite for learning / validation / debug.
@@ -6,6 +6,8 @@ Full event records remain in SQLite for learning / validation / debug.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from dataclasses import dataclass
 from difflib import SequenceMatcher
@@ -60,6 +62,31 @@ def _parse_symbols(raw: Any) -> list[str]:
     return []
 
 
+def _parse_entities(raw: Any) -> set[str]:
+    if isinstance(raw, set):
+        return {str(x).lower() for x in raw if x}
+    if isinstance(raw, list):
+        return {str(x).lower() for x in raw if x}
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return {str(x).lower() for x in parsed if x}
+        except Exception:
+            return {t.strip().lower() for t in raw.split(",") if t.strip()}
+    return set()
+
+
+def text_hash(title: str, *, body: str = "", url: str = "") -> str:
+    """Stable content fingerprint for dedup."""
+    blob = "|".join([
+        normalize_text(title),
+        normalize_text(body)[:400],
+        normalize_text(url),
+    ])
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
+
+
 def normalize_event(event: dict[str, Any], *, now: int | None = None) -> dict[str, Any] | None:
     """Canonical event dict for compression (title required)."""
     title = str(event.get("title") or event.get("headline") or "").strip()
@@ -67,8 +94,13 @@ def normalize_event(event: dict[str, Any], *, now: int | None = None) -> dict[st
         return None
     now_ts = int(now if now is not None else time.time())
     norm_title = normalize_text(title)
-    tokens = significant_tokens(title)
+    body = str(event.get("summary") or event.get("body") or event.get("why_it_matters") or "")
+    url = str(event.get("url") or event.get("link") or "").strip().lower()
+    tokens = significant_tokens(title + " " + body[:200])
     symbols = _parse_symbols(event.get("symbols") or event.get("symbols_json"))
+    entities = _parse_entities(event.get("entities") or event.get("entities_json"))
+    if not entities and symbols:
+        entities = {s.lower() for s in symbols}
     narrative = str(event.get("narrative") or "").strip().lower()
     impact = str(event.get("market_impact") or event.get("impact") or "MEDIUM").upper()
     if impact not in _IMPACT_RANK:
@@ -91,10 +123,20 @@ def normalize_event(event: dict[str, Any], *, now: int | None = None) -> dict[st
     source_type = str(event.get("source_type") or event.get("kind") or "intel").lower()
     polarity = str(event.get("polarity") or "Neutral")
     sentiment = event.get("sentiment")
+    cluster_id = str(
+        event.get("cluster_id")
+        or event.get("event_uid")
+        or event.get("cluster_key")
+        or ""
+    ).strip()
+    th = str(event.get("text_hash") or text_hash(title, body=body, url=url))
     return {
         "title": title[:200],
         "norm_title": norm_title,
+        "url": url,
+        "text_hash": th,
         "tokens": tokens,
+        "entities": entities,
         "symbols": symbols,
         "narrative": narrative,
         "market_impact": impact,
@@ -108,16 +150,26 @@ def normalize_event(event: dict[str, Any], *, now: int | None = None) -> dict[st
         "polarity": polarity,
         "sentiment": sentiment,
         "event_uid": event.get("event_uid"),
+        "cluster_id": cluster_id,
         "cluster_size": int(event.get("cluster_size") or 1),
         "synthetic": bool(event.get("synthetic")),
-        # retained for downstream but stripped before LLM payload
         "_why_it_matters": event.get("why_it_matters"),
         "_confirmed_by": event.get("confirmed_by"),
     }
 
 
+def _entity_overlap(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / max(1, len(a | b))
+
+
 def dedupe_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Remove near-duplicate titles (newest / higher score wins)."""
+    """
+    S51 multi-key dedup:
+      title similarity, URL, text_hash, entity overlap, cluster_id.
+    Higher impact / importance wins.
+    """
     ranked = sorted(
         events,
         key=lambda e: (
@@ -129,29 +181,63 @@ def dedupe_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
     kept: list[dict[str, Any]] = []
     seen_titles: list[str] = []
+    seen_urls: set[str] = set()
+    seen_hashes: set[str] = set()
+    seen_clusters: set[str] = set()
     seen_uids: set[str] = set()
+    kept_entities: list[set[str]] = []
+
     for ev in ranked:
         uid = str(ev.get("event_uid") or "")
         if uid and uid in seen_uids:
             continue
+        cluster_id = str(ev.get("cluster_id") or "")
+        if cluster_id and cluster_id in seen_clusters:
+            continue
+        url = str(ev.get("url") or "").strip()
+        if url and url in seen_urls:
+            continue
+        th = str(ev.get("text_hash") or "")
+        if th and th in seen_hashes:
+            continue
+
         norm = ev.get("norm_title") or normalize_text(ev.get("title") or "")
         if not norm:
             continue
+        ents = ev.get("entities") or set()
         dup = False
-        for prev in seen_titles:
+        for i, prev in enumerate(seen_titles):
             if norm == prev or SequenceMatcher(None, norm, prev).ratio() >= DEDUP_RATIO:
                 dup = True
                 break
+            if ents and kept_entities[i]:
+                if (
+                    _entity_overlap(ents, kept_entities[i]) >= 0.66
+                    and SequenceMatcher(None, norm, prev).ratio() >= 0.62
+                ):
+                    dup = True
+                    break
         if dup:
             continue
+
         kept.append(ev)
         seen_titles.append(norm)
+        kept_entities.append(ents if isinstance(ents, set) else set(ents or []))
         if uid:
             seen_uids.add(uid)
+        if cluster_id:
+            seen_clusters.add(cluster_id)
+        if url:
+            seen_urls.add(url)
+        if th:
+            seen_hashes.add(th)
     return kept
 
 
 def _cluster_key(ev: dict[str, Any]) -> str:
+    cid = ev.get("cluster_id") or ""
+    if cid:
+        return f"c:{cid}"
     narr = ev.get("narrative") or ""
     if narr:
         return f"n:{narr}"
@@ -369,6 +455,7 @@ def to_llm_event(ev: dict[str, Any], *, rank: int) -> dict[str, Any]:
         "symbols": ev.get("symbols") or [],
         "source_count": ev.get("source_count"),
         "score": ev.get("compression_score"),
+        "cluster_id": ev.get("cluster_id") or "",
     }
 
 
