@@ -251,6 +251,7 @@ def main(argv: list[str] | None = None) -> int:
             "decision-report",
             "feature-lab",
             "strategy-discovery",
+            "alpha-discovery",
             "market-research-migrate",
             "research-stress-test",
             "trade-suggestions",
@@ -392,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
         "--top",
         type=int,
         default=None,
-        help="strategy-discovery: show top N ranked hypotheses (default 25)",
+        help="strategy-discovery / alpha-discovery: show top N ranked hypotheses (default 25)",
     )
     parser.add_argument(
         "--write",
@@ -403,7 +404,7 @@ def main(argv: list[str] | None = None) -> int:
         "--write-suggestions",
         action="store_true",
         dest="write_suggestions",
-        help="market-regime / strategy-discovery: also write WAITING_APPROVAL suggestions",
+        help="market-regime / strategy-discovery / alpha-discovery: also write WAITING_APPROVAL suggestions",
     )
     parser.add_argument("--timeframe", default="1m", help="Candle timeframe for backfill")
     parser.add_argument("--event-id", type=int, default=None, help="Event id for timeline/opportunity reports")
@@ -1256,6 +1257,51 @@ def main(argv: list[str] | None = None) -> int:
             return int(retry_on_db_locked(_run_discovery))
         except Exception as exc:
             print(f"strategy-discovery failed: {exc}")
+            return 1
+
+    if args.command == "alpha-discovery":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.signal_intelligence.alpha_discovery_s62 import (
+            format_alpha_discovery_report,
+            latest_alpha_rows,
+            run_alpha_discovery,
+        )
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            apply_research_migrations,
+            research_connection,
+        )
+        try:
+            def _run_alpha() -> int:
+                with research_connection() as conn:
+                    apply_research_migrations(conn)
+                    top_n = getattr(args, "top", None)
+                    if args.force:
+                        out = run_alpha_discovery(
+                            conn,
+                            top_n=top_n,
+                            write_suggestions=bool(
+                                getattr(args, "write_suggestions", False),
+                            ),
+                        )
+                        conn.commit()
+                        if args.json:
+                            print(json.dumps(out, indent=2, default=str))
+                        else:
+                            print(format_alpha_discovery_report(conn, run_id=out.get("run_id")))
+                        return 0
+                    conn.commit()
+                    if args.json:
+                        print(json.dumps({
+                            "rows": latest_alpha_rows(conn, limit=int(top_n or 50)),
+                            "report": format_alpha_discovery_report(conn),
+                        }, indent=2, default=str))
+                    else:
+                        print(format_alpha_discovery_report(conn))
+                    return 0
+
+            return int(retry_on_db_locked(_run_alpha))
+        except Exception as exc:
+            print(f"alpha-discovery failed: {exc}")
             return 1
 
     if args.command == "pattern":

@@ -1575,6 +1575,13 @@ def format_paper_performance_s42(
             lines.append(
                 "  Run: python -m bot.research.market_events strategy-discovery --force",
             )
+            from bot.research.market_events.signal_intelligence.alpha_discovery_s62 import (
+                format_s62_report_block,
+            )
+            lines.extend([""] + format_s62_report_block(rconn)[:8])
+            lines.append(
+                "  Run: python -m bot.research.market_events alpha-discovery --force",
+            )
     except Exception:
         pass
     if symbol:

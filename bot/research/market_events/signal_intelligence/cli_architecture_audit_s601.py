@@ -266,6 +266,7 @@ def _recent_intelligence_status(implemented: set[str]) -> dict[str, str]:
         "market-research-migrate": "S60",
         "research-stress-test": "S60",
         "strategy-discovery": "S61",
+        "alpha-discovery": "S62",
         "cli-architecture-audit": "S60.1",
     }
     out: dict[str, str] = {}

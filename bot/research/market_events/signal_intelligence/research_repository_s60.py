@@ -29,7 +29,7 @@ from bot.research.market_events.sqlite_manager_g05 import connect_sqlite as _con
 logger = logging.getLogger(__name__)
 
 RESEARCH_MIGRATIONS_TABLE = "market_events_research_migrations"
-RESEARCH_SCHEMA_VERSION = 71
+RESEARCH_SCHEMA_VERSION = 72
 
 
 @dataclass(frozen=True)
@@ -177,11 +177,13 @@ def apply_research_migrations(conn: Any) -> list[str]:
         S58_DECISION_TRACE_DDL,
         S59_FEATURE_LAB_DDL,
         S61_STRATEGY_DISCOVERY_DDL,
+        S62_ALPHA_DISCOVERY_DDL,
         _ensure_s56_postmortem,
         _ensure_s57_market_regime,
         _ensure_s58_decision_trace,
         _ensure_s59_feature_lab,
         _ensure_s61_strategy_discovery,
+        _ensure_s62_alpha_discovery,
     )
 
     applied: list[str] = []
@@ -217,6 +219,7 @@ CREATE TABLE IF NOT EXISTS market_events_research_ops_s60 (
 );
 """),
         (71, "S61 strategy discovery engine", S61_STRATEGY_DISCOVERY_DDL),
+        (72, "S62 alpha discovery engine", S62_ALPHA_DISCOVERY_DDL),
     ]
 
     for ver, desc, ddl in steps:
@@ -240,6 +243,7 @@ CREATE TABLE IF NOT EXISTS market_events_research_ops_s60 (
         _ensure_s58_decision_trace(conn)
         _ensure_s59_feature_lab(conn)
         _ensure_s61_strategy_discovery(conn)
+        _ensure_s62_alpha_discovery(conn)
     except Exception as exc:
         logger.warning("s60 research ensure helpers: %s", exc)
 

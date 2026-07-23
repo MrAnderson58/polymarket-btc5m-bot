@@ -9,7 +9,7 @@ from typing import Any
 MIGRATIONS_TABLE = "market_events_migrations"
 # Live trading DB stops at S55 (gate features). S56+ lives on ResearchRepository.
 LIVE_SCHEMA_VERSION = 65
-SCHEMA_VERSION = 71  # project watermark (research S61)
+SCHEMA_VERSION = 72  # project watermark (research S62)
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -3770,6 +3770,67 @@ def _ensure_s61_strategy_discovery(conn: Any) -> None:
     """Create S61 strategy discovery tables if missing."""
     try:
         conn.executescript(S61_STRATEGY_DISCOVERY_DDL)
+    except Exception:
+        pass
+
+
+S62_ALPHA_DISCOVERY_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_alpha_discovery_runs_s62 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    n_trades INTEGER NOT NULL DEFAULT 0,
+    n_patterns INTEGER NOT NULL DEFAULT 0,
+    n_evaluated INTEGER NOT NULL DEFAULT 0,
+    top_n INTEGER NOT NULL DEFAULT 25,
+    min_n INTEGER NOT NULL DEFAULT 50,
+    baseline_json TEXT,
+    results_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_alpha_discovery_s62 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    hypothesis_no INTEGER NOT NULL,
+    rank INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
+    rule_text TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    n_matched INTEGER,
+    n_strategy INTEGER,
+    n_baseline INTEGER,
+    expectancy REAL,
+    pf REAL,
+    sharpe REAL,
+    winrate REAL,
+    avg_dd REAL,
+    avg_hold_sec REAL,
+    base_expectancy REAL,
+    base_pf REAL,
+    base_sharpe REAL,
+    base_winrate REAL,
+    delta_expectancy REAL,
+    delta_pf REAL,
+    delta_sharpe REAL,
+    delta_wr REAL,
+    confidence TEXT,
+    score REAL,
+    stability_json TEXT,
+    walk_forward_json TEXT,
+    atoms_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_s62_alpha_run_rank
+    ON market_events_alpha_discovery_s62(run_id, rank ASC);
+CREATE INDEX IF NOT EXISTS idx_s62_alpha_confidence
+    ON market_events_alpha_discovery_s62(run_id, confidence, score DESC);
+"""
+
+
+def _ensure_s62_alpha_discovery(conn: Any) -> None:
+    """Create S62 alpha discovery tables if missing."""
+    try:
+        conn.executescript(S62_ALPHA_DISCOVERY_DDL)
     except Exception:
         pass
 
