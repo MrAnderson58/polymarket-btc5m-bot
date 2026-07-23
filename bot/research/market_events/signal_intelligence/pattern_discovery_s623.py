@@ -1,6 +1,9 @@
-"""S62.3 — Pattern Discovery Engine (research-only, statistics only).
+"""S62.3 / S62.3.1 — Pattern Discovery Engine (research-only, statistics only).
 
 Discover statistically significant combinations of existing S56–S59 features.
+S62.3.1 adds consolidation: canonical dedupe, root-cause grouping, robust
+sections, and data-quality — report quality only; metrics unchanged.
+
 No new indicators. No strategy changes. No AI. No production writes.
 """
 
@@ -77,6 +80,24 @@ DIM_LABEL = {
     "rsi": "RSI",
     "ai": "AI Score",
 }
+
+# Canonical dimension order for labels / merge keys (report quality only).
+DIM_ORDER = (
+    "coin",
+    "direction",
+    "strategy",
+    "regime",
+    "weekday",
+    "hour",
+    "funding",
+    "rsi",
+    "ai",
+)
+_DIM_RANK = {d: i for i, d in enumerate(DIM_ORDER)}
+
+# Uninformative values — deprioritized when choosing a representative label.
+_LOW_INFO_VALUES = frozenset({"Unknown", "unknown", "—", "-", "Other", "other", "n/a", "N/A"})
+
 
 
 def _repo_root() -> Path:
@@ -241,6 +262,258 @@ def pattern_key(dims: tuple[str, ...], values: tuple[str, ...]) -> str:
 
 def pattern_label(dims: tuple[str, ...], values: tuple[str, ...]) -> str:
     return " + ".join(f"{DIM_LABEL.get(d, d)}={v}" for d, v in zip(dims, values))
+
+
+def canonical_pairs(dims: list[str] | tuple[str, ...], values: list[str] | tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+    """Order-invariant (dim, value) pairs sorted by canonical dim order."""
+    pairs = list(zip([str(d) for d in dims], [str(v) for v in values]))
+    pairs.sort(key=lambda pv: (_DIM_RANK.get(pv[0], 99), pv[0], pv[1]))
+    return tuple(pairs)
+
+
+def canonical_key_from_pairs(pairs: tuple[tuple[str, str], ...]) -> str:
+    return "|".join(f"{d}={v}" for d, v in pairs)
+
+
+def canonical_label_from_pairs(pairs: tuple[tuple[str, str], ...]) -> str:
+    return " + ".join(f"{DIM_LABEL.get(d, d)}={v}" for d, v in pairs)
+
+
+def _informativeness(pairs: tuple[tuple[str, str], ...]) -> tuple:
+    """Higher = prefer as the display representative (no metric change)."""
+    n_unknown = sum(1 for _, v in pairs if v in _LOW_INFO_VALUES)
+    # Prefer fewer Unknowns, then canonical dim order already in pairs, then shorter keys
+    return (-n_unknown, -len(pairs), canonical_label_from_pairs(pairs))
+
+
+def consolidate_patterns(patterns: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge equivalent permutations; keep most informative label. Metrics untouched."""
+    groups: dict[tuple[tuple[str, str], ...], list[dict[str, Any]]] = defaultdict(list)
+    for p in patterns:
+        dims = p.get("dims") or []
+        values = p.get("values") or []
+        if len(dims) != len(values):
+            continue
+        pairs = canonical_pairs(dims, values)
+        groups[pairs].append(p)
+
+    unique: list[dict[str, Any]] = []
+    duplicates_removed = 0
+    for pairs, members in groups.items():
+        duplicates_removed += max(0, len(members) - 1)
+        best = max(
+            members,
+            key=lambda m: (
+                _informativeness(canonical_pairs(m.get("dims") or [], m.get("values") or [])),
+                1 if tuple(m.get("dims") or []) == tuple(d for d, _ in pairs) else 0,
+                int((m.get("metrics") or {}).get("trades") or 0),
+            ),
+        )
+        card = dict(best)
+        card["dims"] = [d for d, _ in pairs]
+        card["values"] = [v for _, v in pairs]
+        card["key"] = canonical_key_from_pairs(pairs)
+        card["label"] = canonical_label_from_pairs(pairs)
+        card["canonical_key"] = card["key"]
+        card["merged_from"] = sorted({str(m.get("label") or m.get("key") or "") for m in members})
+        card["n_duplicates_merged"] = len(members) - 1
+        # Prefer filled by_period / deltas from any member (same stats for permutations)
+        if any(m.get("by_period") for m in members):
+            merged_bp: dict[str, Any] = {}
+            for m in members:
+                for pk, pv in (m.get("by_period") or {}).items():
+                    cur = merged_bp.get(pk)
+                    if cur is None or int((pv or {}).get("trades") or 0) >= int((cur or {}).get("trades") or 0):
+                        merged_bp[pk] = pv
+            card["by_period"] = merged_bp
+        if any(m.get("period_deltas") for m in members):
+            # keep from best (metrics identical)
+            card["period_deltas"] = best.get("period_deltas") or next(
+                (m.get("period_deltas") for m in members if m.get("period_deltas")),
+                None,
+            )
+        if any(m.get("stability") is not None for m in members):
+            card["stability"] = best.get("stability")
+            if card["stability"] is None:
+                for m in members:
+                    if m.get("stability") is not None:
+                        card["stability"] = m.get("stability")
+                        break
+        unique.append(card)
+
+    return {
+        "patterns": unique,
+        "duplicates_removed": duplicates_removed,
+        "unique_retained": len(unique),
+        "raw_count": len(patterns),
+    }
+
+
+def group_by_root_cause(
+    patterns: list[dict[str, Any]],
+    *,
+    top_n: int = 40,
+) -> list[dict[str, Any]]:
+    """Group unique patterns by shared single-dimension atoms (report structure only)."""
+    by_atom: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for p in patterns:
+        dims = p.get("dims") or []
+        values = p.get("values") or []
+        for d, v in zip(dims, values):
+            if str(v) in _LOW_INFO_VALUES:
+                continue
+            by_atom[(str(d), str(v))].append(p)
+
+    roots: list[dict[str, Any]] = []
+    for (dim, value), members in by_atom.items():
+        # Need multiple supporting patterns to call it a root cause cluster
+        if len(members) < 2:
+            continue
+        evidence: dict[str, set[str]] = defaultdict(set)
+        for m in members:
+            for d, v in zip(m.get("dims") or [], m.get("values") or []):
+                if d == dim and str(v) == value:
+                    continue
+                if str(v) in _LOW_INFO_VALUES:
+                    continue
+                evidence[str(d)].add(str(v))
+        # Metrics summary: take best-PF member as exemplar (metrics already computed)
+        exemplar = max(members, key=lambda m: _pf_sort_key(m.get("metrics") or {}))
+        em = exemplar.get("metrics") or {}
+        roots.append({
+            "root_cause": f"{DIM_LABEL.get(dim, dim)}={value}",
+            "dim": dim,
+            "value": value,
+            "n_patterns": len(members),
+            "supporting_evidence": {
+                DIM_LABEL.get(d, d): sorted(vs) for d, vs in sorted(evidence.items())
+            },
+            "exemplar_label": exemplar.get("label"),
+            "trades": em.get("trades"),
+            "pnl": em.get("pnl"),
+            "profit_factor": em.get("profit_factor"),
+            "pf_inf": em.get("pf_inf"),
+            "expectancy": em.get("expectancy"),
+            "winrate": em.get("winrate"),
+            "stability": exemplar.get("stability"),
+            "pattern_labels": [m.get("label") for m in members[:12]],
+        })
+
+    roots.sort(
+        key=lambda r: (
+            -int(r.get("n_patterns") or 0),
+            -99.0 if r.get("pf_inf") else -(float(r["profit_factor"]) if r.get("profit_factor") is not None else -1.0),
+        ),
+    )
+    return roots[:top_n]
+
+
+def most_robust_patterns(patterns: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Report sections over consolidated unique patterns (no recalculation)."""
+    def _card(p: dict[str, Any]) -> dict[str, Any]:
+        m = p.get("metrics") or {}
+        return {
+            "label": p.get("label"),
+            "key": p.get("key"),
+            "dims": p.get("dims"),
+            "values": p.get("values"),
+            "metrics": m,
+            "stability": p.get("stability"),
+        }
+
+    high_stab = sorted(
+        [p for p in patterns if float(p.get("stability") or 0) > 70],
+        key=lambda p: -float(p.get("stability") or 0),
+    )[:20]
+    high_n = sorted(
+        [p for p in patterns if int((p.get("metrics") or {}).get("trades") or 0) > 500],
+        key=lambda p: -int((p.get("metrics") or {}).get("trades") or 0),
+    )[:20]
+    high_pf = sorted(patterns, key=lambda p: _pf_sort_key(p.get("metrics") or {}))[:20]
+    low_dd = sorted(
+        [
+            p for p in patterns
+            if (p.get("metrics") or {}).get("max_drawdown") is not None
+        ],
+        key=lambda p: (
+            float((p.get("metrics") or {}).get("max_drawdown") or 1e18),
+            -float((p.get("metrics") or {}).get("trades") or 0),
+        ),
+    )[:20]
+    return {
+        "highest_stability": [_card(p) for p in high_stab],
+        "highest_trade_count": [_card(p) for p in high_n],
+        "highest_pf": [_card(p) for p in high_pf],
+        "lowest_drawdown": [_card(p) for p in low_dd],
+    }
+
+
+def data_quality_stats(
+    *,
+    rows: list[dict[str, Any]],
+    tagged: list[dict[str, Any]],
+    consolidation: dict[str, Any],
+) -> dict[str, Any]:
+    n_rows = len(rows)
+    n_tagged = len(tagged)
+    n_skipped = max(0, n_rows - n_tagged)
+
+    def _pct(num: int, den: int) -> float:
+        if den <= 0:
+            return 0.0
+        return round(100.0 * num / den, 2)
+
+    # Missingness among loaded research rows (original fields)
+    unknown_regime = 0
+    missing_ai = 0
+    missing_funding = 0
+    missing_rsi = 0
+    for r in rows:
+        reg = r.get("market_regime")
+        if not reg or str(reg).strip() in ("", "Unknown", "unknown"):
+            # also count tagged Unknown family
+            unknown_regime += 1
+        if r.get("ai_score") is None:
+            missing_ai += 1
+        if r.get("funding") is None:
+            missing_funding += 1
+        if r.get("rsi") is None:
+            missing_rsi += 1
+
+    return {
+        "rows_analysed": n_rows,
+        "rows_tagged": n_tagged,
+        "rows_skipped": n_skipped,
+        "unknown_regime_pct": _pct(unknown_regime, n_rows),
+        "missing_ai_score_pct": _pct(missing_ai, n_rows),
+        "missing_funding_pct": _pct(missing_funding, n_rows),
+        "missing_rsi_pct": _pct(missing_rsi, n_rows),
+        "duplicate_patterns_removed": int(consolidation.get("duplicates_removed") or 0),
+        "unique_patterns_retained": int(consolidation.get("unique_retained") or 0),
+        "raw_patterns_before_consolidation": int(consolidation.get("raw_count") or 0),
+    }
+
+
+def _dedupe_ranked_list(cards: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    """Apply canonical merge to a ranked list; preserve relative order of first occurrence."""
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for c in cards:
+        pairs = canonical_pairs(c.get("dims") or [], c.get("values") or [])
+        ck = canonical_key_from_pairs(pairs)
+        if ck in seen:
+            continue
+        seen.add(ck)
+        card = dict(c)
+        card["dims"] = [d for d, _ in pairs]
+        card["values"] = [v for _, v in pairs]
+        card["key"] = ck
+        card["label"] = canonical_label_from_pairs(pairs)
+        card["canonical_key"] = ck
+        out.append(card)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def discover_combos(
@@ -478,6 +751,12 @@ def run_pattern_discovery(
         }
         enriched.append(card)
 
+    stab_by_canon: dict[str, float] = {}
+    for e in enriched:
+        ck = canonical_key_from_pairs(canonical_pairs(e.get("dims") or [], e.get("values") or []))
+        if e.get("stability") is not None:
+            stab_by_canon[ck] = float(e["stability"])
+
     # Universe rankings (selected)
     universes: dict[str, Any] = {}
 
@@ -485,14 +764,15 @@ def run_pattern_discovery(
         found = discover_combos(tagged, min_trades=min_trades)
         cards = []
         for pat in found:
-            key = pat["key"]
-            # attach stability from lifetime enrichment when available
-            stab = next((e["stability"] for e in enriched if e["key"] == key), None)
+            ck = canonical_key_from_pairs(
+                canonical_pairs(pat.get("dims") or [], pat.get("values") or []),
+            )
+            stab = stab_by_canon.get(ck)
             if stab is None:
                 # thin local stability from this universe only
                 stab = stability_score({name if name in PERIODS else "lifetime": pat["metrics"]})
             cards.append({
-                "key": key,
+                "key": pat["key"],
                 "label": pat["label"],
                 "dims": pat["dims"],
                 "values": pat["values"],
@@ -500,7 +780,7 @@ def run_pattern_discovery(
                 "metrics": pat["metrics"],
                 "stability": stab,
             })
-        best = sorted(cards, key=lambda c: _pf_sort_key(c["metrics"]))[:top_n]
+        best = sorted(cards, key=lambda c: _pf_sort_key(c["metrics"]))[: top_n * 2]
         worst = sorted(
             cards,
             key=lambda c: (
@@ -510,12 +790,15 @@ def run_pattern_discovery(
                 ),
                 float(c["metrics"].get("expectancy") or 1e9),
             ),
-        )[:top_n]
+        )[: top_n * 2]
+        uniq = consolidate_patterns(cards)
         return {
             "n_trades": len(tagged),
             "n_patterns": len(cards),
-            "top_best": best,
-            "top_worst": worst,
+            "n_patterns_unique": uniq["unique_retained"],
+            "duplicates_removed": uniq["duplicates_removed"],
+            "top_best": _dedupe_ranked_list(best, limit=top_n),
+            "top_worst": _dedupe_ranked_list(worst, limit=top_n),
         }
 
     for p in selected_periods:
@@ -528,10 +811,22 @@ def run_pattern_discovery(
     deterioration = sorted(
         [e for e in enriched if float(e.get("deterioration_score") or 0) > 0],
         key=lambda e: -float(e.get("deterioration_score") or 0),
-    )[:top_n]
+    )[: top_n * 2]
+    deterioration = _dedupe_ranked_list(deterioration, limit=top_n)
 
-    # Candidates from lifetime rankings
-    life_rank = universes.get("lifetime") or _rank_universe("lifetime", period_tagged.get("lifetime") or tagged_all)
+    # --- S62.3.1 consolidation (report quality only; metrics unchanged) ---
+    consolidation = consolidate_patterns(enriched)
+    unique_patterns = consolidation["patterns"]
+    root_causes = group_by_root_cause(unique_patterns)
+    robust = most_robust_patterns(unique_patterns)
+    quality = data_quality_stats(
+        rows=rows,
+        tagged=tagged_all,
+        consolidation=consolidation,
+    )
+
+    # Candidates from consolidated lifetime best/worst
+    life_rank = universes.get("lifetime") or {"top_best": [], "top_worst": []}
     enables = []
     for c in life_rank.get("top_best") or []:
         m = c["metrics"]
@@ -579,7 +874,7 @@ def run_pattern_discovery(
     elapsed = round(time.time() - t0, 3)
     report = {
         "ok": True,
-        "stage": "S62.3",
+        "stage": "S62.3.1",
         "as_of": as_of,
         "as_of_mode": as_of_info["as_of_mode"],
         "n_trades_loaded": len(rows),
@@ -591,6 +886,15 @@ def run_pattern_discovery(
         "combos_3d": [list(c) for c in COMBOS_3D],
         "universes": universes,
         "patterns": _strip_members(enriched),
+        "patterns_unique": _strip_members(unique_patterns),
+        "consolidation": {
+            "duplicates_removed": consolidation["duplicates_removed"],
+            "unique_retained": consolidation["unique_retained"],
+            "raw_count": consolidation["raw_count"],
+        },
+        "root_causes": root_causes,
+        "most_robust": robust,
+        "data_quality": quality,
         "biggest_deterioration": _strip_members(deterioration),
         "candidate_enables": enables,
         "candidate_disables": disables,
@@ -630,17 +934,84 @@ def _fmt(v: Any, *, digits: int = 4) -> str:
 
 def format_patterns_markdown(report: dict[str, Any]) -> str:
     lines = [
-        "# Pattern Discovery (S62.3)",
+        "# Pattern Discovery (S62.3.1)",
         "",
         f"_trades={report.get('n_trades_tagged')} min_trades={report.get('min_trades')} "
         f"as_of_mode={report.get('as_of_mode')} elapsed={report.get('elapsed_sec')}s_",
         "",
         "Statistics only. No new indicators. No strategy changes. No AI.",
+        "Consolidation merges equivalent permutations; metrics are unchanged.",
         "",
     ]
+
+    dq = report.get("data_quality") or {}
+    lines.extend([
+        "## Data Quality",
+        "",
+        f"- Rows analysed: **{dq.get('rows_analysed')}**",
+        f"- Rows skipped: **{dq.get('rows_skipped')}**",
+        f"- Unknown regime %: **{dq.get('unknown_regime_pct')}**",
+        f"- Missing AI score %: **{dq.get('missing_ai_score_pct')}**",
+        f"- Missing Funding %: **{dq.get('missing_funding_pct')}**",
+        f"- Missing RSI %: **{dq.get('missing_rsi_pct')}**",
+        f"- Duplicate patterns removed: **{dq.get('duplicate_patterns_removed')}**",
+        f"- Unique patterns retained: **{dq.get('unique_patterns_retained')}**",
+        "",
+    ])
+
+    lines.extend(["## Most Robust Patterns", ""])
+    robust = report.get("most_robust") or {}
+
+    def _robust_table(title: str, cards: list[dict[str, Any]]) -> None:
+        lines.extend([
+            f"### {title}",
+            "",
+            "| # | Pattern | Trades | PF | E | MaxDD | Stability |",
+            "|---:|---|---:|---:|---:|---:|---:|",
+        ])
+        if not cards:
+            lines.append("| — | _none_ | | | | | |")
+        for i, c in enumerate(cards, 1):
+            m = c.get("metrics") or {}
+            pf = "∞" if m.get("pf_inf") else _fmt(m.get("profit_factor"))
+            lines.append(
+                f"| {i} | {c.get('label')} | {m.get('trades')} | {pf} | "
+                f"{_fmt(m.get('expectancy'))} | {_fmt(m.get('max_drawdown'))} | "
+                f"{_fmt(c.get('stability'))} |"
+            )
+        lines.append("")
+
+    _robust_table("Highest Stability (>70)", robust.get("highest_stability") or [])
+    _robust_table("Highest Trade Count (>500)", robust.get("highest_trade_count") or [])
+    _robust_table("Highest PF", robust.get("highest_pf") or [])
+    _robust_table("Lowest Drawdown", robust.get("lowest_drawdown") or [])
+
+    lines.extend(["## Root Causes", ""])
+    roots = report.get("root_causes") or []
+    if not roots:
+        lines.append("_No multi-pattern root causes._\n")
+    for i, r in enumerate(roots[:25], 1):
+        ev = r.get("supporting_evidence") or {}
+        ev_bits = []
+        for k, vs in ev.items():
+            ev_bits.append(f"{k}={','.join(vs[:6])}")
+        pf = "∞" if r.get("pf_inf") else _fmt(r.get("profit_factor"))
+        lines.extend([
+            f"### {i}. Root cause: **{r.get('root_cause')}**",
+            "",
+            f"- Supporting patterns: {r.get('n_patterns')}",
+            f"- Supporting evidence: {'; '.join(ev_bits) if ev_bits else '—'}",
+            f"- Exemplar: {r.get('exemplar_label')}",
+            f"- Trades={r.get('trades')} PF={pf} E={_fmt(r.get('expectancy'))} "
+            f"WR={_fmt(r.get('winrate'))} Stability={_fmt(r.get('stability'))}",
+            "",
+        ])
+
     for uname, u in (report.get("universes") or {}).items():
         lines.extend([
-            f"## Universe: {uname} (n={u.get('n_trades')}, patterns={u.get('n_patterns')})",
+            f"## Universe: {uname} "
+            f"(n={u.get('n_trades')}, raw={u.get('n_patterns')}, "
+            f"unique={u.get('n_patterns_unique')})",
             "",
             "### TOP Best Patterns",
             "",
@@ -682,7 +1053,8 @@ def format_patterns_markdown(report: dict[str, Any]) -> str:
         life = (e.get("by_period") or {}).get("lifetime") or {}
         d24 = (e.get("period_deltas") or {}).get("24h") or {}
         lines.append(
-            f"| {i} | {e.get('label')} | {_fmt(_pf_num(life))} | {_fmt(d24.get('profit_factor') if not d24.get('pf_inf') else 99)} | "
+            f"| {i} | {e.get('label')} | {_fmt(_pf_num(life))} | "
+            f"{_fmt(d24.get('profit_factor') if not d24.get('pf_inf') else 99)} | "
             f"{_fmt(d24.get('delta_profit_factor'))} | {_fmt(d24.get('delta_expectancy'))} | "
             f"{_fmt(d24.get('delta_winrate'))} | {_fmt(d24.get('delta_pnl'))} | {_fmt(e.get('stability'))} |"
         )
@@ -695,9 +1067,10 @@ def format_patterns_markdown(report: dict[str, Any]) -> str:
 
 def format_candidates_markdown(report: dict[str, Any]) -> str:
     lines = [
-        "# Pattern Candidates (S62.3)",
+        "# Pattern Candidates (S62.3.1)",
         "",
         "Report only — do **not** auto-apply. No strategy changes.",
+        "Labels are consolidated (canonical dim order).",
         "",
         "## TOP 20 Candidate Disables",
         "",
@@ -740,22 +1113,30 @@ def format_candidates_markdown(report: dict[str, Any]) -> str:
 
 
 def format_discovery_summary(report: dict[str, Any]) -> str:
+    dq = report.get("data_quality") or {}
+    cons = report.get("consolidation") or {}
     lines = [
-        "S62.3 Pattern Discovery",
+        "S62.3.1 Pattern Discovery (consolidated)",
         f"  trades={report.get('n_trades_tagged')} min_trades={report.get('min_trades')} "
         f"elapsed={report.get('elapsed_sec')}s as_of_mode={report.get('as_of_mode')}",
+        f"  consolidation: raw={cons.get('raw_count')} "
+        f"unique={cons.get('unique_retained')} removed={cons.get('duplicates_removed')}",
+        f"  data_quality: skipped={dq.get('rows_skipped')} "
+        f"unknown_regime%={dq.get('unknown_regime_pct')} "
+        f"missing_ai%={dq.get('missing_ai_score_pct')}",
     ]
     for name, u in (report.get("universes") or {}).items():
         best = (u.get("top_best") or [None])[0]
         worst = (u.get("top_worst") or [None])[0]
         lines.append(
-            f"  {name}: patterns={u.get('n_patterns')} "
+            f"  {name}: raw={u.get('n_patterns')} unique={u.get('n_patterns_unique')} "
             f"best={best.get('label') if best else '—'} "
             f"worst={worst.get('label') if worst else '—'}"
         )
     lines.append(
         f"  candidates: enable={len(report.get('candidate_enables') or [])} "
-        f"disable={len(report.get('candidate_disables') or [])}"
+        f"disable={len(report.get('candidate_disables') or [])} "
+        f"root_causes={len(report.get('root_causes') or [])}"
     )
     for k, p in (report.get("export_paths") or {}).items():
         lines.append(f"  {k}: {p}")
@@ -764,6 +1145,7 @@ def format_discovery_summary(report: dict[str, Any]) -> str:
 
 __all__ = [
     "DEFAULT_MIN_TRADES",
+    "consolidate_patterns",
     "format_candidates_markdown",
     "format_discovery_summary",
     "format_patterns_markdown",

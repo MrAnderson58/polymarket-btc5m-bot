@@ -98,6 +98,10 @@ class TestPatternDiscoveryS623(unittest.TestCase):
         md = Path(out["export_paths"]["markdown"]).read_text(encoding="utf-8")
         self.assertIn("TOP Best Patterns", md)
         self.assertIn("Biggest Recent Deterioration", md)
+        self.assertIn("Data Quality", md)
+        self.assertIn("Most Robust Patterns", md)
+        self.assertIn("Root Causes", md)
+        self.assertIn("Duplicate patterns removed", md)
         cand = Path(out["export_paths"]["candidates"]).read_text(encoding="utf-8")
         self.assertIn("Candidate Disables", cand)
         self.assertIn("Candidate Enables", cand)
@@ -110,6 +114,57 @@ class TestPatternDiscoveryS623(unittest.TestCase):
         self.assertIn("stability", sample)
         self.assertIn("by_period", sample)
         self.assertIn("period_deltas", sample)
+
+        # Consolidation: unique <= raw; no permutation dupes in unique list
+        cons = out.get("consolidation") or {}
+        self.assertGreaterEqual(int(cons.get("raw_count") or 0), int(cons.get("unique_retained") or 0))
+        unique = out.get("patterns_unique") or []
+        self.assertEqual(len(unique), int(cons.get("unique_retained") or 0))
+        canon_keys = [p.get("canonical_key") or p.get("key") for p in unique]
+        self.assertEqual(len(canon_keys), len(set(canon_keys)))
+        # Canonical label order: Coin before Hour when both present
+        for p in unique:
+            dims = p.get("dims") or []
+            if "coin" in dims and "hour" in dims:
+                self.assertLess(dims.index("coin"), dims.index("hour"))
+                self.assertTrue(str(p.get("label") or "").startswith("Coin="))
+
+        dq = out.get("data_quality") or {}
+        self.assertIn("rows_analysed", dq)
+        self.assertIn("duplicate_patterns_removed", dq)
+        self.assertEqual(out.get("stage"), "S62.3.1")
+
+        # Ranked lists should not contain Hour=… + Coin=… when Coin=… + Hour=… exists
+        life = (out.get("universes") or {})["lifetime"]
+        labels = [c.get("label") for c in (life.get("top_best") or [])]
+        for lab in labels:
+            if lab and lab.startswith("Hour=") and " + Coin=" in lab:
+                self.fail(f"non-canonical label in top_best: {lab}")
+
+    def test_consolidate_permutations(self) -> None:
+        a = {
+            "dims": ["coin", "hour"],
+            "values": ["BTC", "H22"],
+            "key": "coin=BTC|hour=H22",
+            "label": "Coin=BTC + Hour=H22",
+            "metrics": {"trades": 80, "profit_factor": 2.0, "expectancy": 0.1},
+            "stability": 75,
+        }
+        b = {
+            "dims": ["hour", "coin"],
+            "values": ["H22", "BTC"],
+            "key": "hour=H22|coin=BTC",
+            "label": "Hour=H22 + Coin=BTC",
+            "metrics": {"trades": 80, "profit_factor": 2.0, "expectancy": 0.1},
+            "stability": 75,
+        }
+        out = s623.consolidate_patterns([a, b])
+        self.assertEqual(out["duplicates_removed"], 1)
+        self.assertEqual(out["unique_retained"], 1)
+        kept = out["patterns"][0]
+        self.assertEqual(kept["label"], "Coin=BTC + Hour=H22")
+        self.assertEqual(kept["dims"], ["coin", "hour"])
+
 
     def test_cli_registered(self) -> None:
         import subprocess
