@@ -254,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
             "alpha-discovery",
             "intelligence-report",
             "explain-drift",
+            "discover-patterns",
             "backfill-history",
             "market-research-migrate",
             "research-stress-test",
@@ -403,7 +404,23 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         choices=("lifetime", "24h", "3h", "1h"),
         default=None,
-        help="intelligence-report: period (repeatable). Default: all four",
+        help="intelligence-report / discover-patterns: period (repeatable). Default: all four",
+    )
+    parser.add_argument(
+        "--last-trades",
+        action="append",
+        type=int,
+        choices=(100, 500, 1000),
+        default=None,
+        dest="last_trades",
+        help="discover-patterns: last-N trades universe (repeatable). Default: 100,500,1000",
+    )
+    parser.add_argument(
+        "--min-trades",
+        type=int,
+        default=None,
+        dest="min_trades",
+        help="discover-patterns: ignore combinations with fewer trades (default 50)",
     )
     parser.add_argument(
         "--markdown",
@@ -1377,6 +1394,37 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"explain-drift failed: {exc}")
+            return 1
+
+    if args.command == "discover-patterns":
+        from bot.research.market_events.signal_intelligence.pattern_discovery_s623 import (
+            DEFAULT_MIN_TRADES,
+            format_discovery_summary,
+            run_pattern_discovery,
+        )
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            research_connection,
+        )
+        try:
+            with research_connection() as conn:
+                out = run_pattern_discovery(
+                    conn,
+                    periods=getattr(args, "period", None) or None,
+                    last_trades=getattr(args, "last_trades", None),
+                    min_trades=int(getattr(args, "min_trades", None) or DEFAULT_MIN_TRADES),
+                )
+            if args.json:
+                slim = {
+                    k: v for k, v in out.items()
+                    if k not in ("patterns",)
+                }
+                slim["n_patterns"] = len(out.get("patterns") or [])
+                print(json.dumps(slim, indent=2, default=str))
+            else:
+                print(format_discovery_summary(out))
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"discover-patterns failed: {exc}")
             return 1
 
     if args.command == "backfill-history":
