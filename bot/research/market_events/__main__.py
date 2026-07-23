@@ -245,6 +245,10 @@ def main(argv: list[str] | None = None) -> int:
             "learning-worker",
             "paper-performance",
             "trade-regression-audit",
+            "trade-postmortem",
+            "trade-suggestions",
+            "approve-suggestion",
+            "reject-suggestion",
             "research-ai",
             "research-audit",
             "research-cost",
@@ -336,6 +340,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--asset-class", default=None, help="Asset class filter (CRYPTO, EQUITY, …)")
     parser.add_argument("--start", type=int, default=None, help="Backfill start unix ts")
     parser.add_argument("--end", type=int, default=None, help="Backfill end unix ts")
+    parser.add_argument(
+        "--suggestion-id",
+        type=int,
+        default=None,
+        help="approve-suggestion / reject-suggestion: suggestion id",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="trade-postmortem: force run even before RCA_EVERY_N",
+    )
     parser.add_argument("--timeframe", default="1m", help="Candle timeframe for backfill")
     parser.add_argument("--event-id", type=int, default=None, help="Event id for timeline/opportunity reports")
     parser.add_argument("--port", type=int, default=None, help="Dashboard API port")
@@ -1501,6 +1516,100 @@ def main(argv: list[str] | None = None) -> int:
             print(f"trade-regression-audit failed: {exc}")
             return 1
         return 0
+
+    if args.command == "trade-postmortem":
+        if _audit_s42_db_path(command="trade-postmortem") != 0:
+            return 1
+        from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
+            format_postmortem_report,
+            run_postmortem,
+        )
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                if args.force:
+                    result = run_postmortem(conn, force=True)
+                    conn.commit()
+                    if args.json:
+                        print(json.dumps(result, indent=2, default=str))
+                    else:
+                        print(format_postmortem_report(conn))
+                        print(
+                            f"\nRun id={result.get('run_id')} "
+                            f"suggestions={result.get('suggestions_created')}"
+                        )
+                else:
+                    conn.commit()  # persist schema ensure
+                    if args.json:
+                        from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
+                            list_suggestions,
+                            top_losers,
+                            top_winners,
+                        )
+                        print(json.dumps({
+                            "winners": top_winners(conn)[:50],
+                            "losers": top_losers(conn)[:50],
+                            "waiting": list_suggestions(conn),
+                            "report": format_postmortem_report(conn),
+                        }, indent=2, default=str))
+                    else:
+                        print(format_postmortem_report(conn))
+        except Exception as exc:
+            print(f"trade-postmortem failed: {exc}")
+            return 1
+        return 0
+
+    if args.command == "trade-suggestions":
+        if _audit_s42_db_path(command="trade-suggestions") != 0:
+            return 1
+        from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
+            STATUS_WAITING,
+            format_suggestion,
+            list_suggestions,
+        )
+        with market_events_readonly_connection() as conn:
+            rows = list_suggestions(conn, status=None if args.json else STATUS_WAITING, limit=100)
+            if args.json:
+                print(json.dumps(rows, indent=2, default=str))
+            elif not rows:
+                print("No WAITING_APPROVAL suggestions.")
+            else:
+                for s in rows:
+                    print(format_suggestion(s))
+                    print("")
+        return 0
+
+    if args.command == "approve-suggestion":
+        if args.suggestion_id is None:
+            print("approve-suggestion requires --suggestion-id N", file=sys.stderr)
+            return 1
+        from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
+            approve_suggestion,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            out = approve_suggestion(conn, int(args.suggestion_id))
+            conn.commit()
+        if not out.get("ok"):
+            print(f"approve failed: {out}")
+            return 1
+        print("APPROVED — strategy NOT changed. Cursor task:")
+        print(out.get("cursor_task"))
+        return 0
+
+    if args.command == "reject-suggestion":
+        if args.suggestion_id is None:
+            print("reject-suggestion requires --suggestion-id N", file=sys.stderr)
+            return 1
+        from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
+            reject_suggestion,
+        )
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            out = reject_suggestion(conn, int(args.suggestion_id))
+            conn.commit()
+        print(json.dumps(out, indent=2) if args.json else out)
+        return 0 if out.get("ok") else 1
 
     if args.command == "reversal-diagnostics":
         from bot.research.market_events.signal_intelligence.reversal_diagnostics_s21 import (

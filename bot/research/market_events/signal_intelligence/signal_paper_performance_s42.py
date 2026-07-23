@@ -698,6 +698,23 @@ def _close_trade(
     except Exception as exc:
         logger.warning("s55 finalize on close failed: %s", exc)
 
+    try:
+        from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
+            record_close_snapshot,
+        )
+        snap_row = dict(row)
+        snap_row.update({
+            "exit_price": exit_price,
+            "exit_reason": exit_reason,
+            "pnl_usd": pnl_usd,
+            "pnl_pct": round(price_pnl, 4),
+            "holding_seconds": holding,
+            "status": STATUS_CLOSED,
+        })
+        record_close_snapshot(conn, trade_row=snap_row, now=now)
+    except Exception as exc:
+        logger.warning("s56 record_close_snapshot failed: %s", exc)
+
 
 def _activate_trailing_after_tp1(
     conn: Any,
@@ -1490,6 +1507,13 @@ def format_paper_performance_s42(
     try:
         metrics = compute_advanced_metrics_s42(conn)
         lines.extend(_format_advanced_metrics_block(metrics))
+    except Exception:
+        pass
+    try:
+        from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
+            format_s56_report_block,
+        )
+        lines.extend(format_s56_report_block(conn))
     except Exception:
         pass
     if symbol:

@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 65
+SCHEMA_VERSION = 66
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -1035,9 +1035,23 @@ def apply_migrations(conn: Any) -> list[str]:
             applied.append("v65")
             current = 65
 
-    # Idempotent repair for DBs that skipped v64/v65 recording.
+        if current < 66:
+            _ensure_s56_postmortem(conn)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (66, now, "Phase S56 trade postmortem snapshots and rule suggestions"),
+            )
+            applied.append("v66")
+            current = 66
+
+    # Idempotent repair for DBs that skipped v64/v65/v66 recording.
     _ensure_s54_trailing_columns(conn)
     _ensure_s55_trade_features(conn)
+    _ensure_s56_postmortem(conn)
 
     if not applied:
         conn.commit()
@@ -3485,6 +3499,98 @@ def _ensure_s55_trade_features(conn: Any) -> None:
     """Create S55 trade feature / outcome table if missing."""
     try:
         conn.executescript(S55_TRADE_FEATURES_DDL)
+    except Exception:
+        pass
+
+
+S56_POSTMORTEM_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_trade_snapshots_s56 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_trade_id INTEGER,
+    s40_signal_type TEXT,
+    s40_signal_id INTEGER,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entry REAL,
+    exit_price REAL,
+    pnl_usd REAL,
+    pnl_pct REAL,
+    duration_sec INTEGER,
+    exit_reason TEXT,
+    tp1 REAL,
+    tp2 REAL,
+    trailing INTEGER NOT NULL DEFAULT 0,
+    ai_score REAL,
+    expected_pnl_pct REAL,
+    funding REAL,
+    oi_delta REAL,
+    etf_flow REAL,
+    fear_greed REAL,
+    macro_score REAL,
+    news_score REAL,
+    market_score REAL,
+    volatility REAL,
+    atr REAL,
+    volume REAL,
+    trend REAL,
+    vwap REAL,
+    spread REAL,
+    timestamp INTEGER,
+    hour INTEGER,
+    weekday INTEGER,
+    market_regime TEXT,
+    snapshot_json TEXT,
+    created_at INTEGER NOT NULL,
+    UNIQUE(s40_signal_type, s40_signal_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_s56_snap_pnl
+    ON market_events_trade_snapshots_s56(pnl_usd DESC);
+CREATE INDEX IF NOT EXISTS idx_s56_snap_closed
+    ON market_events_trade_snapshots_s56(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_events_postmortem_runs_s56 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    closed_count INTEGER NOT NULL,
+    winners_n INTEGER NOT NULL DEFAULT 0,
+    losers_n INTEGER NOT NULL DEFAULT 0,
+    rca_json TEXT,
+    feature_importance_json TEXT,
+    llm_text TEXT,
+    llm_method TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_rule_suggestions_s56 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER,
+    rule_text TEXT NOT NULL,
+    evidence_json TEXT,
+    evidence_trades INTEGER,
+    expected_improvement_pct REAL,
+    confidence_pct REAL,
+    status TEXT NOT NULL DEFAULT 'WAITING_APPROVAL',
+    source TEXT,
+    created_at INTEGER NOT NULL,
+    decided_at INTEGER,
+    cursor_task TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_s56_suggest_status
+    ON market_events_rule_suggestions_s56(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_events_postmortem_ops_s56 (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+"""
+
+
+def _ensure_s56_postmortem(conn: Any) -> None:
+    """Create S56 postmortem / suggestion tables if missing."""
+    try:
+        conn.executescript(S56_POSTMORTEM_DDL)
     except Exception:
         pass
 
