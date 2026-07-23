@@ -126,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
             "ai-analyze-pending",
             "polymarket-paper-audit",
             "architecture-audit",
+            "cli-architecture-audit",
             "instrument-discover",
             "instrument-report",
             "e2-audit",
@@ -392,6 +393,17 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         help="strategy-discovery: show top N ranked hypotheses (default 25)",
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="cli-architecture-audit: write docs/research/S60_1_CLI_ARCHITECTURE_AUDIT.md",
+    )
+    parser.add_argument(
+        "--write-suggestions",
+        action="store_true",
+        dest="write_suggestions",
+        help="market-regime / strategy-discovery: also write WAITING_APPROVAL suggestions",
     )
     parser.add_argument("--timeframe", default="1m", help="Candle timeframe for backfill")
     parser.add_argument("--event-id", type=int, default=None, help="Event id for timeline/opportunity reports")
@@ -2254,14 +2266,29 @@ def main(argv: list[str] | None = None) -> int:
             print(f"matrix_stats: {stats}")
         return 0
 
-    if args.command == "architecture-audit":
+    if args.command in ("architecture-audit", "cli-architecture-audit"):
+        from bot.research.market_events.signal_intelligence.cli_architecture_audit_s601 import (
+            format_cli_architecture_audit,
+            run_cli_architecture_audit,
+            write_audit_markdown,
+        )
         from pathlib import Path
-        doc = Path(__file__).resolve().parent.parent.parent.parent / "docs" / "research" / "PHASE_E1_ARCHITECTURE_AUDIT.md"
-        if doc.exists():
-            print(doc.read_text())
+
+        audit = run_cli_architecture_audit()
+        if args.json:
+            print(json.dumps(audit.to_dict(), indent=2, default=str))
         else:
-            print("See docs/research/PHASE_E1_ARCHITECTURE_AUDIT.md")
-        return 0
+            print(format_cli_architecture_audit(audit))
+        if getattr(args, "write", False):
+            out = (
+                Path(__file__).resolve().parent.parent.parent.parent
+                / "docs"
+                / "research"
+                / "S60_1_CLI_ARCHITECTURE_AUDIT.md"
+            )
+            write_audit_markdown(audit, out)
+            print(f"\nWrote {out}")
+        return 0 if audit.ok else 1
 
     if args.command == "polymarket-paper-audit":
         from bot.research.market_events.polymarket_audit import render_polymarket_paper_audit
