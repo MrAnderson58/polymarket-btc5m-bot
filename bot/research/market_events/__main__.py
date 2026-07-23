@@ -253,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
             "strategy-discovery",
             "alpha-discovery",
             "intelligence-report",
+            "explain-drift",
             "backfill-history",
             "market-research-migrate",
             "research-stress-test",
@@ -1352,6 +1353,30 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except Exception as exc:
             print(f"intelligence-report failed: {exc}")
+            return 1
+
+    if args.command == "explain-drift":
+        from bot.research.market_events.signal_intelligence.drift_analyzer_s622 import (
+            format_drift_summary,
+            run_drift_analyzer,
+        )
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            research_connection,
+        )
+        try:
+            with research_connection() as conn:
+                out = run_drift_analyzer(conn)
+            if args.json:
+                # Drop bulky category list for CLI json unless full report file is enough
+                slim = {k: v for k, v in out.items() if k != "categories"}
+                slim["n_categories"] = len(out.get("categories") or [])
+                slim["export_paths"] = out.get("export_paths")
+                print(json.dumps(slim, indent=2, default=str))
+            else:
+                print(format_drift_summary(out))
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"explain-drift failed: {exc}")
             return 1
 
     if args.command == "backfill-history":
