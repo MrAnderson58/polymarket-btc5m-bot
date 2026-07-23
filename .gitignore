@@ -9,6 +9,9 @@ reports/**/*.md
 reports/**/*.json
 reports/**/*.zip
 reports/**/ai_notes.md
+research/reports/**
+!research/reports/**/
+!research/reports/**/.gitkeep
 optimizer_reports/
 ai_agent_reports/
 ai_journal/

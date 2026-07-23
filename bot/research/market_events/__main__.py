@@ -252,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
             "feature-lab",
             "strategy-discovery",
             "alpha-discovery",
+            "intelligence-report",
             "market-research-migrate",
             "research-stress-test",
             "trade-suggestions",
@@ -394,6 +395,18 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         help="strategy-discovery / alpha-discovery: show top N ranked hypotheses (default 25)",
+    )
+    parser.add_argument(
+        "--period",
+        action="append",
+        choices=("lifetime", "24h", "3h", "1h"),
+        default=None,
+        help="intelligence-report: period (repeatable). Default: all four",
+    )
+    parser.add_argument(
+        "--markdown",
+        action="store_true",
+        help="intelligence-report: print markdown to stdout",
     )
     parser.add_argument(
         "--write",
@@ -1302,6 +1315,42 @@ def main(argv: list[str] | None = None) -> int:
             return int(retry_on_db_locked(_run_alpha))
         except Exception as exc:
             print(f"alpha-discovery failed: {exc}")
+            return 1
+
+    if args.command == "intelligence-report":
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            research_connection,
+        )
+        from bot.research.market_events.signal_intelligence.trading_intelligence_report_s621 import (
+            format_intelligence_markdown,
+            run_intelligence_report,
+        )
+        periods = getattr(args, "period", None) or None
+        try:
+            # Research DB only — no live connection, no migrations, no table writes.
+            with research_connection() as conn:
+                out = run_intelligence_report(conn, periods=periods)
+            paths = out.get("export_paths") or {}
+            if args.json:
+                print(json.dumps(out, indent=2, default=str))
+            elif getattr(args, "markdown", False):
+                print(format_intelligence_markdown(out))
+            else:
+                print("S62.1 Trading Intelligence Report")
+                print(f"  trades_loaded={out.get('n_trades_loaded')}  "
+                      f"elapsed={out.get('elapsed_sec')}s  periods={out.get('periods')}")
+                print(f"  regime={out.get('current_market_regime')}")
+                drift = (out.get("performance_drift") or {}).get("flags") or []
+                if drift:
+                    print("  drift_flags:")
+                    for f in drift[:5]:
+                        print(f"    - {f}")
+                print("  exports:")
+                for k, p in paths.items():
+                    print(f"    {k}: {p}")
+            return 0
+        except Exception as exc:
+            print(f"intelligence-report failed: {exc}")
             return 1
 
     if args.command == "pattern":
