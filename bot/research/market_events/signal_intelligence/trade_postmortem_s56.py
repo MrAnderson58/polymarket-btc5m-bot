@@ -4,6 +4,8 @@ Never auto-applies strategy changes. Suggestions stay WAITING_APPROVAL until a h
 approves; approval only records status + Cursor task text (e.g. S56.1).
 
 S56.1 — lock-safe writes (execute_with_retry), backfill from closed S42 trades.
+S56.2 — deep statistical analysis (symbols / hours / direction / exits / features).
+         Suggestions off by default until analysis is rich enough.
 """
 
 from __future__ import annotations
@@ -36,6 +38,9 @@ S56_TOP_N = 500
 S56_RCA_EVERY_N = 1000
 S56_LLM_ENABLED = False
 S56_MIN_EVIDENCE = 30
+# S56.2: do not invent weak rule proposals while feature coverage is thin.
+S56_SUGGESTIONS_ENABLED = False
+S56_SYMBOL_TOP_N = 20
 
 _NUMERIC_FEATURES = (
     "ai_score",
@@ -55,7 +60,31 @@ _NUMERIC_FEATURES = (
     "spread",
     "hour",
     "weekday",
+    "duration_sec",
 )
+
+_CATEGORICAL_FEATURES = (
+    "symbol",
+    "direction",
+    "exit_reason",
+    "market_regime",
+)
+
+_EXIT_CANON = {
+    "STOP": "STOP",
+    "STOP_LOSS": "STOP",
+    "TP1": "TP1",
+    "TAKE_PROFIT_1": "TP1",
+    "TP2": "TP2",
+    "TAKE_PROFIT_2": "TP2",
+    "TRAILING": "Trailing",
+    "TRAIL": "Trailing",
+    "TIMEOUT": "Timeout",
+    "STALE_TIMEOUT": "Timeout",
+    "PORTFOLIO_REPLACE": "Portfolio Replace",
+}
+
+_EXIT_ORDER = ("STOP", "TP1", "TP2", "Trailing", "Timeout", "Portfolio Replace", "Other")
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -67,6 +96,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 def refresh_s56_config_from_env() -> None:
     global S56_TOP_N, S56_RCA_EVERY_N, S56_LLM_ENABLED, S56_MIN_EVIDENCE
+    global S56_SUGGESTIONS_ENABLED, S56_SYMBOL_TOP_N
     if "S56_TOP_N" in os.environ:
         try:
             S56_TOP_N = max(10, int(os.environ["S56_TOP_N"]))
@@ -84,10 +114,18 @@ def refresh_s56_config_from_env() -> None:
             S56_MIN_EVIDENCE = max(5, int(os.environ["S56_MIN_EVIDENCE"]))
         except (TypeError, ValueError):
             pass
+    if "S56_SUGGESTIONS_ENABLED" in os.environ:
+        S56_SUGGESTIONS_ENABLED = _env_bool("S56_SUGGESTIONS_ENABLED", False)
+    if "S56_SYMBOL_TOP_N" in os.environ:
+        try:
+            S56_SYMBOL_TOP_N = max(5, int(os.environ["S56_SYMBOL_TOP_N"]))
+        except (TypeError, ValueError):
+            pass
 
 
 def _apply_defaults() -> None:
     global S56_TOP_N, S56_RCA_EVERY_N, S56_LLM_ENABLED, S56_MIN_EVIDENCE
+    global S56_SUGGESTIONS_ENABLED, S56_SYMBOL_TOP_N
     try:
         S56_TOP_N = max(10, int(os.environ.get("S56_TOP_N", "500")))
     except (TypeError, ValueError):
@@ -101,6 +139,11 @@ def _apply_defaults() -> None:
         S56_MIN_EVIDENCE = max(5, int(os.environ.get("S56_MIN_EVIDENCE", "30")))
     except (TypeError, ValueError):
         S56_MIN_EVIDENCE = 30
+    S56_SUGGESTIONS_ENABLED = _env_bool("S56_SUGGESTIONS_ENABLED", False)
+    try:
+        S56_SYMBOL_TOP_N = max(5, int(os.environ.get("S56_SYMBOL_TOP_N", "20")))
+    except (TypeError, ValueError):
+        S56_SYMBOL_TOP_N = 20
 
 
 _apply_defaults()
@@ -439,11 +482,212 @@ def _std(vals: list[float]) -> float:
     return (sum((x - m) ** 2 for x in vals) / (len(vals) - 1)) ** 0.5
 
 
+def _stars_from_effect(effect: float) -> str:
+    if effect >= 0.8:
+        return "+++++"
+    if effect >= 0.5:
+        return "++++"
+    if effect >= 0.35:
+        return "+++"
+    if effect >= 0.2:
+        return "++"
+    if effect >= 0.1:
+        return "+"
+    return ""
+
+
+def _canon_exit(reason: Any) -> str:
+    key = str(reason or "").strip().upper()
+    if not key:
+        return "Other"
+    return _EXIT_CANON.get(key, "Other")
+
+
+def bucket_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """PnL / winrate / expectancy / PF / avg win / avg loss for a bucket."""
+    n = len(rows)
+    if n == 0:
+        return {
+            "n": 0,
+            "pnl": 0.0,
+            "winrate": None,
+            "expectancy": None,
+            "pf": None,
+            "avg_win": None,
+            "avg_loss": None,
+            "wins": 0,
+            "losses": 0,
+        }
+    pnls = [float(r.get("pnl_usd") or 0.0) for r in rows]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+    gross_win = sum(wins)
+    gross_loss = abs(sum(losses))
+    if gross_loss > 1e-12:
+        pf: float | None = gross_win / gross_loss
+    elif gross_win > 0:
+        pf = float("inf")
+    else:
+        pf = 0.0
+    return {
+        "n": n,
+        "pnl": round(sum(pnls), 4),
+        "winrate": round(100.0 * len(wins) / n, 2),
+        "expectancy": round(sum(pnls) / n, 4),
+        "pf": (round(pf, 4) if pf != float("inf") else None) if pf is not None else None,
+        "pf_inf": pf == float("inf"),
+        "avg_win": round(sum(wins) / len(wins), 4) if wins else None,
+        "avg_loss": round(sum(losses) / len(losses), 4) if losses else None,
+        "wins": len(wins),
+        "losses": len(losses),
+    }
+
+
+def load_all_snapshots(conn: Any) -> list[dict[str, Any]]:
+    try:
+        rows = conn.execute(
+            f"SELECT * FROM {_SNAP} WHERE pnl_usd IS NOT NULL",
+        ).fetchall()
+    except Exception:
+        return []
+    return [_row(r) for r in rows]
+
+
+def compute_deep_stats(
+    conn: Any,
+    *,
+    symbol_top_n: int | None = None,
+) -> dict[str, Any]:
+    """S56.2 — pattern tables over all snapshots (not idea generation)."""
+    refresh_s56_config_from_env()
+    top_n = int(symbol_top_n if symbol_top_n is not None else S56_SYMBOL_TOP_N)
+    rows = load_all_snapshots(conn)
+    overall = bucket_metrics(rows)
+
+    by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    by_hour: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    by_sym_dir: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    by_exit: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
+    for r in rows:
+        sym = str(r.get("symbol") or "?").upper()
+        direction = str(r.get("direction") or "?").upper()
+        by_symbol[sym].append(r)
+        by_sym_dir[(sym, direction)].append(r)
+        by_exit[_canon_exit(r.get("exit_reason"))].append(r)
+        h = r.get("hour")
+        try:
+            hi = int(h) if h is not None else -1
+        except (TypeError, ValueError):
+            hi = -1
+        if 0 <= hi <= 23:
+            by_hour[hi].append(r)
+
+    # TOP-N symbols by trade count, then sorted by PnL ascending (worst first).
+    ranked = sorted(by_symbol.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:top_n]
+    symbols: list[dict[str, Any]] = []
+    for sym, bucket in ranked:
+        m = bucket_metrics(bucket)
+        symbols.append({"symbol": sym, **m})
+    symbols.sort(key=lambda x: (x["pnl"], -x["n"]))
+
+    hours: list[dict[str, Any]] = []
+    for h in range(24):
+        m = bucket_metrics(by_hour.get(h, []))
+        hours.append({"hour": h, **m})
+
+    symbol_direction: list[dict[str, Any]] = []
+    for (sym, direction), bucket in sorted(by_sym_dir.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+        m = bucket_metrics(bucket)
+        symbol_direction.append({"symbol": sym, "direction": direction, **m})
+    symbol_direction.sort(key=lambda x: (x["pnl"], -x["n"]))
+
+    exits: list[dict[str, Any]] = []
+    for label in _EXIT_ORDER:
+        m = bucket_metrics(by_exit.get(label, []))
+        if m["n"] == 0 and label == "Other":
+            continue
+        exits.append({"exit_reason": label, **m})
+    for label, bucket in by_exit.items():
+        if label not in _EXIT_ORDER:
+            exits.append({"exit_reason": label, **bucket_metrics(bucket)})
+
+    coverage = {
+        "snapshots": len(rows),
+        "symbols": len(by_symbol),
+        "with_funding": sum(1 for r in rows if r.get("funding") is not None),
+        "with_news_score": sum(1 for r in rows if r.get("news_score") is not None),
+        "with_macro_score": sum(1 for r in rows if r.get("macro_score") is not None),
+        "with_market_regime": sum(1 for r in rows if r.get("market_regime") is not None),
+        "with_ai_score": sum(1 for r in rows if r.get("ai_score") is not None),
+        "with_expected_pnl": sum(1 for r in rows if r.get("expected_pnl_pct") is not None),
+        "with_duration": sum(1 for r in rows if r.get("duration_sec") is not None),
+    }
+
+    return {
+        "overall": overall,
+        "symbols_top": symbols,
+        "hours": hours,
+        "symbol_direction": symbol_direction,
+        "exits": exits,
+        "coverage": coverage,
+    }
+
+
+def _categorical_importance(
+    winners: list[dict[str, Any]],
+    losers: list[dict[str, Any]],
+    feat: str,
+) -> dict[str, Any] | None:
+    """Winrate-gap effect across categories (null-safe)."""
+    def _vals(rows: list[dict[str, Any]]) -> list[str]:
+        out: list[str] = []
+        for r in rows:
+            v = r.get(feat)
+            if v is None or str(v).strip() == "":
+                continue
+            if feat == "exit_reason":
+                out.append(_canon_exit(v))
+            else:
+                out.append(str(v).strip().upper() if feat in ("symbol", "direction") else str(v))
+        return out
+
+    wv, lv = _vals(winners), _vals(losers)
+    if len(wv) < 5 or len(lv) < 5:
+        return None
+    cats = sorted(set(wv) | set(lv))
+    if len(cats) < 2:
+        return None
+    # Max |P(cat|win) - P(cat|lose)| as effect proxy.
+    best_gap = 0.0
+    best_cat = cats[0]
+    for c in cats:
+        pw = sum(1 for x in wv if x == c) / len(wv)
+        pl = sum(1 for x in lv if x == c) / len(lv)
+        gap = abs(pw - pl)
+        if gap > best_gap:
+            best_gap = gap
+            best_cat = c
+    return {
+        "feature": feat,
+        "kind": "categorical",
+        "top_category": best_cat,
+        "winners_avg": None,
+        "losers_avg": None,
+        "delta": round(best_gap, 4),
+        "effect_size": round(best_gap, 4),
+        "stars": _stars_from_effect(best_gap),
+        "n_winners": len(wv),
+        "n_losers": len(lv),
+        "n_categories": len(cats),
+    }
+
+
 def compute_feature_importance(
     winners: list[dict[str, Any]],
     losers: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Effect-size ranking: |mean_w - mean_l| / pooled_std → stars."""
+    """Effect-size ranking over numeric + categorical dims present in data."""
     out: list[dict[str, Any]] = []
     for feat in _NUMERIC_FEATURES:
         wv = [_safe_float(r.get(feat)) for r in winners]
@@ -456,28 +700,21 @@ def compute_feature_importance(
         assert mw is not None and ml is not None
         pooled = ((_std(wv) ** 2 + _std(lv) ** 2) / 2) ** 0.5
         effect = abs(mw - ml) / pooled if pooled > 1e-12 else abs(mw - ml)
-        if effect >= 0.8:
-            stars = "+++++"
-        elif effect >= 0.5:
-            stars = "++++"
-        elif effect >= 0.35:
-            stars = "+++"
-        elif effect >= 0.2:
-            stars = "++"
-        elif effect >= 0.1:
-            stars = "+"
-        else:
-            stars = ""
         out.append({
             "feature": feat,
+            "kind": "numeric",
             "winners_avg": round(mw, 4),
             "losers_avg": round(ml, 4),
             "delta": round(mw - ml, 4),
             "effect_size": round(effect, 4),
-            "stars": stars,
+            "stars": _stars_from_effect(effect),
             "n_winners": len(wv),
             "n_losers": len(lv),
         })
+    for feat in _CATEGORICAL_FEATURES:
+        item = _categorical_importance(winners, losers, feat)
+        if item:
+            out.append(item)
     out.sort(key=lambda x: x["effect_size"], reverse=True)
     return out
 
@@ -614,9 +851,15 @@ def _suggest_from_stats(
     losers: list[dict[str, Any]],
     importance: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Minimal rule proposals from numbers (no LLM). Never applied automatically."""
+    """Minimal rule proposals from numbers (no LLM). Never applied automatically.
+
+    S56.2 default: disabled — prefer richer pattern tables over weak recommendations.
+    Enable with S56_SUGGESTIONS_ENABLED=1 when analysis coverage is solid.
+    """
     suggestions: list[dict[str, Any]] = []
     refresh_s56_config_from_env()
+    if not S56_SUGGESTIONS_ENABLED:
+        return suggestions
 
     long_losers = [r for r in losers if str(r.get("direction")) == "LONG"]
     if len(long_losers) >= S56_MIN_EVIDENCE:
@@ -787,24 +1030,40 @@ def _format_deterministic_analyst(rca: dict[str, Any], importance: list[dict[str
     )
     lines.append("5. Missing data needed")
     missing = [x["feature"] for x in importance if x.get("n_winners", 0) < 20]
-    sparse = [f for f in _NUMERIC_FEATURES if f not in {i["feature"] for i in importance}]
-    lines.append(f"  - sparse/unused dims: {', '.join(sparse[:8]) or 'none'}")
+    sparse = [
+        f for f in (*_NUMERIC_FEATURES, *_CATEGORICAL_FEATURES)
+        if f not in {i["feature"] for i in importance}
+    ]
+    lines.append(f"  - sparse/unused dims: {', '.join(sparse[:12]) or 'none'}")
     lines.append("Feature importance:")
-    for i in importance[:10]:
-        lines.append(
-            f"  {i['feature']}: {i['stars'] or '·'} effect={i['effect_size']} "
-            f"W={i['winners_avg']} L={i['losers_avg']}"
-        )
+    for i in importance[:12]:
+        if i.get("kind") == "categorical":
+            lines.append(
+                f"  {i['feature']}: {i['stars'] or '·'} effect={i['effect_size']} "
+                f"top={i.get('top_category')} cats={i.get('n_categories')}"
+            )
+        else:
+            lines.append(
+                f"  {i['feature']}: {i['stars'] or '·'} effect={i['effect_size']} "
+                f"W={i['winners_avg']} L={i['losers_avg']}"
+            )
     return "\n".join(lines)
 
 
 def run_postmortem(conn: Any, *, now: int | None = None, force: bool = False) -> dict[str, Any]:
-    """Full postmortem: RCA + importance + optional LLM + suggestions."""
+    """Full postmortem: deep stats + RCA + importance + optional LLM + suggestions."""
     refresh_s56_config_from_env()
     now = int(now if now is not None else time.time())
     winners = top_winners(conn)
     losers = top_losers(conn)
+    deep = compute_deep_stats(conn)
     rca = compute_rca(winners, losers)
+    rca["deep_stats"] = {
+        "overall": deep.get("overall"),
+        "coverage": deep.get("coverage"),
+        "symbols_top_n": len(deep.get("symbols_top") or []),
+        "exits": deep.get("exits"),
+    }
     importance = compute_feature_importance(winners, losers)
     llm_text, method = _call_llm_postmortem(
         conn, rca=rca, importance=importance, winners_n=len(winners), losers_n=len(losers),
@@ -871,10 +1130,12 @@ def run_postmortem(conn: Any, *, now: int | None = None, force: bool = False) ->
         "winners_n": len(winners),
         "losers_n": len(losers),
         "rca": rca,
+        "deep_stats": deep,
         "feature_importance": importance,
         "llm_method": method,
         "llm_text": llm_text,
         "suggestions_created": len(suggestions),
+        "suggestions_enabled": S56_SUGGESTIONS_ENABLED,
         "forced": force,
     }
 
@@ -1074,10 +1335,103 @@ def doctor_s56_status(conn: Any) -> dict[str, Any]:
     }
 
 
+def _fmt_pf(m: dict[str, Any]) -> str:
+    if m.get("pf_inf"):
+        return "inf"
+    pf = m.get("pf")
+    if pf is None:
+        return "—"
+    return f"{pf:.2f}"
+
+
+def _fmt_money(v: Any) -> str:
+    if v is None:
+        return "—"
+    return f"${float(v):+.2f}"
+
+
+def _fmt_pct(v: Any) -> str:
+    if v is None:
+        return "—"
+    return f"{float(v):.1f}%"
+
+
+def format_deep_stats_section(deep: dict[str, Any]) -> list[str]:
+    """Human-readable S56.2 pattern tables."""
+    lines: list[str] = []
+    cov = deep.get("coverage") or {}
+    overall = deep.get("overall") or {}
+    lines.extend([
+        "",
+        "S56.2 Deep Stats",
+        f"  snapshots={cov.get('snapshots', 0)}  symbols={cov.get('symbols', 0)}  "
+        f"funding={cov.get('with_funding', 0)}  regime={cov.get('with_market_regime', 0)}  "
+        f"news={cov.get('with_news_score', 0)}  macro={cov.get('with_macro_score', 0)}",
+        f"  Overall: n={overall.get('n', 0)}  PnL={_fmt_money(overall.get('pnl'))}  "
+        f"WR={_fmt_pct(overall.get('winrate'))}  "
+        f"E={_fmt_money(overall.get('expectancy'))}  PF={_fmt_pf(overall)}",
+        "",
+        f"Symbols TOP-{len(deep.get('symbols_top') or [])} "
+        "(by volume, sorted worst→best PnL)",
+        f"  {'Symbol':<10} {'n':>5} {'PnL':>10} {'WR':>7} {'E':>9} {'PF':>6} "
+        f"{'AvgW':>9} {'AvgL':>9}",
+    ])
+    for row in deep.get("symbols_top") or []:
+        lines.append(
+            f"  {str(row.get('symbol')):<10} {row.get('n'):>5} "
+            f"{_fmt_money(row.get('pnl')):>10} {_fmt_pct(row.get('winrate')):>7} "
+            f"{_fmt_money(row.get('expectancy')):>9} {_fmt_pf(row):>6} "
+            f"{_fmt_money(row.get('avg_win')):>9} {_fmt_money(row.get('avg_loss')):>9}"
+        )
+
+    lines.extend([
+        "",
+        "Hours (0–23 UTC)",
+        f"  {'H':>2} {'n':>5} {'PnL':>10} {'WR':>7} {'E':>9}",
+    ])
+    for row in deep.get("hours") or []:
+        if int(row.get("n") or 0) == 0:
+            continue
+        lines.append(
+            f"  {int(row['hour']):>2} {row.get('n'):>5} "
+            f"{_fmt_money(row.get('pnl')):>10} {_fmt_pct(row.get('winrate')):>7} "
+            f"{_fmt_money(row.get('expectancy')):>9}"
+        )
+
+    lines.extend([
+        "",
+        "Symbol × Direction (LONG / SHORT)",
+        f"  {'Symbol':<10} {'Dir':<6} {'n':>5} {'PnL':>10} {'WR':>7} {'E':>9} {'PF':>6}",
+    ])
+    for row in deep.get("symbol_direction") or []:
+        lines.append(
+            f"  {str(row.get('symbol')):<10} {str(row.get('direction')):<6} "
+            f"{row.get('n'):>5} {_fmt_money(row.get('pnl')):>10} "
+            f"{_fmt_pct(row.get('winrate')):>7} {_fmt_money(row.get('expectancy')):>9} "
+            f"{_fmt_pf(row):>6}"
+        )
+
+    lines.extend([
+        "",
+        "Exit reasons",
+        f"  {'Exit':<18} {'n':>5} {'PnL':>10} {'WR':>7} {'E':>9}",
+    ])
+    for row in deep.get("exits") or []:
+        if int(row.get("n") or 0) == 0:
+            continue
+        lines.append(
+            f"  {str(row.get('exit_reason')):<18} {row.get('n'):>5} "
+            f"{_fmt_money(row.get('pnl')):>10} {_fmt_pct(row.get('winrate')):>7} "
+            f"{_fmt_money(row.get('expectancy')):>9}"
+        )
+    return lines
+
+
 def format_postmortem_report(conn: Any) -> str:
     refresh_s56_config_from_env()
     diag = diagnose_snapshots(conn)
     hl = snapshot_highlights(conn)
+    deep = compute_deep_stats(conn)
     winners = top_winners(conn, n=min(20, S56_TOP_N))
     losers = top_losers(conn, n=min(20, S56_TOP_N))
     w_n = len(top_winners(conn))
@@ -1094,6 +1448,7 @@ def format_postmortem_report(conn: Any) -> str:
         f"TOP losers available:  {l_n} (cap {S56_TOP_N})",
         f"RCA every N closed:    {S56_RCA_EVERY_N}",
         f"LLM enabled:           {S56_LLM_ENABLED}",
+        f"Suggestions enabled:   {S56_SUGGESTIONS_ENABLED}",
         f"Closed S42:            {diag['closed_s42']}",
         f"Snapshots:             {diag['snapshots']}  (missing={diag['missing']})",
     ]
@@ -1112,6 +1467,9 @@ def format_postmortem_report(conn: Any) -> str:
         f"  Worst hour:             {hl.get('worst_hour') or '—'}",
         f"  Best AI score trade:    {hl.get('best_ai_score') or '—'}",
         f"  Worst AI score trade:   {hl.get('worst_ai_score') or '—'}",
+    ])
+    lines.extend(format_deep_stats_section(deep))
+    lines.extend([
         "",
         "Sample TOP winners (by PnL $):",
     ])
@@ -1137,8 +1495,16 @@ def format_postmortem_report(conn: Any) -> str:
         try:
             imp = json.loads(last["feature_importance_json"] or "[]")
             lines.append("Feature importance:")
-            for i in imp[:8]:
-                lines.append(f"  {i.get('feature')}: {i.get('stars') or '·'} ({i.get('effect_size')})")
+            for i in imp[:12]:
+                if i.get("kind") == "categorical":
+                    lines.append(
+                        f"  {i.get('feature')}: {i.get('stars') or '·'} "
+                        f"({i.get('effect_size')}) top={i.get('top_category')}"
+                    )
+                else:
+                    lines.append(
+                        f"  {i.get('feature')}: {i.get('stars') or '·'} ({i.get('effect_size')})"
+                    )
         except Exception:
             pass
         try:
@@ -1148,7 +1514,11 @@ def format_postmortem_report(conn: Any) -> str:
                 lines.append(f"  - {f.get('statement')}")
         except Exception:
             pass
-    lines.extend(["", f"Suggestions WAITING_APPROVAL: {len(waiting)}"])
+    lines.extend([
+        "",
+        f"Suggestions WAITING_APPROVAL: {len(waiting)}"
+        + ("" if S56_SUGGESTIONS_ENABLED else "  (generation OFF — set S56_SUGGESTIONS_ENABLED=1)"),
+    ])
     for s in waiting[:5]:
         lines.append("")
         lines.append(format_suggestion(s))
@@ -1167,11 +1537,25 @@ def format_s56_report_block(conn: Any) -> list[str]:
     waiting = list_suggestions(conn, status=STATUS_WAITING, limit=100)
     hl = snapshot_highlights(conn)
     diag = diagnose_snapshots(conn)
+    deep = compute_deep_stats(conn)
+    overall = deep.get("overall") or {}
+    exits_nonzero = [e for e in (deep.get("exits") or []) if int(e.get("n") or 0) > 0]
+    worst_syms = (deep.get("symbols_top") or [])[:3]
+    best_hour = None
+    worst_hour = None
+    hours_nz = [h for h in (deep.get("hours") or []) if int(h.get("n") or 0) > 0]
+    if hours_nz:
+        best_hour = max(hours_nz, key=lambda x: x.get("pnl") or 0)
+        worst_hour = min(hours_nz, key=lambda x: x.get("pnl") or 0)
     lines = [
         "",
         "S56 Post-Mortem",
         f"  snapshots={snap_n}  waiting_approval={len(waiting)}  "
-        f"rca_every={S56_RCA_EVERY_N}  llm={S56_LLM_ENABLED}",
+        f"rca_every={S56_RCA_EVERY_N}  llm={S56_LLM_ENABLED}  "
+        f"suggestions={S56_SUGGESTIONS_ENABLED}",
+        f"  Overall: n={overall.get('n', 0)}  PnL={_fmt_money(overall.get('pnl'))}  "
+        f"WR={_fmt_pct(overall.get('winrate'))}  E={_fmt_money(overall.get('expectancy'))}  "
+        f"PF={_fmt_pf(overall)}",
         f"  Top Winner:             {hl.get('top_winner') or '—'}",
         f"  Top Loser:              {hl.get('top_loser') or '—'}",
         f"  Most profitable symbol: {hl.get('best_symbol') or '—'}",
@@ -1181,6 +1565,26 @@ def format_s56_report_block(conn: Any) -> list[str]:
         f"  Best AI score:          {hl.get('best_ai_score') or '—'}",
         f"  Worst AI score:         {hl.get('worst_ai_score') or '—'}",
     ]
+    if worst_syms:
+        lines.append("  Symbols (worst→):")
+        for row in worst_syms:
+            lines.append(
+                f"    {row.get('symbol')}: n={row.get('n')} PnL={_fmt_money(row.get('pnl'))} "
+                f"WR={_fmt_pct(row.get('winrate'))} E={_fmt_money(row.get('expectancy'))} "
+                f"PF={_fmt_pf(row)}"
+            )
+    if best_hour and worst_hour:
+        lines.append(
+            f"  Hours deep: best H{best_hour['hour']} PnL={_fmt_money(best_hour.get('pnl'))}  "
+            f"worst H{worst_hour['hour']} PnL={_fmt_money(worst_hour.get('pnl'))}"
+        )
+    if exits_nonzero:
+        bits = [
+            f"{e.get('exit_reason')} n={e.get('n')} {_fmt_money(e.get('pnl'))}"
+            for e in exits_nonzero[:6]
+        ]
+        lines.append(f"  Exits: {'; '.join(bits)}")
+    lines.append("  Full tables: python -m bot.research.market_events trade-postmortem")
     if snap_n == 0 and int(diag.get("closed_s42") or 0) > 0:
         lines.append(f"  WARN: {diag['closed_s42']} closed trades, 0 snapshots — run --backfill")
     return lines
@@ -1192,14 +1596,18 @@ __all__ = [
     "STATUS_WAITING",
     "approve_suggestion",
     "backfill_snapshots",
+    "bucket_metrics",
+    "compute_deep_stats",
     "compute_feature_importance",
     "compute_rca",
     "diagnose_snapshots",
     "doctor_s56_status",
+    "format_deep_stats_section",
     "format_postmortem_report",
     "format_s56_report_block",
     "format_suggestion",
     "list_suggestions",
+    "load_all_snapshots",
     "maybe_run_postmortem",
     "record_close_snapshot",
     "reject_suggestion",
