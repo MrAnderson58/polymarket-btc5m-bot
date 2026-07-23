@@ -87,7 +87,7 @@ class TestTradePostmortemS56(unittest.TestCase):
         conn.commit()
 
     def test_schema_v66(self) -> None:
-        self.assertEqual(SCHEMA_VERSION, 66)
+        self.assertGreaterEqual(SCHEMA_VERSION, 66)
         with market_events_connection() as conn:
             row = conn.execute(
                 "SELECT name FROM sqlite_master WHERE name='market_events_rule_suggestions_s56'",

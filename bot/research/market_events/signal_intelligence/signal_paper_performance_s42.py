@@ -1516,6 +1516,13 @@ def format_paper_performance_s42(
         lines.extend(format_s56_report_block(conn))
     except Exception:
         pass
+    try:
+        from bot.research.market_events.signal_intelligence.market_regime_s57 import (
+            format_s57_report_block,
+        )
+        lines.extend(format_s57_report_block(conn))
+    except Exception:
+        pass
     if symbol:
         sym = symbol.upper()
         sym_rows = conn.execute(

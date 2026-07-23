@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 66
+SCHEMA_VERSION = 67
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -1048,10 +1048,24 @@ def apply_migrations(conn: Any) -> list[str]:
             applied.append("v66")
             current = 66
 
-    # Idempotent repair for DBs that skipped v64/v65/v66 recording.
+        if current < 67:
+            _ensure_s57_market_regime(conn)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (67, now, "Phase S57 market regime intelligence"),
+            )
+            applied.append("v67")
+            current = 67
+
+    # Idempotent repair for DBs that skipped v64/v65/v66/v67 recording.
     _ensure_s54_trailing_columns(conn)
     _ensure_s55_trade_features(conn)
     _ensure_s56_postmortem(conn)
+    _ensure_s57_market_regime(conn)
 
     if not applied:
         conn.commit()
@@ -3591,6 +3605,31 @@ def _ensure_s56_postmortem(conn: Any) -> None:
     """Create S56 postmortem / suggestion tables if missing."""
     try:
         conn.executescript(S56_POSTMORTEM_DDL)
+    except Exception:
+        pass
+
+
+S57_MARKET_REGIME_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_regime_runs_s57 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_json TEXT,
+    llm_text TEXT,
+    llm_method TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_regime_ops_s57 (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+"""
+
+
+def _ensure_s57_market_regime(conn: Any) -> None:
+    """Create S57 market regime run/ops tables if missing."""
+    try:
+        conn.executescript(S57_MARKET_REGIME_DDL)
     except Exception:
         pass
 

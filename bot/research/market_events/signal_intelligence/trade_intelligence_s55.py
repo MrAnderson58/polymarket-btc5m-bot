@@ -201,6 +201,14 @@ def build_entry_features(conn: Any, s40_row: Any) -> dict[str, Any]:
         "shock_score": shock_score,
     }
     feats["features_json"] = json.dumps({k: v for k, v in feats.items() if k != "features_json"}, default=str)
+    # S57: classify regime before gate / open decisions.
+    try:
+        from bot.research.market_events.signal_intelligence.market_regime_s57 import (
+            attach_regime_to_features,
+        )
+        attach_regime_to_features(conn, feats)
+    except Exception as exc:
+        logger.warning("s57 attach_regime_to_features failed: %s", exc)
     return feats
 
 
@@ -309,6 +317,7 @@ GATE_MAX_OPEN = "MAX_OPEN"
 GATE_NEGATIVE_EXPECTANCY = "NEGATIVE_EXPECTANCY"
 GATE_DISABLED = "DISABLED"
 GATE_OPEN = "ALLOWED"  # synonym
+GATE_REGIME_BLOCK = "REGIME_BLOCK"  # S57
 
 
 def should_open_trade(
@@ -322,20 +331,43 @@ def should_open_trade(
     Gate decision.
     Returns (allow, gate_decision, estimate).
 
-    Reason codes: ALLOWED | INSUFFICIENT_HISTORY | MAX_OPEN | NEGATIVE_EXPECTANCY | DISABLED.
+    Reason codes: ALLOWED | INSUFFICIENT_HISTORY | MAX_OPEN | NEGATIVE_EXPECTANCY |
+    DISABLED | REGIME_BLOCK.
     """
     refresh_s55_config_from_env()
     estimate = estimate_from_neighbors([])
     estimate["nearest_neighbours"] = []
+
+    # S57: regime first — classify (if missing) then optional stats filter.
+    regime_meta: dict[str, Any] = {}
+    regime_gate = None
+    try:
+        from bot.research.market_events.signal_intelligence import market_regime_s57 as s57
+        ok_reg, reg_reason, reg_meta = s57.apply_regime_gate(conn, features)
+        regime_meta = reg_meta
+        regime_gate = reg_reason
+        estimate["regime"] = reg_meta
+        estimate["regime_gate"] = reg_reason
+        if not ok_reg:
+            return False, GATE_REGIME_BLOCK, estimate
+    except Exception as exc:
+        logger.warning("s57 regime gate failed: %s", exc)
+
     if not S55_ENABLED:
+        estimate["regime"] = regime_meta
+        estimate["regime_gate"] = regime_gate
         return True, GATE_DISABLED, estimate
 
     if not skip_max_open_check and open_count >= S55_MAX_OPEN_TRADES:
+        estimate["regime"] = regime_meta
+        estimate["regime_gate"] = regime_gate
         return False, GATE_MAX_OPEN, estimate
 
     neighbors = find_similar_trades(conn, features, k=S55_SIMILAR_K)
     estimate = estimate_from_neighbors(neighbors)
     estimate["similar_count"] = len(neighbors)
+    estimate["regime"] = regime_meta
+    estimate["regime_gate"] = regime_gate
     estimate["nearest_neighbours"] = [
         {
             "symbol": n.get("symbol"),

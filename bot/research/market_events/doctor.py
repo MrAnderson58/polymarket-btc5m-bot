@@ -222,6 +222,31 @@ def _check_s56() -> dict[str, Any]:
         return empty
 
 
+def _check_s57() -> dict[str, Any]:
+    """S57 doctor block — regime coverage / last analysis."""
+    empty = {
+        "enabled": True,
+        "filter": True,
+        "closed": 0,
+        "with_regime": 0,
+        "missing": 0,
+        "last_run": "—",
+        "ok": True,
+    }
+    try:
+        from bot.research.market_events.db import market_events_readonly_connection
+        from bot.research.market_events.signal_intelligence.market_regime_s57 import (
+            doctor_s57_status,
+        )
+
+        with market_events_readonly_connection() as conn:
+            return doctor_s57_status(conn)
+    except Exception as exc:
+        empty["ok"] = False
+        empty["last_run"] = str(exc)[:80]
+        return empty
+
+
 def _check_paper_trading() -> tuple[Check, int]:
     """S53: open count from Paper Trading S42 (same as /open / paper-performance)."""
     try:
@@ -295,6 +320,7 @@ def collect_doctor(*, skip_network: bool = False) -> dict[str, Any]:
     signals_today = _signals_today()
     last_report = _last_report_utc()
     s56 = _check_s56()
+    s57 = _check_s57()
 
     critical = [db_sqlite, tg_bot]
     soft = [db_pg, *market, *news, *ai, paper]
@@ -314,6 +340,7 @@ def collect_doctor(*, skip_network: bool = False) -> dict[str, Any]:
         "signals_today": signals_today,
         "last_report": last_report,
         "s56": s56,
+        "s57": s57,
         "soft_failures": [c.name for c in soft if not c.ok],
         "generated_at": int(time.time()),
     }
@@ -368,6 +395,14 @@ def format_doctor(data: dict[str, Any]) -> str:
             "",
             "Suggestions",
             str((data.get("s56") or {}).get("suggestions_waiting", 0)),
+            "",
+            "S57 Regime",
+            f"with_regime={(data.get('s57') or {}).get('with_regime', 0)} "
+            f"missing={(data.get('s57') or {}).get('missing', 0)} "
+            f"filter={(data.get('s57') or {}).get('filter', False)}",
+            "",
+            "Last Regime Run",
+            str((data.get("s57") or {}).get("last_run", "—")),
             "",
             "Last Report:",
             str(data["last_report"]),

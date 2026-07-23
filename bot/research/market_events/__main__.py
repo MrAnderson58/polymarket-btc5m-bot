@@ -246,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
             "paper-performance",
             "trade-regression-audit",
             "trade-postmortem",
+            "market-regime",
             "trade-suggestions",
             "approve-suggestion",
             "reject-suggestion",
@@ -354,14 +355,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--backfill",
         action="store_true",
-        help="trade-postmortem: backfill snapshots from all missing closed S42 trades",
+        help="trade-postmortem / market-regime: backfill missing snapshots or regimes",
     )
     parser.add_argument(
         "--backfill-last",
         type=int,
         default=None,
         dest="backfill_last",
-        help="trade-postmortem: backfill at most N most recent missing closed trades",
+        help="trade-postmortem / market-regime: backfill at most N rows",
+    )
+    parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="market-regime: run LLM Q&A on regime report (no auto-apply)",
+    )
+    parser.add_argument(
+        "--write-suggestions",
+        action="store_true",
+        dest="write_suggestions",
+        help="market-regime: write WAITING_APPROVAL filter hypotheses",
     )
     parser.add_argument("--timeframe", default="1m", help="Candle timeframe for backfill")
     parser.add_argument("--event-id", type=int, default=None, help="Event id for timeline/opportunity reports")
@@ -1600,6 +1612,65 @@ def main(argv: list[str] | None = None) -> int:
             return retry_on_db_locked(_run)
         except Exception as exc:
             print(f"trade-postmortem failed: {exc}")
+            return 1
+
+    if args.command == "market-regime":
+        if _audit_s42_db_path(command="market-regime") != 0:
+            return 1
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.signal_intelligence.market_regime_s57 import (
+            backfill_regimes,
+            compute_regime_stats,
+            format_regime_report,
+            run_regime_analysis,
+        )
+        try:
+            def _run_regime() -> int:
+                with market_events_connection() as conn:
+                    apply_migrations(conn)
+                    if args.backfill or args.backfill_last is not None:
+                        limit = int(args.backfill_last) if args.backfill_last is not None else None
+                        result = backfill_regimes(conn, limit=limit)
+                        conn.commit()
+                        if args.json:
+                            print(json.dumps(result, indent=2, default=str))
+                        else:
+                            print(
+                                f"regime backfill snapshots={result.get('updated_snapshots')} "
+                                f"features={result.get('updated_features')}"
+                            )
+                    if args.force or args.llm or args.write_suggestions:
+                        out = run_regime_analysis(
+                            conn,
+                            with_llm=bool(args.llm),
+                            write_suggestions=True if args.write_suggestions else None,
+                        )
+                        conn.commit()
+                        if args.json:
+                            print(json.dumps(out, indent=2, default=str))
+                        else:
+                            print(format_regime_report(conn))
+                            print("")
+                            print(out.get("llm_text") or "")
+                            print(
+                                f"\nrun_id={out.get('run_id')} "
+                                f"suggestions={out.get('suggestions_created')} "
+                                f"method={out.get('llm_method')}"
+                            )
+                        return 0
+                    conn.commit()
+                    if args.json:
+                        print(json.dumps({
+                            "stats": compute_regime_stats(conn),
+                            "report": format_regime_report(conn),
+                        }, indent=2, default=str))
+                    else:
+                        print(format_regime_report(conn))
+                    return 0
+
+            return int(retry_on_db_locked(_run_regime))
+        except Exception as exc:
+            print(f"market-regime failed: {exc}")
             return 1
 
     if args.command == "trade-suggestions":
