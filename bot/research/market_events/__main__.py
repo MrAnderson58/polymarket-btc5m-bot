@@ -253,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
             "strategy-discovery",
             "alpha-discovery",
             "intelligence-report",
+            "backfill-history",
             "market-research-migrate",
             "research-stress-test",
             "trade-suggestions",
@@ -1351,6 +1352,28 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except Exception as exc:
             print(f"intelligence-report failed: {exc}")
+            return 1
+
+    if args.command == "backfill-history":
+        from bot.research.market_events.signal_intelligence.history_backfill_s621 import (
+            format_history_backfill_report,
+            run_history_backfill,
+        )
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            apply_research_migrations,
+            research_connection,
+        )
+        try:
+            with research_connection() as conn:
+                apply_research_migrations(conn)
+                result = run_history_backfill(conn)
+            if args.json:
+                print(json.dumps(result, indent=2, default=str))
+            else:
+                print(format_history_backfill_report(result))
+            return 0 if result.get("ok") else 1
+        except Exception as exc:
+            print(f"backfill-history failed: {exc}")
             return 1
 
     if args.command == "pattern":
