@@ -248,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
             "trade-postmortem",
             "market-regime",
             "decision-report",
+            "feature-lab",
             "trade-suggestions",
             "approve-suggestion",
             "reject-suggestion",
@@ -1143,6 +1144,43 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except Exception as exc:
             print(f"decision-report failed: {exc}")
+            return 1
+
+    if args.command == "feature-lab":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.event_schema import apply_migrations
+        from bot.research.market_events.signal_intelligence.feature_lab_s59 import (
+            format_feature_lab_report,
+            run_feature_lab,
+        )
+        try:
+            def _run_lab() -> int:
+                with market_events_connection() as conn:
+                    apply_migrations(conn)
+                    if args.force or args.llm:
+                        out = run_feature_lab(conn, with_llm=bool(args.llm))
+                        conn.commit()
+                        if args.json:
+                            print(json.dumps(out, indent=2, default=str))
+                        else:
+                            print(format_feature_lab_report(conn, run_id=out.get("run_id")))
+                        return 0
+                    conn.commit()
+                    if args.json:
+                        from bot.research.market_events.signal_intelligence.feature_lab_s59 import (
+                            latest_lab_rows,
+                        )
+                        print(json.dumps({
+                            "rows": latest_lab_rows(conn),
+                            "report": format_feature_lab_report(conn),
+                        }, indent=2, default=str))
+                    else:
+                        print(format_feature_lab_report(conn))
+                    return 0
+
+            return int(retry_on_db_locked(_run_lab))
+        except Exception as exc:
+            print(f"feature-lab failed: {exc}")
             return 1
 
     if args.command == "pattern":

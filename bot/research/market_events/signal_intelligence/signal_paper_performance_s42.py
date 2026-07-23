@@ -1578,6 +1578,19 @@ def format_paper_performance_s42(
         ])
     except Exception:
         pass
+    try:
+        from bot.research.market_events.signal_intelligence.feature_lab_s59 import (
+            doctor_s59_status,
+        )
+        st = doctor_s59_status(conn)
+        lines.extend([
+            "",
+            "S59 Feature Lab",
+            f"  runs={st.get('runs', 0)}  last={st.get('last', '—')}",
+            "  Run: python -m bot.research.market_events feature-lab --force",
+        ])
+    except Exception:
+        pass
     if symbol:
         sym = symbol.upper()
         sym_rows = conn.execute(

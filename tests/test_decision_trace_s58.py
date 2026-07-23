@@ -28,7 +28,7 @@ class TestDecisionTraceS58(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_schema_v68(self) -> None:
-        self.assertEqual(SCHEMA_VERSION, 68)
+        self.assertGreaterEqual(SCHEMA_VERSION, 68)
         with market_events_connection() as conn:
             row = conn.execute(
                 "SELECT name FROM sqlite_master WHERE name='market_events_trade_decisions_s58'",

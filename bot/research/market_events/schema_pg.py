@@ -92,6 +92,7 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     66: "Phase S56 trade postmortem snapshots and rule suggestions",
     67: "Phase S57 market regime intelligence",
     68: "Phase S58 trade decision trace",
+    69: "Phase S59 feature laboratory",
 }
 
 
@@ -221,12 +222,14 @@ def apply_pg_migrations(conn: Any) -> list[str]:
                 _ensure_s56_postmortem,
                 _ensure_s57_market_regime,
                 _ensure_s58_decision_trace,
+                _ensure_s59_feature_lab,
             )
             _ensure_s54_trailing_columns(conn)
             _ensure_s55_trade_features(conn)
             _ensure_s56_postmortem(conn)
             _ensure_s57_market_regime(conn)
             _ensure_s58_decision_trace(conn)
+            _ensure_s59_feature_lab(conn)
         except Exception:
             pass
 

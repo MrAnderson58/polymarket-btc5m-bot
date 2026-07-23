@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 68
+SCHEMA_VERSION = 69
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -1074,12 +1074,26 @@ def apply_migrations(conn: Any) -> list[str]:
             applied.append("v68")
             current = 68
 
+        if current < 69:
+            _ensure_s59_feature_lab(conn)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (69, now, "Phase S59 feature laboratory"),
+            )
+            applied.append("v69")
+            current = 69
+
     # Idempotent repair for DBs that skipped v64+/recording.
     _ensure_s54_trailing_columns(conn)
     _ensure_s55_trade_features(conn)
     _ensure_s56_postmortem(conn)
     _ensure_s57_market_regime(conn)
     _ensure_s58_decision_trace(conn)
+    _ensure_s59_feature_lab(conn)
 
     if not applied:
         conn.commit()
@@ -3704,6 +3718,53 @@ def _ensure_s58_decision_trace(conn: Any) -> None:
     """Create S58 decision trace table if missing."""
     try:
         conn.executescript(S58_DECISION_TRACE_DDL)
+    except Exception:
+        pass
+
+
+S59_FEATURE_LAB_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_feature_lab_runs_s59 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    n_trades INTEGER NOT NULL DEFAULT 0,
+    results_json TEXT,
+    llm_text TEXT,
+    llm_method TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_feature_lab_s59 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    feature TEXT NOT NULL,
+    filter_rule TEXT,
+    on_n INTEGER,
+    on_winrate REAL,
+    on_expectancy REAL,
+    on_pf REAL,
+    on_sharpe REAL,
+    off_n INTEGER,
+    off_winrate REAL,
+    off_expectancy REAL,
+    off_pf REAL,
+    off_sharpe REAL,
+    delta_expectancy REAL,
+    delta_pf REAL,
+    delta_wr REAL,
+    contribution_pf REAL,
+    confidence TEXT,
+    skipped_n INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_s59_lab_run
+    ON market_events_feature_lab_s59(run_id, contribution_pf DESC);
+"""
+
+
+def _ensure_s59_feature_lab(conn: Any) -> None:
+    """Create S59 feature laboratory tables if missing."""
+    try:
+        conn.executescript(S59_FEATURE_LAB_DDL)
     except Exception:
         pass
 
