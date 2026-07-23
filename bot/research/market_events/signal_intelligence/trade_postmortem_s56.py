@@ -2,6 +2,8 @@
 
 Never auto-applies strategy changes. Suggestions stay WAITING_APPROVAL until a human
 approves; approval only records status + Cursor task text (e.g. S56.1).
+
+S56.1 — lock-safe writes (execute_with_retry), backfill from closed S42 trades.
 """
 
 from __future__ import annotations
@@ -13,6 +15,8 @@ import time
 from collections import defaultdict
 from datetime import datetime
 from typing import Any
+
+from bot.research.market_events.db import execute_with_retry, is_database_locked, retry_on_db_locked
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +129,8 @@ def _ops_get(conn: Any, key: str, default: str = "0") -> str:
 
 def _ops_set(conn: Any, key: str, value: str, now: int | None = None) -> None:
     now = int(now if now is not None else time.time())
-    conn.execute(
+    execute_with_retry(
+        conn,
         f"""
         INSERT OR REPLACE INTO {_OPS} (key, value, updated_at)
         VALUES (?, ?, ?)
@@ -146,13 +151,66 @@ def closed_trade_count(conn: Any) -> int:
         return 0
 
 
+def snapshot_count(conn: Any) -> int:
+    try:
+        return int(conn.execute(f"SELECT COUNT(*) AS n FROM {_SNAP}").fetchone()["n"] or 0)
+    except Exception:
+        return 0
+
+
+def diagnose_snapshots(conn: Any) -> dict[str, Any]:
+    """Explain snapshots=0 with numbers (S56.1 Block 2)."""
+    closed_n = closed_trade_count(conn)
+    snap_n = snapshot_count(conn)
+    missing = max(0, closed_n - snap_n)
+    try:
+        conn.execute(f"SELECT 1 FROM {_SNAP} LIMIT 1")
+    except Exception as exc:
+        return {
+            "table_ok": False,
+            "error": str(exc),
+            "closed_s42": closed_n,
+            "snapshots": 0,
+            "missing": closed_n,
+            "reasons": [f"table missing/unreadable: {exc}"],
+            "fix": "run market-event-migrate then trade-postmortem --backfill",
+        }
+
+    reasons: list[str] = []
+    if snap_n == 0 and closed_n == 0:
+        reasons.append("no CLOSED rows in market_events_paper_trades_s42 on this DB")
+    if snap_n == 0 and closed_n > 0:
+        reasons.append(
+            f"{closed_n} closed S42 trades exist but 0 snapshots — "
+            "writer only runs on NEW closes after S56 deploy; historical need --backfill"
+        )
+    if missing > 0 and snap_n > 0:
+        reasons.append(f"{missing} closed trades still lack snapshots (partial backfill)")
+    if not reasons and snap_n > 0:
+        reasons.append("snapshots healthy")
+
+    return {
+        "table_ok": True,
+        "closed_s42": closed_n,
+        "snapshots": snap_n,
+        "missing": missing,
+        "reasons": reasons,
+        "fix": (
+            f"python -m bot.research.market_events trade-postmortem --backfill-last {min(closed_n, 5000) or 5000}"
+            if missing
+            else "ok"
+        ),
+    }
+
+
 def record_close_snapshot(
     conn: Any,
     *,
     trade_row: Any,
     now: int | None = None,
-) -> None:
-    """Persist full close snapshot (Block 1). Sparse fields stay NULL."""
+    trigger_postmortem: bool = True,
+) -> bool:
+    """Persist full close snapshot. Returns True if write succeeded."""
     now = int(now if now is not None else time.time())
     t = _row(trade_row)
     paper_id = int(t.get("id") or 0)
@@ -226,7 +284,8 @@ def record_close_snapshot(
     snap["snapshot_json"] = json.dumps(snap, default=str)
 
     try:
-        conn.execute(
+        execute_with_retry(
+            conn,
             f"""
             INSERT OR REPLACE INTO {_SNAP} (
               paper_trade_id, s40_signal_type, s40_signal_id, symbol, direction,
@@ -260,13 +319,83 @@ def record_close_snapshot(
             ),
         )
     except Exception as exc:
-        logger.warning("s56 record_close_snapshot failed: %s", exc)
-        return
+        if is_database_locked(exc):
+            logger.warning("s56 record_close_snapshot locked after retries: %s", exc)
+        else:
+            logger.warning("s56 record_close_snapshot failed: %s", exc)
+        return False
+
+    if trigger_postmortem:
+        try:
+            maybe_run_postmortem(conn, now=now)
+        except Exception as exc:
+            logger.warning("s56 maybe_run_postmortem failed: %s", exc)
+    return True
+
+
+def backfill_snapshots(
+    conn: Any,
+    *,
+    limit: int | None = None,
+    batch_size: int = 500,
+    run_rca: bool = True,
+    now: int | None = None,
+) -> dict[str, Any]:
+    """Build snapshots from already-closed S42 trades. Then optionally run postmortem once."""
+    now = int(now if now is not None else time.time())
+    refresh_s56_config_from_env()
+
+    sql = f"""
+        SELECT t.*
+        FROM {_TRADES} t
+        LEFT JOIN {_SNAP} s
+          ON s.s40_signal_type = t.s40_signal_type
+         AND s.s40_signal_id = t.s40_signal_id
+        WHERE t.status = 'CLOSED'
+          AND t.pnl_usd IS NOT NULL
+          AND s.id IS NULL
+        ORDER BY t.closed_at DESC
+    """
+    params: tuple = ()
+    if limit is not None and limit > 0:
+        sql += " LIMIT ?"
+        params = (int(limit),)
 
     try:
-        maybe_run_postmortem(conn, now=now)
+        rows = conn.execute(sql, params).fetchall()
     except Exception as exc:
-        logger.warning("s56 maybe_run_postmortem failed: %s", exc)
+        return {"ok": False, "error": str(exc), "written": 0, "failed": 0}
+
+    written = 0
+    failed = 0
+    for i, r in enumerate(rows):
+        ok = record_close_snapshot(conn, trade_row=r, now=now, trigger_postmortem=False)
+        if ok:
+            written += 1
+        else:
+            failed += 1
+        if batch_size > 0 and (i + 1) % batch_size == 0:
+            try:
+                retry_on_db_locked(conn.commit)
+            except Exception as exc:
+                logger.warning("s56 backfill mid-commit failed: %s", exc)
+
+    postmortem = None
+    if run_rca and written > 0:
+        try:
+            postmortem = run_postmortem(conn, force=True, now=now)
+        except Exception as exc:
+            logger.warning("s56 backfill postmortem failed: %s", exc)
+            postmortem = {"ok": False, "error": str(exc)}
+
+    return {
+        "ok": True,
+        "candidates": len(rows),
+        "written": written,
+        "failed": failed,
+        "snapshots_total": snapshot_count(conn),
+        "postmortem": postmortem,
+    }
 
 
 def top_winners(conn: Any, *, n: int | None = None) -> list[dict[str, Any]]:
@@ -682,7 +811,8 @@ def run_postmortem(conn: Any, *, now: int | None = None, force: bool = False) ->
     )
     closed_n = closed_trade_count(conn)
 
-    cur = conn.execute(
+    cur = execute_with_retry(
+        conn,
         f"""
         INSERT INTO {_RUNS} (
           closed_count, winners_n, losers_n, rca_json, feature_importance_json,
@@ -711,7 +841,8 @@ def run_postmortem(conn: Any, *, now: int | None = None, force: bool = False) ->
 
     suggestions = _suggest_from_stats(winners, losers, importance)
     for s in suggestions:
-        conn.execute(
+        execute_with_retry(
+            conn,
             f"""
             INSERT INTO {_SUGGEST} (
               run_id, rule_text, evidence_json, evidence_trades,
@@ -762,7 +893,7 @@ def maybe_run_postmortem(conn: Any, *, now: int | None = None) -> dict[str, Any]
         return None
     # Also require enough snapshots
     try:
-        snap_n = int(conn.execute(f"SELECT COUNT(*) AS n FROM {_SNAP}").fetchone()["n"] or 0)
+        snap_n = snapshot_count(conn)
     except Exception:
         snap_n = 0
     if snap_n < max(50, S56_MIN_EVIDENCE * 2):
@@ -810,7 +941,8 @@ def approve_suggestion(conn: Any, suggestion_id: int, *, now: int | None = None)
         f"Expected improvement={row['expected_improvement_pct']}% "
         f"Confidence={row['confidence_pct']}%"
     )
-    conn.execute(
+    execute_with_retry(
+        conn,
         f"""
         UPDATE {_SUGGEST}
         SET status = ?, decided_at = ?, cursor_task = ?
@@ -823,7 +955,8 @@ def approve_suggestion(conn: Any, suggestion_id: int, *, now: int | None = None)
 
 def reject_suggestion(conn: Any, suggestion_id: int, *, now: int | None = None) -> dict[str, Any]:
     now = int(now if now is not None else time.time())
-    cur = conn.execute(
+    cur = execute_with_retry(
+        conn,
         f"""
         UPDATE {_SUGGEST}
         SET status = ?, decided_at = ?
@@ -852,26 +985,136 @@ def format_suggestion(s: dict[str, Any]) -> str:
     ])
 
 
+def _pnl_by_key(rows: list[dict[str, Any]], key: str) -> list[tuple[str, float, int]]:
+    agg: dict[str, float] = defaultdict(float)
+    cnt: dict[str, int] = defaultdict(int)
+    for r in rows:
+        k = str(r.get(key) if r.get(key) is not None else "NULL")
+        agg[k] += float(r.get("pnl_usd") or 0)
+        cnt[k] += 1
+    return sorted(((k, v, cnt[k]) for k, v in agg.items()), key=lambda x: x[1], reverse=True)
+
+
+def snapshot_highlights(conn: Any) -> dict[str, Any]:
+    empty = {
+        "top_winner": None,
+        "top_loser": None,
+        "best_symbol": None,
+        "worst_symbol": None,
+        "best_hour": None,
+        "worst_hour": None,
+        "best_ai_score": None,
+        "worst_ai_score": None,
+    }
+    try:
+        rows = [_row(r) for r in conn.execute(f"SELECT * FROM {_SNAP} WHERE pnl_usd IS NOT NULL").fetchall()]
+    except Exception:
+        return empty
+    if not rows:
+        return empty
+
+    winners = [r for r in rows if float(r.get("pnl_usd") or 0) > 0]
+    losers = [r for r in rows if float(r.get("pnl_usd") or 0) < 0]
+    top_w = max(winners, key=lambda r: float(r.get("pnl_usd") or 0)) if winners else None
+    top_l = min(losers, key=lambda r: float(r.get("pnl_usd") or 0)) if losers else None
+    by_sym = _pnl_by_key(rows, "symbol")
+    by_hour = _pnl_by_key(rows, "hour")
+    with_ai = [r for r in rows if r.get("ai_score") is not None]
+    best_ai = max(with_ai, key=lambda r: float(r.get("pnl_usd") or 0)) if with_ai else None
+    worst_ai = min(with_ai, key=lambda r: float(r.get("pnl_usd") or 0)) if with_ai else None
+
+    def _fmt_trade(r: dict[str, Any] | None) -> str | None:
+        if not r:
+            return None
+        return (
+            f"{r.get('symbol')} {r.get('direction')} "
+            f"${float(r.get('pnl_usd') or 0):+.2f} exit={r.get('exit_reason')} "
+            f"ai={r.get('ai_score')}"
+        )
+
+    return {
+        "top_winner": _fmt_trade(top_w),
+        "top_loser": _fmt_trade(top_l),
+        "best_symbol": f"{by_sym[0][0]} ${by_sym[0][1]:+.2f} (n={by_sym[0][2]})" if by_sym else None,
+        "worst_symbol": f"{by_sym[-1][0]} ${by_sym[-1][1]:+.2f} (n={by_sym[-1][2]})" if by_sym else None,
+        "best_hour": f"{by_hour[0][0]} ${by_hour[0][1]:+.2f} (n={by_hour[0][2]})" if by_hour else None,
+        "worst_hour": f"{by_hour[-1][0]} ${by_hour[-1][1]:+.2f} (n={by_hour[-1][2]})" if by_hour else None,
+        "best_ai_score": (
+            f"ai={best_ai.get('ai_score')} pnl=${float(best_ai.get('pnl_usd') or 0):+.2f} {best_ai.get('symbol')}"
+            if best_ai else None
+        ),
+        "worst_ai_score": (
+            f"ai={worst_ai.get('ai_score')} pnl=${float(worst_ai.get('pnl_usd') or 0):+.2f} {worst_ai.get('symbol')}"
+            if worst_ai else None
+        ),
+    }
+
+
+def doctor_s56_status(conn: Any) -> dict[str, Any]:
+    snap_n = snapshot_count(conn)
+    waiting = list_suggestions(conn, status=STATUS_WAITING, limit=500)
+    last = None
+    try:
+        last = conn.execute(f"SELECT * FROM {_RUNS} ORDER BY id DESC LIMIT 1").fetchone()
+    except Exception:
+        pass
+    last_txt = "—"
+    if last:
+        ts = int(last["created_at"] or 0)
+        when = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "?"
+        last_txt = f"#{last['id']} {when} W={last['winners_n']} L={last['losers_n']} ({last['llm_method']})"
+    diag = diagnose_snapshots(conn)
+    return {
+        "snapshots": snap_n,
+        "last_rca": last_txt,
+        "suggestions_waiting": len(waiting),
+        "closed_s42": diag.get("closed_s42", 0),
+        "missing": diag.get("missing", 0),
+        "ok": snap_n > 0 or int(diag.get("closed_s42") or 0) == 0,
+    }
+
+
 def format_postmortem_report(conn: Any) -> str:
     refresh_s56_config_from_env()
+    diag = diagnose_snapshots(conn)
+    hl = snapshot_highlights(conn)
     winners = top_winners(conn, n=min(20, S56_TOP_N))
     losers = top_losers(conn, n=min(20, S56_TOP_N))
     w_n = len(top_winners(conn))
     l_n = len(top_losers(conn))
     waiting = list_suggestions(conn, status=STATUS_WAITING, limit=20)
-    last = conn.execute(
-        f"SELECT * FROM {_RUNS} ORDER BY id DESC LIMIT 1",
-    ).fetchone()
+    last = None
+    try:
+        last = conn.execute(f"SELECT * FROM {_RUNS} ORDER BY id DESC LIMIT 1").fetchone()
+    except Exception:
+        pass
     lines = [
         "S56 Trade Post-Mortem",
-        f"TOP winners stored/available: {w_n} (cap {S56_TOP_N})",
-        f"TOP losers stored/available:  {l_n} (cap {S56_TOP_N})",
-        f"RCA every N closed trades:    {S56_RCA_EVERY_N}",
-        f"LLM enabled:                  {S56_LLM_ENABLED}",
-        f"Closed trades (S42):          {closed_trade_count(conn)}",
+        f"TOP winners available: {w_n} (cap {S56_TOP_N})",
+        f"TOP losers available:  {l_n} (cap {S56_TOP_N})",
+        f"RCA every N closed:    {S56_RCA_EVERY_N}",
+        f"LLM enabled:           {S56_LLM_ENABLED}",
+        f"Closed S42:            {diag['closed_s42']}",
+        f"Snapshots:             {diag['snapshots']}  (missing={diag['missing']})",
+    ]
+    for reason in diag.get("reasons") or []:
+        lines.append(f"  → {reason}")
+    if diag.get("missing"):
+        lines.append(f"  fix: {diag.get('fix')}")
+    lines.extend([
+        "",
+        "Highlights",
+        f"  Top Winner:             {hl.get('top_winner') or '—'}",
+        f"  Top Loser:              {hl.get('top_loser') or '—'}",
+        f"  Most profitable symbol: {hl.get('best_symbol') or '—'}",
+        f"  Worst symbol:           {hl.get('worst_symbol') or '—'}",
+        f"  Most profitable hour:   {hl.get('best_hour') or '—'}",
+        f"  Worst hour:             {hl.get('worst_hour') or '—'}",
+        f"  Best AI score trade:    {hl.get('best_ai_score') or '—'}",
+        f"  Worst AI score trade:   {hl.get('worst_ai_score') or '—'}",
         "",
         "Sample TOP winners (by PnL $):",
-    ]
+    ])
     for i, r in enumerate(winners[:10], 1):
         lines.append(
             f"  {i}. {r.get('symbol')} {r.get('direction')} "
@@ -913,23 +1156,34 @@ def format_postmortem_report(conn: Any) -> str:
         "",
         "Human approval required. LLM/stats never change strategy.",
         "Approve: python -m bot.research.market_events approve-suggestion --suggestion-id N",
+        "Backfill: python -m bot.research.market_events trade-postmortem --backfill",
     ])
     return "\n".join(lines)
 
 
 def format_s56_report_block(conn: Any) -> list[str]:
     refresh_s56_config_from_env()
-    try:
-        snap_n = int(conn.execute(f"SELECT COUNT(*) AS n FROM {_SNAP}").fetchone()["n"] or 0)
-    except Exception:
-        snap_n = 0
+    snap_n = snapshot_count(conn)
     waiting = list_suggestions(conn, status=STATUS_WAITING, limit=100)
-    return [
+    hl = snapshot_highlights(conn)
+    diag = diagnose_snapshots(conn)
+    lines = [
         "",
         "S56 Post-Mortem",
         f"  snapshots={snap_n}  waiting_approval={len(waiting)}  "
         f"rca_every={S56_RCA_EVERY_N}  llm={S56_LLM_ENABLED}",
+        f"  Top Winner:             {hl.get('top_winner') or '—'}",
+        f"  Top Loser:              {hl.get('top_loser') or '—'}",
+        f"  Most profitable symbol: {hl.get('best_symbol') or '—'}",
+        f"  Worst symbol:           {hl.get('worst_symbol') or '—'}",
+        f"  Most profitable hour:   {hl.get('best_hour') or '—'}",
+        f"  Worst hour:             {hl.get('worst_hour') or '—'}",
+        f"  Best AI score:          {hl.get('best_ai_score') or '—'}",
+        f"  Worst AI score:         {hl.get('worst_ai_score') or '—'}",
     ]
+    if snap_n == 0 and int(diag.get("closed_s42") or 0) > 0:
+        lines.append(f"  WARN: {diag['closed_s42']} closed trades, 0 snapshots — run --backfill")
+    return lines
 
 
 __all__ = [
@@ -937,8 +1191,11 @@ __all__ = [
     "STATUS_REJECTED",
     "STATUS_WAITING",
     "approve_suggestion",
+    "backfill_snapshots",
     "compute_feature_importance",
     "compute_rca",
+    "diagnose_snapshots",
+    "doctor_s56_status",
     "format_postmortem_report",
     "format_s56_report_block",
     "format_suggestion",
@@ -948,6 +1205,8 @@ __all__ = [
     "reject_suggestion",
     "refresh_s56_config_from_env",
     "run_postmortem",
+    "snapshot_count",
+    "snapshot_highlights",
     "top_losers",
     "top_winners",
 ]

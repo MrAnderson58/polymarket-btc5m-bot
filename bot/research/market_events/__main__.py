@@ -351,6 +351,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="trade-postmortem: force run even before RCA_EVERY_N",
     )
+    parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help="trade-postmortem: backfill snapshots from all missing closed S42 trades",
+    )
+    parser.add_argument(
+        "--backfill-last",
+        type=int,
+        default=None,
+        dest="backfill_last",
+        help="trade-postmortem: backfill at most N most recent missing closed trades",
+    )
     parser.add_argument("--timeframe", default="1m", help="Candle timeframe for backfill")
     parser.add_argument("--event-id", type=int, default=None, help="Event id for timeline/opportunity reports")
     parser.add_argument("--port", type=int, default=None, help="Dashboard API port")
@@ -1520,26 +1532,54 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "trade-postmortem":
         if _audit_s42_db_path(command="trade-postmortem") != 0:
             return 1
+        from bot.research.market_events.db import retry_on_db_locked
         from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
+            backfill_snapshots,
+            diagnose_snapshots,
             format_postmortem_report,
             run_postmortem,
         )
         try:
-            with market_events_connection() as conn:
-                apply_migrations(conn)
-                if args.force:
-                    result = run_postmortem(conn, force=True)
+            def _run() -> int:
+                with market_events_connection() as conn:
+                    apply_migrations(conn)
+                    do_backfill = bool(args.backfill) or args.backfill_last is not None
+                    if do_backfill:
+                        limit = int(args.backfill_last) if args.backfill_last is not None else None
+                        result = backfill_snapshots(conn, limit=limit, run_rca=True)
+                        conn.commit()
+                        if args.json:
+                            print(json.dumps(result, indent=2, default=str))
+                        else:
+                            print(
+                                f"backfill written={result.get('written')} "
+                                f"failed={result.get('failed')} "
+                                f"candidates={result.get('candidates')} "
+                                f"snapshots_total={result.get('snapshots_total')}"
+                            )
+                            pm = result.get("postmortem") or {}
+                            if pm:
+                                print(
+                                    f"postmortem run_id={pm.get('run_id')} "
+                                    f"suggestions={pm.get('suggestions_created')}"
+                                )
+                            print("")
+                            print(format_postmortem_report(conn))
+                        return 0
+                    if args.force:
+                        result = run_postmortem(conn, force=True)
+                        conn.commit()
+                        if args.json:
+                            print(json.dumps(result, indent=2, default=str))
+                        else:
+                            print(format_postmortem_report(conn))
+                            print(
+                                f"\nRun id={result.get('run_id')} "
+                                f"suggestions={result.get('suggestions_created')}"
+                            )
+                        return 0
                     conn.commit()
-                    if args.json:
-                        print(json.dumps(result, indent=2, default=str))
-                    else:
-                        print(format_postmortem_report(conn))
-                        print(
-                            f"\nRun id={result.get('run_id')} "
-                            f"suggestions={result.get('suggestions_created')}"
-                        )
-                else:
-                    conn.commit()  # persist schema ensure
+                    diag = diagnose_snapshots(conn)
                     if args.json:
                         from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
                             list_suggestions,
@@ -1547,6 +1587,7 @@ def main(argv: list[str] | None = None) -> int:
                             top_winners,
                         )
                         print(json.dumps({
+                            "diagnose": diag,
                             "winners": top_winners(conn)[:50],
                             "losers": top_losers(conn)[:50],
                             "waiting": list_suggestions(conn),
@@ -1554,21 +1595,28 @@ def main(argv: list[str] | None = None) -> int:
                         }, indent=2, default=str))
                     else:
                         print(format_postmortem_report(conn))
+                    return 0
+
+            return retry_on_db_locked(_run)
         except Exception as exc:
             print(f"trade-postmortem failed: {exc}")
             return 1
-        return 0
 
     if args.command == "trade-suggestions":
         if _audit_s42_db_path(command="trade-suggestions") != 0:
             return 1
+        from bot.research.market_events.db import retry_on_db_locked
         from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
             STATUS_WAITING,
             format_suggestion,
             list_suggestions,
         )
-        with market_events_readonly_connection() as conn:
-            rows = list_suggestions(conn, status=None if args.json else STATUS_WAITING, limit=100)
+
+        def _list() -> int:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                conn.commit()
+                rows = list_suggestions(conn, status=None if args.json else STATUS_WAITING, limit=100)
             if args.json:
                 print(json.dumps(rows, indent=2, default=str))
             elif not rows:
@@ -1577,39 +1625,63 @@ def main(argv: list[str] | None = None) -> int:
                 for s in rows:
                     print(format_suggestion(s))
                     print("")
-        return 0
+            return 0
+
+        try:
+            return retry_on_db_locked(_list)
+        except Exception as exc:
+            print(f"trade-suggestions failed: {exc}")
+            return 1
 
     if args.command == "approve-suggestion":
         if args.suggestion_id is None:
             print("approve-suggestion requires --suggestion-id N", file=sys.stderr)
             return 1
+        from bot.research.market_events.db import retry_on_db_locked
         from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
             approve_suggestion,
         )
-        with market_events_connection() as conn:
-            apply_migrations(conn)
-            out = approve_suggestion(conn, int(args.suggestion_id))
-            conn.commit()
-        if not out.get("ok"):
-            print(f"approve failed: {out}")
+
+        def _approve() -> int:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = approve_suggestion(conn, int(args.suggestion_id))
+                conn.commit()
+            if not out.get("ok"):
+                print(f"approve failed: {out}")
+                return 1
+            print("APPROVED — strategy NOT changed. Cursor task:")
+            print(out.get("cursor_task"))
+            return 0
+
+        try:
+            return retry_on_db_locked(_approve)
+        except Exception as exc:
+            print(f"approve-suggestion failed: {exc}")
             return 1
-        print("APPROVED — strategy NOT changed. Cursor task:")
-        print(out.get("cursor_task"))
-        return 0
 
     if args.command == "reject-suggestion":
         if args.suggestion_id is None:
             print("reject-suggestion requires --suggestion-id N", file=sys.stderr)
             return 1
+        from bot.research.market_events.db import retry_on_db_locked
         from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
             reject_suggestion,
         )
-        with market_events_connection() as conn:
-            apply_migrations(conn)
-            out = reject_suggestion(conn, int(args.suggestion_id))
-            conn.commit()
-        print(json.dumps(out, indent=2) if args.json else out)
-        return 0 if out.get("ok") else 1
+
+        def _reject() -> int:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = reject_suggestion(conn, int(args.suggestion_id))
+                conn.commit()
+            print(json.dumps(out, indent=2) if args.json else out)
+            return 0 if out.get("ok") else 1
+
+        try:
+            return retry_on_db_locked(_reject)
+        except Exception as exc:
+            print(f"reject-suggestion failed: {exc}")
+            return 1
 
     if args.command == "reversal-diagnostics":
         from bot.research.market_events.signal_intelligence.reversal_diagnostics_s21 import (

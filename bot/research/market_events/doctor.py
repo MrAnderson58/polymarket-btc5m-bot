@@ -198,6 +198,30 @@ def _check_telegram_bot(*, skip_network: bool = False) -> Check:
         return Check("Connected", False, str(exc)[:80], critical=True)
 
 
+def _check_s56() -> dict[str, Any]:
+    """S56.1 doctor block — snapshots / last RCA / waiting suggestions."""
+    empty = {
+        "snapshots": 0,
+        "last_rca": "—",
+        "suggestions_waiting": 0,
+        "closed_s42": 0,
+        "missing": 0,
+        "ok": True,
+    }
+    try:
+        from bot.research.market_events.db import market_events_readonly_connection
+        from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
+            doctor_s56_status,
+        )
+
+        with market_events_readonly_connection() as conn:
+            return doctor_s56_status(conn)
+    except Exception as exc:
+        empty["ok"] = False
+        empty["last_rca"] = str(exc)[:80]
+        return empty
+
+
 def _check_paper_trading() -> tuple[Check, int]:
     """S53: open count from Paper Trading S42 (same as /open / paper-performance)."""
     try:
@@ -270,6 +294,7 @@ def collect_doctor(*, skip_network: bool = False) -> dict[str, Any]:
     paper, open_trades = _check_paper_trading()
     signals_today = _signals_today()
     last_report = _last_report_utc()
+    s56 = _check_s56()
 
     critical = [db_sqlite, tg_bot]
     soft = [db_pg, *market, *news, *ai, paper]
@@ -288,6 +313,7 @@ def collect_doctor(*, skip_network: bool = False) -> dict[str, Any]:
         "open_trades": open_trades,
         "signals_today": signals_today,
         "last_report": last_report,
+        "s56": s56,
         "soft_failures": [c.name for c in soft if not c.ok],
         "generated_at": int(time.time()),
     }
@@ -332,6 +358,16 @@ def format_doctor(data: dict[str, Any]) -> str:
             "",
             "Signals today:",
             str(data["signals_today"]),
+            "",
+            "S56",
+            "Snapshots",
+            str((data.get("s56") or {}).get("snapshots", 0)),
+            "",
+            "Last RCA",
+            str((data.get("s56") or {}).get("last_rca", "—")),
+            "",
+            "Suggestions",
+            str((data.get("s56") or {}).get("suggestions_waiting", 0)),
             "",
             "Last Report:",
             str(data["last_report"]),
