@@ -472,12 +472,20 @@ def _set_ops(conn: Any, key: str, value: str) -> None:
 
 
 def open_paper_trades_from_s40(conn: Any, *, limit: int = 100) -> int:
-    """Open paper trades for new S4.0 learning signals (observe-only)."""
+    """Open paper trades for new S4.0 learning signals (observe-only).
+
+    S55.1: gated by max-open + similar-trade expected PnL (when S55_ENABLED).
+    """
+    from bot.research.market_events.signal_intelligence import trade_intelligence_s55 as s55
+
+    s55.refresh_s55_config_from_env()
     rows = conn.execute(
         """
         SELECT s.signal_type, s.signal_id, s.symbol, s.direction,
                s.entry, s.stop, s.tp1, s.tp2, s.timestamp,
-               s.snapshot_decision_confidence, s.snapshot_pattern_json, s.snapshot_news_impact
+               s.snapshot_decision_confidence, s.snapshot_pattern_json, s.snapshot_news_impact,
+               s.snapshot_funding, s.snapshot_open_interest, s.snapshot_volume,
+               s.snapshot_atr, s.snapshot_fear_greed, s.snapshot_trend, s.snapshot_news_score
         FROM market_events_signal_learning_s40_signals s
         LEFT JOIN market_events_paper_trades_s42 p
           ON p.s40_signal_type = s.signal_type AND p.s40_signal_id = s.signal_id
@@ -491,7 +499,42 @@ def open_paper_trades_from_s40(conn: Any, *, limit: int = 100) -> int:
     ).fetchall()
     opened = 0
     now = int(time.time())
+    open_count = int(paper_trade_counts_s42(conn).get("open_trades") or 0)
+
     for r in rows:
+        if s55.S55_ENABLED and open_count >= s55.S55_MAX_OPEN_TRADES:
+            logger.info(
+                "S55 skip max_open symbol=%s signal=%s/%s open_count=%s",
+                r["symbol"], r["signal_type"], r["signal_id"], open_count,
+            )
+            break
+
+        features = s55.build_entry_features(conn, r)
+        allow, decision, estimate = s55.should_open_trade(
+            conn, features=features, open_count=open_count,
+        )
+        if not allow:
+            logger.info(
+                "S55 skip %s symbol=%s dir=%s expected_pnl=%s similar=%s",
+                decision,
+                r["symbol"],
+                r["direction"],
+                estimate.get("expected_pnl_pct"),
+                estimate.get("similar_count") or estimate.get("n"),
+            )
+            # Persist reject for audit (no paper_trade_id).
+            s55.record_trade_features_on_open(
+                conn,
+                paper_trade_id=None,
+                s40_signal_type=str(r["signal_type"]),
+                s40_signal_id=int(r["signal_id"]),
+                features=features,
+                gate_decision=decision,
+                estimate=estimate,
+                now=now,
+            )
+            continue
+
         execute_with_retry(
             conn,
             f"""
@@ -521,7 +564,31 @@ def open_paper_trades_from_s40(conn: Any, *, limit: int = 100) -> int:
                 now,
             ),
         )
+        trade_id = None
+        try:
+            row_id = conn.execute(
+                f"""
+                SELECT id FROM {_TRADES}
+                WHERE s40_signal_type = ? AND s40_signal_id = ?
+                """,
+                (str(r["signal_type"]), int(r["signal_id"])),
+            ).fetchone()
+            trade_id = int(row_id["id"]) if row_id else None
+        except Exception:
+            trade_id = None
+
+        s55.record_trade_features_on_open(
+            conn,
+            paper_trade_id=trade_id,
+            s40_signal_type=str(r["signal_type"]),
+            s40_signal_id=int(r["signal_id"]),
+            features=features,
+            gate_decision=decision,
+            estimate=estimate,
+            now=now,
+        )
         opened += 1
+        open_count += 1
     return opened
 
 
@@ -586,6 +653,27 @@ def _close_trade(
         f"UPDATE {_ACCOUNT} SET current_equity = ?, updated_at = ? WHERE id = 1",
         (new_equity, now),
     )
+
+    try:
+        from bot.research.market_events.signal_intelligence.trade_intelligence_s55 import (
+            finalize_trade_features_on_close,
+        )
+        finalize_trade_features_on_close(
+            conn,
+            paper_trade_id=int(row["id"]),
+            s40_signal_type=str(row["s40_signal_type"]),
+            s40_signal_id=int(row["s40_signal_id"]),
+            result=_result_from_pnl(price_pnl),
+            pnl_pct=round(price_pnl, 4),
+            pnl_usd=pnl_usd,
+            mae_pct=round(mae, 4),
+            mfe_pct=round(mfe, 4),
+            exit_reason=exit_reason,
+            duration_sec=holding,
+            now=now,
+        )
+    except Exception as exc:
+        logger.warning("s55 finalize on close failed: %s", exc)
 
 
 def _activate_trailing_after_tp1(
@@ -1232,6 +1320,13 @@ def format_paper_performance_s42(
     ]
     trail = trailing_stats_s42(conn)
     lines.extend(_format_trailing_stats_block(trail))
+    try:
+        from bot.research.market_events.signal_intelligence.trade_intelligence_s55 import (
+            format_s55_gate_block,
+        )
+        lines.extend(format_s55_gate_block(conn, open_count=int(dash.get("open_trades") or 0)))
+    except Exception:
+        pass
     if symbol:
         sym = symbol.upper()
         sym_rows = conn.execute(

@@ -43,6 +43,7 @@ from bot.research.market_events.event_schema import (
     G37_ALTER_STATEMENTS,
     G351_DDL,
     MIGRATIONS_TABLE,
+    S55_TRADE_FEATURES_DDL,
     SCHEMA_VERSION,
 )
 
@@ -86,6 +87,7 @@ MIGRATION_DESCRIPTIONS: dict[int, str] = {
     47: "Phase S2.0 Trading Decision Engine MVP",
     48: "Phase S2.3 Telegram Signal Inbox",
     64: "Phase S54 experimental TP1 trailing stop columns",
+    65: "Phase S55.1 trade intelligence feature store",
 }
 
 
@@ -155,6 +157,7 @@ def full_pg_ddl() -> str:
         G50_DDL,
         G51_DDL,
         G36_DDL,
+        S55_TRADE_FEATURES_DDL,
     ]
     ddl = sqlite_ddl_to_pg("\n".join(blocks))
     alters = [pg_alter_add_column(s) for s in (
@@ -207,8 +210,12 @@ def apply_pg_migrations(conn: Any) -> list[str]:
             _record_migration(conn, ver, desc)
             applied.append(f"v{ver}")
         try:
-            from bot.research.market_events.event_schema import _ensure_s54_trailing_columns
+            from bot.research.market_events.event_schema import (
+                _ensure_s54_trailing_columns,
+                _ensure_s55_trade_features,
+            )
             _ensure_s54_trailing_columns(conn)
+            _ensure_s55_trade_features(conn)
         except Exception:
             pass
 

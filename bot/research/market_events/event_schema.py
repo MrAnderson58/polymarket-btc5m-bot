@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 64
+SCHEMA_VERSION = 65
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -1022,8 +1022,22 @@ def apply_migrations(conn: Any) -> list[str]:
             applied.append("v64")
             current = 64
 
-    # Idempotent repair for DBs that skipped v64 recording.
+        if current < 65:
+            _ensure_s55_trade_features(conn)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (65, now, "Phase S55.1 trade intelligence feature store"),
+            )
+            applied.append("v65")
+            current = 65
+
+    # Idempotent repair for DBs that skipped v64/v65 recording.
     _ensure_s54_trailing_columns(conn)
+    _ensure_s55_trade_features(conn)
 
     if not applied:
         conn.commit()
@@ -3407,6 +3421,72 @@ def _ensure_n11_enriched_columns(conn: Any) -> None:
                 conn.execute(sql)
             except Exception:
                 pass
+
+
+S55_TRADE_FEATURES_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_trade_features_s55 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_trade_id INTEGER,
+    s40_signal_type TEXT NOT NULL,
+    s40_signal_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    hour INTEGER,
+    weekday INTEGER,
+    volatility REAL,
+    atr REAL,
+    rsi REAL,
+    funding REAL,
+    oi_delta REAL,
+    etf_flow REAL,
+    macro_score REAL,
+    news_score REAL,
+    ai_score REAL,
+    trend REAL,
+    volume REAL,
+    fear_greed REAL,
+    btc_dominance REAL,
+    spread REAL,
+    funding_sign INTEGER,
+    market_regime TEXT,
+    shock_score REAL,
+    features_json TEXT,
+    result TEXT,
+    pnl_pct REAL,
+    pnl_usd REAL,
+    mae_pct REAL,
+    mfe_pct REAL,
+    reached_tp1 INTEGER NOT NULL DEFAULT 0,
+    reached_tp2 INTEGER NOT NULL DEFAULT 0,
+    stopped INTEGER NOT NULL DEFAULT 0,
+    trailing INTEGER NOT NULL DEFAULT 0,
+    duration_sec INTEGER,
+    exit_reason TEXT,
+    gate_decision TEXT,
+    gate_expected_pnl_pct REAL,
+    similar_count INTEGER,
+    created_at INTEGER NOT NULL,
+    closed_at INTEGER,
+    UNIQUE(s40_signal_type, s40_signal_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_s55_features_closed
+    ON market_events_trade_features_s55(closed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_s55_features_dir
+    ON market_events_trade_features_s55(direction, closed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_s55_features_symbol
+    ON market_events_trade_features_s55(symbol, direction, closed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_s55_features_gate
+    ON market_events_trade_features_s55(gate_decision, created_at DESC);
+"""
+
+
+def _ensure_s55_trade_features(conn: Any) -> None:
+    """Create S55 trade feature / outcome table if missing."""
+    try:
+        conn.executescript(S55_TRADE_FEATURES_DDL)
+    except Exception:
+        pass
 
 
 def _ensure_s54_trailing_columns(conn: Any) -> None:
