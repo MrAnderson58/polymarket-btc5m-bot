@@ -117,7 +117,7 @@ class TestSimilarityAndGateS55(unittest.TestCase):
         ):
             allow, decision, est = s55.should_open_trade(conn, features=feats, open_count=0)
         self.assertFalse(allow)
-        self.assertEqual(decision, "reject_expected_pnl")
+        self.assertEqual(decision, s55.GATE_NEGATIVE_EXPECTANCY)
         self.assertLess(est["expected_pnl_pct"], 0)
 
     def test_max_open_cap(self) -> None:
@@ -126,7 +126,7 @@ class TestSimilarityAndGateS55(unittest.TestCase):
         with patch.object(s55, "S55_ENABLED", True), patch.object(s55, "S55_MAX_OPEN_TRADES", 25):
             allow, decision, _ = s55.should_open_trade(conn, features=feats, open_count=25)
         self.assertFalse(allow)
-        self.assertEqual(decision, "max_open")
+        self.assertEqual(decision, s55.GATE_MAX_OPEN)
 
     def test_disabled_allows_open(self) -> None:
         conn = _mem()
@@ -134,7 +134,7 @@ class TestSimilarityAndGateS55(unittest.TestCase):
         with patch.object(s55, "S55_ENABLED", False):
             allow, decision, _ = s55.should_open_trade(conn, features=feats, open_count=100)
         self.assertTrue(allow)
-        self.assertEqual(decision, "disabled")
+        self.assertEqual(decision, s55.GATE_DISABLED)
 
 
 class TestOpenGateIntegrationS55(unittest.TestCase):
@@ -173,7 +173,10 @@ class TestOpenGateIntegrationS55(unittest.TestCase):
         ).fetchone()["n"]
         self.assertEqual(open_n, 2)
         feat_n = conn.execute(
-            "SELECT COUNT(*) AS n FROM market_events_trade_features_s55 WHERE gate_decision IN ('open','cold_start')",
+            """
+            SELECT COUNT(*) AS n FROM market_events_trade_features_s55
+            WHERE gate_decision IN ('open','cold_start','ALLOWED','INSUFFICIENT_HISTORY')
+            """,
         ).fetchone()["n"]
         self.assertEqual(feat_n, 2)
 

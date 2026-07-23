@@ -244,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
             "learning-health",
             "learning-worker",
             "paper-performance",
+            "trade-regression-audit",
             "research-ai",
             "research-audit",
             "research-cost",
@@ -1479,6 +1480,26 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 1
             raise
+        return 0
+
+    if args.command == "trade-regression-audit":
+        if _audit_s42_db_path(command="trade-regression-audit") != 0:
+            return 1
+        from bot.research.market_events.signal_intelligence.trade_regression_audit_s55 import (
+            format_trade_regression_audit,
+            run_trade_regression_audit,
+        )
+        deploy_ts = int(args.start) if args.start is not None else None
+        top_n = 100
+        try:
+            with market_events_readonly_connection() as conn:
+                if args.json:
+                    print(json.dumps(run_trade_regression_audit(conn, deploy_ts=deploy_ts, top_n=top_n), indent=2, default=str))
+                else:
+                    print(format_trade_regression_audit(conn, deploy_ts=deploy_ts, top_n=top_n))
+        except Exception as exc:
+            print(f"trade-regression-audit failed: {exc}")
+            return 1
         return 0
 
     if args.command == "reversal-diagnostics":

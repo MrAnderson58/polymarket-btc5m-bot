@@ -302,35 +302,58 @@ def estimate_from_neighbors(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+# Canonical gate reason codes (S55.3+). Legacy aliases still accepted in stats.
+GATE_ALLOWED = "ALLOWED"
+GATE_COLD_START = "INSUFFICIENT_HISTORY"  # allow open; logged as cold-start path
+GATE_MAX_OPEN = "MAX_OPEN"
+GATE_NEGATIVE_EXPECTANCY = "NEGATIVE_EXPECTANCY"
+GATE_DISABLED = "DISABLED"
+GATE_OPEN = "ALLOWED"  # synonym
+
+
 def should_open_trade(
     conn: Any,
     *,
     features: dict[str, Any],
     open_count: int,
+    skip_max_open_check: bool = False,
 ) -> tuple[bool, str, dict[str, Any]]:
     """
     Gate decision.
     Returns (allow, gate_decision, estimate).
+
+    Reason codes: ALLOWED | INSUFFICIENT_HISTORY | MAX_OPEN | NEGATIVE_EXPECTANCY | DISABLED.
     """
     refresh_s55_config_from_env()
     estimate = estimate_from_neighbors([])
+    estimate["nearest_neighbours"] = []
     if not S55_ENABLED:
-        return True, "disabled", estimate
+        return True, GATE_DISABLED, estimate
 
-    if open_count >= S55_MAX_OPEN_TRADES:
-        return False, "max_open", estimate
+    if not skip_max_open_check and open_count >= S55_MAX_OPEN_TRADES:
+        return False, GATE_MAX_OPEN, estimate
 
     neighbors = find_similar_trades(conn, features, k=S55_SIMILAR_K)
     estimate = estimate_from_neighbors(neighbors)
     estimate["similar_count"] = len(neighbors)
+    estimate["nearest_neighbours"] = [
+        {
+            "symbol": n.get("symbol"),
+            "direction": n.get("direction"),
+            "pnl_pct": n.get("pnl_pct"),
+            "similarity": n.get("similarity"),
+            "exit_reason": n.get("exit_reason"),
+        }
+        for n in neighbors[:5]
+    ]
 
     if len(neighbors) < S55_MIN_SIMILAR:
-        return True, "cold_start", estimate
+        return True, GATE_COLD_START, estimate
 
     if float(estimate["expected_pnl_pct"]) < float(S55_MIN_EXPECTED_PNL_PCT):
-        return False, "reject_expected_pnl", estimate
+        return False, GATE_NEGATIVE_EXPECTANCY, estimate
 
-    return True, "open", estimate
+    return True, GATE_ALLOWED, estimate
 
 
 def record_trade_features_on_open(
@@ -514,6 +537,7 @@ def gate_stats_today(conn: Any, *, day_start: int | None = None) -> dict[str, An
         "rejected": 0,
         "cold_start": 0,
         "avg_expected_pnl_accepted": 0.0,
+        "reasons": {},
     }
     try:
         rows = conn.execute(
@@ -527,16 +551,26 @@ def gate_stats_today(conn: Any, *, day_start: int | None = None) -> dict[str, An
     except Exception:
         return out
     accepted_pnls: list[float] = []
+    reason_counts: dict[str, int] = {}
     for r in rows:
         d = str(r["gate_decision"] or "")
-        if d in ("open", "cold_start", "disabled"):
+        reason_counts[d] = reason_counts.get(d, 0) + 1
+        # Accepted (new + legacy codes)
+        if d in (
+            "open", "cold_start", "disabled",
+            GATE_ALLOWED, GATE_COLD_START, GATE_DISABLED, "ALLOWED", "INSUFFICIENT_HISTORY", "DISABLED",
+        ):
             out["accepted"] += 1
-            if d == "cold_start":
+            if d in ("cold_start", GATE_COLD_START, "INSUFFICIENT_HISTORY"):
                 out["cold_start"] += 1
-            if r["gate_expected_pnl_pct"] is not None and d in ("open", "cold_start"):
+            if r["gate_expected_pnl_pct"] is not None and d not in ("disabled", GATE_DISABLED, "DISABLED"):
                 accepted_pnls.append(float(r["gate_expected_pnl_pct"]))
-        elif d.startswith("reject") or d == "max_open":
+        elif (
+            d.startswith("reject")
+            or d in ("max_open", GATE_MAX_OPEN, GATE_NEGATIVE_EXPECTANCY, "MAX_OPEN", "NEGATIVE_EXPECTANCY")
+        ):
             out["rejected"] += 1
+    out["reasons"] = reason_counts
     if accepted_pnls:
         out["avg_expected_pnl_accepted"] = round(sum(accepted_pnls) / len(accepted_pnls), 4)
     return out
@@ -544,18 +578,33 @@ def gate_stats_today(conn: Any, *, day_start: int | None = None) -> dict[str, An
 
 def format_s55_gate_block(conn: Any, *, open_count: int = 0) -> list[str]:
     stats = gate_stats_today(conn)
-    return [
+    lines = [
         "",
         "S55 Gate",
         f"  enabled={stats['enabled']}  max_open={stats['max_open']}  current_open={open_count}",
         f"  min_expected_pnl_pct={stats['min_expected_pnl_pct']}",
-        f"  accepted_today={stats['accepted']}  rejected_today={stats['rejected']}  "
-        f"cold_start={stats['cold_start']}",
+        f"  Allowed={stats['accepted']}  Rejected={stats['rejected']}  "
+        f"INSUFFICIENT_HISTORY={stats['cold_start']}",
         f"  avg_expected_pnl_accepted={stats['avg_expected_pnl_accepted']:+.4f}%",
     ]
+    reasons = stats.get("reasons") or {}
+    if reasons:
+        parts = [f"{k}={v}" for k, v in sorted(reasons.items(), key=lambda x: -x[1])]
+        lines.append(f"  Reason: {', '.join(parts)}")
+    if open_count > stats["max_open"]:
+        lines.append(
+            f"  WARN: current_open={open_count} > max_open={stats['max_open']} "
+            "(legacy backlog — Portfolio Manager should sweep)",
+        )
+    return lines
 
 
 __all__ = [
+    "GATE_ALLOWED",
+    "GATE_COLD_START",
+    "GATE_DISABLED",
+    "GATE_MAX_OPEN",
+    "GATE_NEGATIVE_EXPECTANCY",
     "S55_ENABLED",
     "S55_MAX_OPEN_TRADES",
     "S55_MIN_EXPECTED_PNL_PCT",

@@ -474,9 +474,13 @@ def _set_ops(conn: Any, key: str, value: str) -> None:
 def open_paper_trades_from_s40(conn: Any, *, limit: int = 100) -> int:
     """Open paper trades for new S4.0 learning signals (observe-only).
 
-    S55.1: gated by max-open + similar-trade expected PnL (when S55_ENABLED).
+    S55.3: every candidate is gated and logged (Allowed / Rejected + Reason).
+    At capacity, Portfolio Manager may replace a weaker open with a stronger candidate.
     """
     from bot.research.market_events.signal_intelligence import trade_intelligence_s55 as s55
+    from bot.research.market_events.signal_intelligence.portfolio_manager_s55 import (
+        maybe_replace_weakest_for_candidate,
+    )
 
     s55.refresh_s55_config_from_env()
     rows = conn.execute(
@@ -502,27 +506,38 @@ def open_paper_trades_from_s40(conn: Any, *, limit: int = 100) -> int:
     open_count = int(paper_trade_counts_s42(conn).get("open_trades") or 0)
 
     for r in rows:
-        if s55.S55_ENABLED and open_count >= s55.S55_MAX_OPEN_TRADES:
-            logger.info(
-                "S55 skip max_open symbol=%s signal=%s/%s open_count=%s",
-                r["symbol"], r["signal_type"], r["signal_id"], open_count,
-            )
-            break
-
         features = s55.build_entry_features(conn, r)
         allow, decision, estimate = s55.should_open_trade(
-            conn, features=features, open_count=open_count,
+            conn, features=features, open_count=open_count, skip_max_open_check=True,
         )
+
+        if s55.S55_ENABLED and open_count >= s55.S55_MAX_OPEN_TRADES:
+            if allow:
+                repl = maybe_replace_weakest_for_candidate(
+                    conn,
+                    candidate_expected_pnl_pct=float(estimate.get("expected_pnl_pct") or 0.0),
+                    open_count=open_count,
+                    max_open=s55.S55_MAX_OPEN_TRADES,
+                    now=now,
+                )
+                if repl.get("replaced"):
+                    open_count = max(0, open_count - int(repl.get("freed") or 0))
+                else:
+                    allow = False
+                    decision = s55.GATE_MAX_OPEN
+            if allow and open_count >= s55.S55_MAX_OPEN_TRADES:
+                allow = False
+                decision = s55.GATE_MAX_OPEN
+
         if not allow:
             logger.info(
-                "S55 skip %s symbol=%s dir=%s expected_pnl=%s similar=%s",
+                "S55 Rejected reason=%s symbol=%s dir=%s expected_pnl=%s similar=%s",
                 decision,
                 r["symbol"],
                 r["direction"],
                 estimate.get("expected_pnl_pct"),
                 estimate.get("similar_count") or estimate.get("n"),
             )
-            # Persist reject for audit (no paper_trade_id).
             s55.record_trade_features_on_open(
                 conn,
                 paper_trade_id=None,
@@ -577,6 +592,14 @@ def open_paper_trades_from_s40(conn: Any, *, limit: int = 100) -> int:
         except Exception:
             trade_id = None
 
+        logger.info(
+            "S55 Allowed reason=%s symbol=%s dir=%s expected_pnl=%s similar=%s",
+            decision,
+            r["symbol"],
+            r["direction"],
+            estimate.get("expected_pnl_pct"),
+            estimate.get("similar_count") or estimate.get("n"),
+        )
         s55.record_trade_features_on_open(
             conn,
             paper_trade_id=trade_id,
@@ -729,7 +752,10 @@ def _activate_trailing_after_tp1(
 
 
 def tick_open_paper_trades_s42(conn: Any) -> int:
-    """Update MFE/MAE and close open paper trades (Classic or S54 trailing)."""
+    """Update MFE/MAE and close open paper trades (Classic or S54 trailing).
+
+    S55.3: aged opens without a live price still timeout (prevents zombie OPEN backlog).
+    """
     rows = conn.execute(
         f"SELECT * FROM {_TRADES} WHERE status = ? ORDER BY created_at ASC",
         (STATUS_OPEN,),
@@ -742,7 +768,18 @@ def tick_open_paper_trades_s42(conn: Any) -> int:
     for row in rows:
         symbol = str(row["symbol"])
         price = _current_price(conn, symbol)
+        age = now - int(row["created_at"])
         if price is None:
+            # Zombie fix: still honour hard timeout using entry as mark.
+            if age >= TIMEOUT_SECONDS:
+                _close_trade(
+                    conn,
+                    row=row,
+                    exit_price=float(row["entry"]),
+                    exit_reason=EXIT_TIMEOUT,
+                    now=now,
+                )
+                ticked += 1
             continue
         ticked += 1
         entry = float(row["entry"])
@@ -830,7 +867,7 @@ def tick_open_paper_trades_s42(conn: Any) -> int:
                     trailing_exit_reason="emergency_stop",
                 )
                 continue
-            if now - int(row["created_at"]) >= TIMEOUT_SECONDS:
+            if age >= TIMEOUT_SECONDS:
                 _close_trade(
                     conn, row=row, exit_price=price, exit_reason=EXIT_TIMEOUT, now=now,
                     trailing_exit_reason="emergency_timeout",
@@ -863,10 +900,117 @@ def tick_open_paper_trades_s42(conn: Any) -> int:
                 continue
             _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TP1, now=now)
             continue
-        if now - int(row["created_at"]) >= TIMEOUT_SECONDS:
+        if age >= TIMEOUT_SECONDS:
             _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TIMEOUT, now=now)
 
     return ticked
+
+
+def compute_advanced_metrics_s42(conn: Any, *, limit: int = 500) -> dict[str, Any]:
+    """S55.3 report metrics from recent closed paper trades."""
+    empty = {
+        "expectancy_usd": 0.0,
+        "profit_factor": 0.0,
+        "avg_win_usd": 0.0,
+        "avg_loss_usd": 0.0,
+        "reward_risk": 0.0,
+        "sharpe_paper": 0.0,
+        "max_drawdown_pct": 0.0,
+        "by_symbol": [],
+        "by_direction": [],
+        "by_exit_reason": [],
+        "n": 0,
+    }
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT symbol, direction, exit_reason, pnl_usd, result, closed_at
+            FROM {_TRADES}
+            WHERE status = ? AND pnl_usd IS NOT NULL
+            ORDER BY closed_at DESC
+            LIMIT ?
+            """,
+            (STATUS_CLOSED, limit),
+        ).fetchall()
+    except Exception:
+        return empty
+    if not rows:
+        return empty
+    # Chronological for drawdown / sharpe
+    chrono = list(reversed([dict(r) for r in rows]))
+    pnls = [float(r["pnl_usd"] or 0) for r in chrono]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+    n = len(pnls)
+    expectancy = sum(pnls) / n if n else 0.0
+    gross_win = sum(wins)
+    gross_loss = abs(sum(losses))
+    pf = (gross_win / gross_loss) if gross_loss > 0 else (999.0 if gross_win > 0 else 0.0)
+    avg_win = sum(wins) / len(wins) if wins else 0.0
+    avg_loss = sum(losses) / len(losses) if losses else 0.0
+    rr = (avg_win / abs(avg_loss)) if avg_loss < 0 else 0.0
+    # Simple Sharpe on per-trade PnL (not annualized): mean / stdev
+    if n >= 2:
+        mean = sum(pnls) / n
+        var = sum((p - mean) ** 2 for p in pnls) / (n - 1)
+        std = var ** 0.5
+        sharpe = (mean / std) if std > 0 else 0.0
+    else:
+        sharpe = 0.0
+
+    def _group(key: str) -> list[dict[str, Any]]:
+        from collections import defaultdict
+        agg: dict[str, float] = defaultdict(float)
+        cnt: dict[str, int] = defaultdict(int)
+        for r in chrono:
+            k = str(r.get(key) or "UNKNOWN")
+            agg[k] += float(r.get("pnl_usd") or 0)
+            cnt[k] += 1
+        return [
+            {"key": k, "pnl_usd": round(v, 2), "n": cnt[k]}
+            for k, v in sorted(agg.items(), key=lambda x: x[1])
+        ]
+
+    return {
+        "expectancy_usd": round(expectancy, 4),
+        "profit_factor": round(pf, 3),
+        "avg_win_usd": round(avg_win, 4),
+        "avg_loss_usd": round(avg_loss, 4),
+        "reward_risk": round(rr, 3),
+        "sharpe_paper": round(sharpe, 3),
+        "max_drawdown_pct": round(_max_drawdown_pct_from_pnl_usd(pnls), 2),
+        "by_symbol": _group("symbol"),
+        "by_direction": _group("direction"),
+        "by_exit_reason": _group("exit_reason"),
+        "n": n,
+    }
+
+
+def _format_advanced_metrics_block(m: dict[str, Any]) -> list[str]:
+    lines = [
+        "",
+        "S55 Metrics",
+        f"  Expectancy      ${m['expectancy_usd']:+.4f}  (n={m['n']})",
+        f"  Profit Factor   {m['profit_factor']:.3f}",
+        f"  Average Win     ${m['avg_win_usd']:+.4f}",
+        f"  Average Loss    ${m['avg_loss_usd']:+.4f}",
+        f"  Reward/Risk     {m['reward_risk']:.3f}",
+        f"  Sharpe (paper)  {m['sharpe_paper']:.3f}",
+        f"  Max Drawdown    {m['max_drawdown_pct']:.2f}%",
+    ]
+    if m.get("by_symbol"):
+        lines.append("  PnL by Symbol:")
+        for g in m["by_symbol"][:10]:
+            lines.append(f"    {g['key']}: ${g['pnl_usd']:+.2f} (n={g['n']})")
+    if m.get("by_direction"):
+        lines.append("  PnL by Direction:")
+        for g in m["by_direction"]:
+            lines.append(f"    {g['key']}: ${g['pnl_usd']:+.2f} (n={g['n']})")
+    if m.get("by_exit_reason"):
+        lines.append("  PnL by Exit Reason:")
+        for g in m["by_exit_reason"]:
+            lines.append(f"    {g['key']}: ${g['pnl_usd']:+.2f} (n={g['n']})")
+    return lines
 
 
 def _aggregate_trades(rows: list[Any]) -> dict[str, Any]:
@@ -1164,15 +1308,31 @@ def maybe_emit_scheduled_reports_s42(conn: Any) -> dict[str, Any]:
 
 
 def run_paper_performance_cycle_s42() -> dict[str, Any]:
-    """Worker hook: open, tick, scheduled reports — short write transactions."""
+    """Worker hook: portfolio sweep, open, tick, scheduled reports."""
     with market_events_connection() as conn:
         apply_migrations(conn)
         _ensure_account(conn)
+        portfolio: dict[str, Any] = {"stale_closed": 0, "hard_cap_closed": 0}
+        try:
+            from bot.research.market_events.signal_intelligence import trade_intelligence_s55 as s55
+            from bot.research.market_events.signal_intelligence.portfolio_manager_s55 import (
+                enforce_max_open_hard_cap,
+                sweep_stale_opens,
+            )
+
+            s55.refresh_s55_config_from_env()
+            portfolio.update(sweep_stale_opens(conn))
+            if s55.S55_ENABLED:
+                portfolio["hard_cap_closed"] = enforce_max_open_hard_cap(
+                    conn, max_open=s55.S55_MAX_OPEN_TRADES,
+                )
+        except Exception as exc:
+            logger.warning("s55 portfolio sweep failed: %s", exc)
         opened = open_paper_trades_from_s40(conn)
         ticked = tick_open_paper_trades_s42(conn)
         reports = maybe_emit_scheduled_reports_s42(conn)
         conn.commit()
-    return {"opened": opened, "ticked": ticked, **reports}
+    return {"opened": opened, "ticked": ticked, "portfolio": portfolio, **reports}
 
 
 def paper_closed_trades_since_s42(conn: Any, since_ts: int) -> list[dict[str, Any]]:
@@ -1325,6 +1485,11 @@ def format_paper_performance_s42(
             format_s55_gate_block,
         )
         lines.extend(format_s55_gate_block(conn, open_count=int(dash.get("open_trades") or 0)))
+    except Exception:
+        pass
+    try:
+        metrics = compute_advanced_metrics_s42(conn)
+        lines.extend(_format_advanced_metrics_block(metrics))
     except Exception:
         pass
     if symbol:
@@ -1590,5 +1755,6 @@ __all__ = [
     "simulate_exit_on_path",
     "tick_open_paper_trades_s42",
     "trailing_stats_s42",
+    "compute_advanced_metrics_s42",
     "_max_drawdown_pct_from_pnl_usd",
 ]
