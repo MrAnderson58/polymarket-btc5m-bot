@@ -610,6 +610,27 @@ def open_paper_trades_from_s40(conn: Any, *, limit: int = 100) -> int:
             estimate=estimate,
             now=now,
         )
+        # S58 Decision Trace — write-only; never affects allow/deny.
+        if trade_id is not None:
+            try:
+                from bot.research.market_events.signal_intelligence.decision_trace_s58 import (
+                    record_decision_on_open,
+                )
+                record_decision_on_open(
+                    conn,
+                    paper_trade_id=int(trade_id),
+                    s40_signal_type=str(r["signal_type"]),
+                    s40_signal_id=int(r["signal_id"]),
+                    features=features,
+                    estimate=estimate,
+                    gate_decision=decision,
+                    entry_price=float(r["entry"]),
+                    opened_at=int(r["timestamp"] or now),
+                    open_count=open_count,
+                    now=now,
+                )
+            except Exception as exc:
+                logger.warning("s58 record_decision_on_open failed: %s", exc)
         opened += 1
         open_count += 1
     return opened
@@ -714,6 +735,26 @@ def _close_trade(
         record_close_snapshot(conn, trade_row=snap_row, now=now)
     except Exception as exc:
         logger.warning("s56 record_close_snapshot failed: %s", exc)
+
+    # S58 Decision Trace — write-only close outcome.
+    try:
+        from bot.research.market_events.signal_intelligence.decision_trace_s58 import (
+            finalize_decision_on_close,
+        )
+        finalize_decision_on_close(
+            conn,
+            paper_trade_id=int(row["id"]),
+            exit_reason=exit_reason,
+            duration_sec=holding,
+            max_profit_pct=round(mfe, 4),
+            max_drawdown_pct=round(mae, 4),
+            final_pnl_usd=pnl_usd,
+            final_pnl_pct=round(price_pnl, 4),
+            closed_at=now,
+            now=now,
+        )
+    except Exception as exc:
+        logger.warning("s58 finalize_decision_on_close failed: %s", exc)
 
 
 def _activate_trailing_after_tp1(
@@ -1521,6 +1562,20 @@ def format_paper_performance_s42(
             format_s57_report_block,
         )
         lines.extend(format_s57_report_block(conn))
+    except Exception:
+        pass
+    try:
+        from bot.research.market_events.signal_intelligence.decision_trace_s58 import (
+            doctor_s58_status,
+        )
+        st = doctor_s58_status(conn)
+        lines.extend([
+            "",
+            "S58 Decision Trace",
+            f"  decisions={st.get('decisions', 0)}  closed={st.get('closed', 0)}",
+            "  Explain: python -m bot.research.market_events explain-decision --trade-id N",
+            "  Report:  python -m bot.research.market_events decision-report",
+        ])
     except Exception:
         pass
     if symbol:

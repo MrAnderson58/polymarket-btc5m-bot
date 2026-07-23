@@ -247,6 +247,7 @@ def main(argv: list[str] | None = None) -> int:
             "trade-regression-audit",
             "trade-postmortem",
             "market-regime",
+            "decision-report",
             "trade-suggestions",
             "approve-suggestion",
             "reject-suggestion",
@@ -337,6 +338,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--strategy", type=str, default=None, help="Strategy name prefix filter")
     parser.add_argument("--symbol", default=None, help="Single symbol for activation-explain")
+    parser.add_argument(
+        "--trade-id",
+        type=int,
+        default=None,
+        dest="trade_id",
+        help="explain-decision: paper trade id for S58 decision trace",
+    )
     parser.add_argument("--run-tag", default="e4_default", help="Historical replay run tag")
     parser.add_argument("--asset-class", default=None, help="Asset class filter (CRYPTO, EQUITY, …)")
     parser.add_argument("--start", type=int, default=None, help="Backfill start unix ts")
@@ -1093,6 +1101,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command in ("explain-decision", "explain"):
+        # S58: --trade-id → full decision trace. Else S22 symbol explain (unchanged).
+        if getattr(args, "trade_id", None) is not None:
+            from bot.research.market_events.event_schema import apply_migrations
+            from bot.research.market_events.signal_intelligence.decision_trace_s58 import (
+                format_explain_trade,
+                get_decision,
+            )
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                conn.commit()
+                if args.json:
+                    print(json.dumps(get_decision(conn, int(args.trade_id)), indent=2, default=str))
+                else:
+                    print(format_explain_trade(conn, int(args.trade_id)))
+            return 0
         from bot.research.market_events.signal_intelligence.explain_decision_s22 import (
             format_explain_decision_s22,
         )
@@ -1102,6 +1125,25 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_readonly_connection() as conn:
             print(format_explain_decision_s22(conn, symbol))
         return 0
+
+    if args.command == "decision-report":
+        from bot.research.market_events.event_schema import apply_migrations
+        from bot.research.market_events.signal_intelligence.decision_trace_s58 import (
+            compute_decision_report,
+            format_decision_report,
+        )
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                conn.commit()
+                if args.json:
+                    print(json.dumps(compute_decision_report(conn), indent=2, default=str))
+                else:
+                    print(format_decision_report(conn))
+            return 0
+        except Exception as exc:
+            print(f"decision-report failed: {exc}")
+            return 1
 
     if args.command == "pattern":
         from bot.research.market_events.signal_intelligence.pattern_agent_s31 import (

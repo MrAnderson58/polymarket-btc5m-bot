@@ -28,7 +28,7 @@ class TestMarketRegimeS57(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_schema_v67(self) -> None:
-        self.assertEqual(SCHEMA_VERSION, 67)
+        self.assertGreaterEqual(SCHEMA_VERSION, 67)
         with market_events_connection() as conn:
             row = conn.execute(
                 "SELECT name FROM sqlite_master WHERE name='market_events_regime_runs_s57'",

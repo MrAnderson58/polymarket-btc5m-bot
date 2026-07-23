@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 67
+SCHEMA_VERSION = 68
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -1061,11 +1061,25 @@ def apply_migrations(conn: Any) -> list[str]:
             applied.append("v67")
             current = 67
 
-    # Idempotent repair for DBs that skipped v64/v65/v66/v67 recording.
+        if current < 68:
+            _ensure_s58_decision_trace(conn)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (68, now, "Phase S58 trade decision trace"),
+            )
+            applied.append("v68")
+            current = 68
+
+    # Idempotent repair for DBs that skipped v64+/recording.
     _ensure_s54_trailing_columns(conn)
     _ensure_s55_trade_features(conn)
     _ensure_s56_postmortem(conn)
     _ensure_s57_market_regime(conn)
+    _ensure_s58_decision_trace(conn)
 
     if not applied:
         conn.commit()
@@ -3630,6 +3644,66 @@ def _ensure_s57_market_regime(conn: Any) -> None:
     """Create S57 market regime run/ops tables if missing."""
     try:
         conn.executescript(S57_MARKET_REGIME_DDL)
+    except Exception:
+        pass
+
+
+S58_DECISION_TRACE_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_trade_decisions_s58 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_trade_id INTEGER NOT NULL UNIQUE,
+    s40_signal_type TEXT,
+    s40_signal_id INTEGER,
+    opened_at INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entry_price REAL,
+    market_regime TEXT,
+    btc_return REAL,
+    ema20 REAL,
+    ema50 REAL,
+    ema200 REAL,
+    atr REAL,
+    rsi REAL,
+    volume REAL,
+    funding REAL,
+    fear_greed REAL,
+    macro_score REAL,
+    news_score REAL,
+    ai_score REAL,
+    expected_pnl_pct REAL,
+    expected_pnl_usd REAL,
+    candidate_rank INTEGER,
+    gate_result TEXT,
+    gate_reason TEXT,
+    portfolio_state TEXT,
+    why_opened_json TEXT,
+    rejected_alternatives_json TEXT,
+    inputs_json TEXT,
+    closed_at INTEGER,
+    exit_reason TEXT,
+    duration_sec INTEGER,
+    max_profit_pct REAL,
+    max_drawdown_pct REAL,
+    final_pnl_usd REAL,
+    final_pnl_pct REAL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_s58_decisions_opened
+    ON market_events_trade_decisions_s58(opened_at DESC);
+CREATE INDEX IF NOT EXISTS idx_s58_decisions_pnl
+    ON market_events_trade_decisions_s58(final_pnl_usd DESC);
+CREATE INDEX IF NOT EXISTS idx_s58_decisions_symbol
+    ON market_events_trade_decisions_s58(symbol, opened_at DESC);
+"""
+
+
+def _ensure_s58_decision_trace(conn: Any) -> None:
+    """Create S58 decision trace table if missing."""
+    try:
+        conn.executescript(S58_DECISION_TRACE_DDL)
     except Exception:
         pass
 
