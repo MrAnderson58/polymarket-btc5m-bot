@@ -201,9 +201,13 @@ def snapshot_count(conn: Any) -> int:
         return 0
 
 
-def diagnose_snapshots(conn: Any) -> dict[str, Any]:
-    """Explain snapshots=0 with numbers (S56.1 Block 2)."""
-    closed_n = closed_trade_count(conn)
+def diagnose_snapshots(conn: Any, *, live_conn: Any | None = None) -> dict[str, Any]:
+    """Explain snapshots=0 with numbers (S56.1 Block 2).
+
+    S60: ``live_conn`` supplies closed S42 counts; ``conn`` is research snapshots DB.
+    """
+    src = live_conn or conn
+    closed_n = closed_trade_count(src)
     snap_n = snapshot_count(conn)
     missing = max(0, closed_n - snap_n)
     try:
@@ -216,16 +220,16 @@ def diagnose_snapshots(conn: Any) -> dict[str, Any]:
             "snapshots": 0,
             "missing": closed_n,
             "reasons": [f"table missing/unreadable: {exc}"],
-            "fix": "run market-event-migrate then trade-postmortem --backfill",
+            "fix": "run market-research-migrate then trade-postmortem --backfill",
         }
 
     reasons: list[str] = []
     if snap_n == 0 and closed_n == 0:
-        reasons.append("no CLOSED rows in market_events_paper_trades_s42 on this DB")
+        reasons.append("no CLOSED rows in market_events_paper_trades_s42 on live DB")
     if snap_n == 0 and closed_n > 0:
         reasons.append(
-            f"{closed_n} closed S42 trades exist but 0 snapshots — "
-            "writer only runs on NEW closes after S56 deploy; historical need --backfill"
+            f"{closed_n} closed S42 trades exist but 0 research snapshots — "
+            "run trade-postmortem --backfill"
         )
     if missing > 0 and snap_n > 0:
         reasons.append(f"{missing} closed trades still lack snapshots (partial backfill)")
@@ -252,27 +256,32 @@ def record_close_snapshot(
     trade_row: Any,
     now: int | None = None,
     trigger_postmortem: bool = True,
+    features: dict[str, Any] | None = None,
 ) -> bool:
-    """Persist full close snapshot. Returns True if write succeeded."""
+    """Persist full close snapshot. Returns True if write succeeded.
+
+    ``features`` may be preloaded from the live DB when ``conn`` is research storage.
+    """
     now = int(now if now is not None else time.time())
     t = _row(trade_row)
     paper_id = int(t.get("id") or 0)
     s_type = str(t.get("s40_signal_type") or "")
     s_id = int(t.get("s40_signal_id") or 0)
 
-    feat: dict[str, Any] = {}
-    try:
-        fr = conn.execute(
-            f"""
-            SELECT * FROM {_FEATURES}
-            WHERE s40_signal_type = ? AND s40_signal_id = ?
-            """,
-            (s_type, s_id),
-        ).fetchone()
-        if fr:
-            feat = _row(fr)
-    except Exception:
-        pass
+    feat: dict[str, Any] = dict(features or {})
+    if not feat:
+        try:
+            fr = conn.execute(
+                f"""
+                SELECT * FROM {_FEATURES}
+                WHERE s40_signal_type = ? AND s40_signal_id = ?
+                """,
+                (s_type, s_id),
+            ).fetchone()
+            if fr:
+                feat = _row(fr)
+        except Exception:
+            pass
 
     ts = int(t.get("created_at") or now)
     dt = datetime.fromtimestamp(ts)
@@ -383,20 +392,21 @@ def backfill_snapshots(
     batch_size: int = 500,
     run_rca: bool = True,
     now: int | None = None,
+    live_conn: Any | None = None,
 ) -> dict[str, Any]:
-    """Build snapshots from already-closed S42 trades. Then optionally run postmortem once."""
+    """Build snapshots from already-closed S42 trades. Then optionally run postmortem once.
+
+    S60: read closed trades from ``live_conn`` (default ``conn``), write snapshots to ``conn`` (research).
+    """
     now = int(now if now is not None else time.time())
     refresh_s56_config_from_env()
+    src = live_conn or conn
 
     sql = f"""
         SELECT t.*
         FROM {_TRADES} t
-        LEFT JOIN {_SNAP} s
-          ON s.s40_signal_type = t.s40_signal_type
-         AND s.s40_signal_id = t.s40_signal_id
         WHERE t.status = 'CLOSED'
           AND t.pnl_usd IS NOT NULL
-          AND s.id IS NULL
         ORDER BY t.closed_at DESC
     """
     params: tuple = ()
@@ -405,16 +415,47 @@ def backfill_snapshots(
         params = (int(limit),)
 
     try:
-        rows = conn.execute(sql, params).fetchall()
+        rows = src.execute(sql, params).fetchall()
     except Exception as exc:
         return {"ok": False, "error": str(exc), "written": 0, "failed": 0}
 
+    # Skip trades that already have research snapshots
+    existing: set[tuple[str, int]] = set()
+    try:
+        for r in conn.execute(
+            f"SELECT s40_signal_type, s40_signal_id FROM {_SNAP}",
+        ).fetchall():
+            existing.add((str(r["s40_signal_type"]), int(r["s40_signal_id"])))
+    except Exception:
+        existing = set()
+
     written = 0
     failed = 0
+    skipped = 0
     for i, r in enumerate(rows):
-        ok = record_close_snapshot(conn, trade_row=r, now=now, trigger_postmortem=False)
+        key = (str(r["s40_signal_type"]), int(r["s40_signal_id"]))
+        if key in existing:
+            skipped += 1
+            continue
+        feat = None
+        try:
+            fr = src.execute(
+                f"""
+                SELECT * FROM {_FEATURES}
+                WHERE s40_signal_type = ? AND s40_signal_id = ?
+                """,
+                key,
+            ).fetchone()
+            if fr:
+                feat = dict(fr)
+        except Exception:
+            feat = None
+        ok = record_close_snapshot(
+            conn, trade_row=r, now=now, trigger_postmortem=False, features=feat,
+        )
         if ok:
             written += 1
+            existing.add(key)
         else:
             failed += 1
         if batch_size > 0 and (i + 1) % batch_size == 0:
@@ -436,6 +477,7 @@ def backfill_snapshots(
         "candidates": len(rows),
         "written": written,
         "failed": failed,
+        "skipped": skipped,
         "snapshots_total": snapshot_count(conn),
         "postmortem": postmortem,
     }
@@ -1311,7 +1353,7 @@ def snapshot_highlights(conn: Any) -> dict[str, Any]:
     }
 
 
-def doctor_s56_status(conn: Any) -> dict[str, Any]:
+def doctor_s56_status(conn: Any, *, live_conn: Any | None = None) -> dict[str, Any]:
     snap_n = snapshot_count(conn)
     waiting = list_suggestions(conn, status=STATUS_WAITING, limit=500)
     last = None
@@ -1324,7 +1366,7 @@ def doctor_s56_status(conn: Any) -> dict[str, Any]:
         ts = int(last["created_at"] or 0)
         when = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "?"
         last_txt = f"#{last['id']} {when} W={last['winners_n']} L={last['losers_n']} ({last['llm_method']})"
-    diag = diagnose_snapshots(conn)
+    diag = diagnose_snapshots(conn, live_conn=live_conn)
     return {
         "snapshots": snap_n,
         "last_rca": last_txt,

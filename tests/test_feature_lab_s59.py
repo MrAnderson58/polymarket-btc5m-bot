@@ -11,6 +11,10 @@ from bot.research.market_events.db import market_events_connection
 from bot.research.market_events.db_config import configure_unit_test_db_isolation
 from bot.research.market_events.event_schema import SCHEMA_VERSION, apply_migrations
 from bot.research.market_events.signal_intelligence import feature_lab_s59 as s59
+from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+    research_connection,
+)
+from tests.research_db_helpers import ensure_research_schema
 
 
 class TestFeatureLabS59(unittest.TestCase):
@@ -21,13 +25,14 @@ class TestFeatureLabS59(unittest.TestCase):
         with market_events_connection() as conn:
             apply_migrations(conn)
             conn.commit()
+        ensure_research_schema()
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
     def test_schema_v69(self) -> None:
-        self.assertEqual(SCHEMA_VERSION, 69)
-        with market_events_connection() as conn:
+        self.assertGreaterEqual(SCHEMA_VERSION, 69)
+        with research_connection() as conn:
             row = conn.execute(
                 "SELECT name FROM sqlite_master WHERE name='market_events_feature_lab_s59'",
             ).fetchone()
@@ -77,7 +82,7 @@ class TestFeatureLabS59(unittest.TestCase):
         conn.commit()
 
     def test_on_off_and_deltas(self) -> None:
-        with market_events_connection() as conn:
+        with research_connection() as conn:
             self._seed(conn, n=80)
             out = s59.run_feature_lab(conn, with_llm=False, now=self.now)
             conn.commit()
@@ -110,7 +115,7 @@ class TestFeatureLabS59(unittest.TestCase):
             self.assertIn("Useful features", text)
 
     def test_empty_lab_safe(self) -> None:
-        with market_events_connection() as conn:
+        with research_connection() as conn:
             out = s59.run_feature_lab(conn, now=self.now)
             conn.commit()
             self.assertEqual(out.get("n_trades"), 0)

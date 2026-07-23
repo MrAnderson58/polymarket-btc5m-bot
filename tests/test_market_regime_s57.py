@@ -13,6 +13,10 @@ from bot.research.market_events.db_config import configure_unit_test_db_isolatio
 from bot.research.market_events.event_schema import SCHEMA_VERSION, apply_migrations
 from bot.research.market_events.signal_intelligence import market_regime_s57 as s57
 from bot.research.market_events.signal_intelligence import trade_intelligence_s55 as s55
+from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+    research_connection,
+)
+from tests.research_db_helpers import ensure_research_schema
 
 
 class TestMarketRegimeS57(unittest.TestCase):
@@ -23,13 +27,14 @@ class TestMarketRegimeS57(unittest.TestCase):
         with market_events_connection() as conn:
             apply_migrations(conn)
             conn.commit()
+        ensure_research_schema()
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
     def test_schema_v67(self) -> None:
         self.assertGreaterEqual(SCHEMA_VERSION, 67)
-        with market_events_connection() as conn:
+        with research_connection() as conn:
             row = conn.execute(
                 "SELECT name FROM sqlite_master WHERE name='market_events_regime_runs_s57'",
             ).fetchone()
@@ -61,7 +66,7 @@ class TestMarketRegimeS57(unittest.TestCase):
             self.assertIn("regime_score", feats)
 
     def test_regime_gate_blocks_on_bad_stats(self) -> None:
-        with market_events_connection() as conn:
+        with research_connection() as conn:
             # Seed enough losing LONG snapshots in STRONG_BEAR
             for i in range(40):
                 conn.execute(
@@ -76,22 +81,23 @@ class TestMarketRegimeS57(unittest.TestCase):
                     (i + 1, self.now),
                 )
             conn.commit()
-            feats = {
-                "symbol": "BTC",
-                "direction": "LONG",
-                "market_regime": s57.REGIME_STRONG_BEAR,
-                "trend": -1.0,
-                "fear_greed": 20,
-                "funding": 0.001,
-            }
+        feats = {
+            "symbol": "BTC",
+            "direction": "LONG",
+            "market_regime": s57.REGIME_STRONG_BEAR,
+            "trend": -1.0,
+            "fear_greed": 20,
+            "funding": 0.001,
+        }
+        with market_events_connection() as live:
             with patch.object(s57, "S57_FILTER_ENABLED", True), patch.object(s57, "S57_MIN_EVIDENCE", 30):
-                ok, reason, meta = s57.apply_regime_gate(conn, feats)
+                ok, reason, meta = s57.apply_regime_gate(live, feats)
             self.assertFalse(ok)
             self.assertEqual(reason, s57.GATE_REGIME_BLOCK)
             self.assertGreaterEqual(int((meta.get("regime_dir_stats") or {}).get("n") or 0), 30)
 
     def test_stats_and_report(self) -> None:
-        with market_events_connection() as conn:
+        with research_connection() as conn:
             regimes = (
                 s57.REGIME_STRONG_BULL,
                 s57.REGIME_WEAK_BULL,
@@ -129,7 +135,7 @@ class TestMarketRegimeS57(unittest.TestCase):
             self.assertIn("S57 Market Regime", block)
 
     def test_suggestions_off_by_default(self) -> None:
-        with market_events_connection() as conn:
+        with research_connection() as conn:
             for i in range(40):
                 conn.execute(
                     """
@@ -149,7 +155,7 @@ class TestMarketRegimeS57(unittest.TestCase):
             self.assertIn("Confidence", out.get("llm_text") or "")
 
     def test_should_open_trade_regime_first(self) -> None:
-        with market_events_connection() as conn:
+        with research_connection() as conn:
             for i in range(40):
                 conn.execute(
                     """
@@ -163,18 +169,19 @@ class TestMarketRegimeS57(unittest.TestCase):
                     (i + 1, self.now),
                 )
             conn.commit()
-            feats = {
-                "symbol": "ETH",
-                "direction": "SHORT",
-                "market_regime": s57.REGIME_STRONG_BULL,
-                "hour": 12,
-                "weekday": 2,
-            }
+        feats = {
+            "symbol": "ETH",
+            "direction": "SHORT",
+            "market_regime": s57.REGIME_STRONG_BULL,
+            "hour": 12,
+            "weekday": 2,
+        }
+        with market_events_connection() as live:
             with patch.object(s55, "S55_ENABLED", True), \
                     patch.object(s57, "S57_FILTER_ENABLED", True), \
                     patch.object(s57, "S57_MIN_EVIDENCE", 30):
                 allow, decision, estimate = s55.should_open_trade(
-                    conn, features=feats, open_count=0,
+                    live, features=feats, open_count=0,
                 )
             self.assertFalse(allow)
             self.assertEqual(decision, s55.GATE_REGIME_BLOCK)

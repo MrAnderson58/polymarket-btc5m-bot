@@ -88,10 +88,12 @@ def resolve_market_events_db_config() -> MarketEventsDbConfig:
 
 
 def configure_unit_test_db_isolation(sqlite_path: Path) -> None:
-    """Force SQLite for unit tests."""
+    """Force SQLite for unit tests with live + sibling research DB."""
     os.environ["MARKET_EVENTS_DB_BACKEND"] = "sqlite"
     os.environ["MARKET_EVENTS_DB_URL"] = _sqlite_url(sqlite_path)
     os.environ["MARKET_EVENTS_DATABASE_PATH"] = str(sqlite_path)
+    research_path = sqlite_path.with_name(f"{sqlite_path.stem}_research.db")
+    os.environ["MARKET_EVENTS_RESEARCH_DB_URL"] = _sqlite_url(research_path)
 
 
 def reset_db_config_for_tests() -> None:
@@ -99,5 +101,6 @@ def reset_db_config_for_tests() -> None:
         "MARKET_EVENTS_DB_BACKEND",
         "MARKET_EVENTS_DB_URL",
         "MARKET_EVENTS_DATABASE_PATH",
+        "MARKET_EVENTS_RESEARCH_DB_URL",
     ):
         os.environ.pop(key, None)

@@ -249,6 +249,8 @@ def main(argv: list[str] | None = None) -> int:
             "market-regime",
             "decision-report",
             "feature-lab",
+            "market-research-migrate",
+            "research-stress-test",
             "trade-suggestions",
             "approve-suggestion",
             "reject-suggestion",
@@ -379,10 +381,10 @@ def main(argv: list[str] | None = None) -> int:
         help="market-regime: run LLM Q&A on regime report (no auto-apply)",
     )
     parser.add_argument(
-        "--write-suggestions",
-        action="store_true",
-        dest="write_suggestions",
-        help="market-regime: write WAITING_APPROVAL filter hypotheses",
+        "--workers",
+        type=int,
+        default=None,
+        help="research-stress-test: parallel worker count (default 100)",
     )
     parser.add_argument("--timeframe", default="1m", help="Candle timeframe for backfill")
     parser.add_argument("--event-id", type=int, default=None, help="Event id for timeline/opportunity reports")
@@ -1104,13 +1106,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in ("explain-decision", "explain"):
         # S58: --trade-id → full decision trace. Else S22 symbol explain (unchanged).
         if getattr(args, "trade_id", None) is not None:
-            from bot.research.market_events.event_schema import apply_migrations
             from bot.research.market_events.signal_intelligence.decision_trace_s58 import (
                 format_explain_trade,
                 get_decision,
             )
-            with market_events_connection() as conn:
-                apply_migrations(conn)
+            from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+                apply_research_migrations,
+                research_connection,
+            )
+            with research_connection() as conn:
+                apply_research_migrations(conn)
                 conn.commit()
                 if args.json:
                     print(json.dumps(get_decision(conn, int(args.trade_id)), indent=2, default=str))
@@ -1128,14 +1133,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "decision-report":
-        from bot.research.market_events.event_schema import apply_migrations
         from bot.research.market_events.signal_intelligence.decision_trace_s58 import (
             compute_decision_report,
             format_decision_report,
         )
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            apply_research_migrations,
+            research_connection,
+        )
         try:
-            with market_events_connection() as conn:
-                apply_migrations(conn)
+            with research_connection() as conn:
+                apply_research_migrations(conn)
                 conn.commit()
                 if args.json:
                     print(json.dumps(compute_decision_report(conn), indent=2, default=str))
@@ -1148,15 +1156,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "feature-lab":
         from bot.research.market_events.db import retry_on_db_locked
-        from bot.research.market_events.event_schema import apply_migrations
         from bot.research.market_events.signal_intelligence.feature_lab_s59 import (
             format_feature_lab_report,
             run_feature_lab,
         )
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            apply_research_migrations,
+            research_connection,
+        )
         try:
             def _run_lab() -> int:
-                with market_events_connection() as conn:
-                    apply_migrations(conn)
+                with research_connection() as conn:
+                    apply_research_migrations(conn)
                     if args.force or args.llm:
                         out = run_feature_lab(conn, with_llm=bool(args.llm))
                         conn.commit()
@@ -1625,6 +1636,10 @@ def main(argv: list[str] | None = None) -> int:
         if _audit_s42_db_path(command="trade-postmortem") != 0:
             return 1
         from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            apply_research_migrations,
+            research_connection,
+        )
         from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
             backfill_snapshots,
             diagnose_snapshots,
@@ -1633,65 +1648,88 @@ def main(argv: list[str] | None = None) -> int:
         )
         try:
             def _run() -> int:
-                with market_events_connection() as conn:
-                    apply_migrations(conn)
-                    do_backfill = bool(args.backfill) or args.backfill_last is not None
-                    if do_backfill:
-                        limit = int(args.backfill_last) if args.backfill_last is not None else None
-                        result = backfill_snapshots(conn, limit=limit, run_rca=True)
-                        conn.commit()
-                        if args.json:
-                            print(json.dumps(result, indent=2, default=str))
-                        else:
-                            print(
-                                f"backfill written={result.get('written')} "
-                                f"failed={result.get('failed')} "
-                                f"candidates={result.get('candidates')} "
-                                f"snapshots_total={result.get('snapshots_total')}"
+                with market_events_connection() as live:
+                    with research_connection() as conn:
+                        apply_research_migrations(conn)
+                        do_backfill = bool(args.backfill) or args.backfill_last is not None
+                        if do_backfill:
+                            limit = int(args.backfill_last) if args.backfill_last is not None else None
+                            result = backfill_snapshots(
+                                conn, limit=limit, run_rca=True, live_conn=live,
                             )
-                            pm = result.get("postmortem") or {}
-                            if pm:
+                            conn.commit()
+                            if args.json:
+                                print(json.dumps(result, indent=2, default=str))
+                            else:
                                 print(
-                                    f"postmortem run_id={pm.get('run_id')} "
-                                    f"suggestions={pm.get('suggestions_created')}"
+                                    f"backfill written={result.get('written')} "
+                                    f"failed={result.get('failed')} "
+                                    f"skipped={result.get('skipped')} "
+                                    f"candidates={result.get('candidates')} "
+                                    f"snapshots_total={result.get('snapshots_total')}"
                                 )
-                            print("")
-                            print(format_postmortem_report(conn))
-                        return 0
-                    if args.force:
-                        result = run_postmortem(conn, force=True)
+                                print("")
+                                print(format_postmortem_report(conn))
+                            return 0
+                        if args.force:
+                            result = run_postmortem(conn, force=True)
+                            conn.commit()
+                            if args.json:
+                                print(json.dumps(result, indent=2, default=str))
+                            else:
+                                print(format_postmortem_report(conn))
+                            return 0
                         conn.commit()
+                        diag = diagnose_snapshots(conn, live_conn=live)
                         if args.json:
-                            print(json.dumps(result, indent=2, default=str))
+                            print(json.dumps({
+                                "diagnose": diag,
+                                "report": format_postmortem_report(conn),
+                            }, indent=2, default=str))
                         else:
                             print(format_postmortem_report(conn))
-                            print(
-                                f"\nRun id={result.get('run_id')} "
-                                f"suggestions={result.get('suggestions_created')}"
-                            )
                         return 0
-                    conn.commit()
-                    diag = diagnose_snapshots(conn)
-                    if args.json:
-                        from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
-                            list_suggestions,
-                            top_losers,
-                            top_winners,
-                        )
-                        print(json.dumps({
-                            "diagnose": diag,
-                            "winners": top_winners(conn)[:50],
-                            "losers": top_losers(conn)[:50],
-                            "waiting": list_suggestions(conn),
-                            "report": format_postmortem_report(conn),
-                        }, indent=2, default=str))
-                    else:
-                        print(format_postmortem_report(conn))
-                    return 0
 
-            return retry_on_db_locked(_run)
+            return int(retry_on_db_locked(_run))
         except Exception as exc:
             print(f"trade-postmortem failed: {exc}")
+            return 1
+
+    if args.command == "market-research-migrate":
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            get_research_repository,
+        )
+        try:
+            repo = get_research_repository()
+            result = repo.migrate()
+            if args.json:
+                print(json.dumps({**result, **repo.status()}, indent=2, default=str))
+            else:
+                print(
+                    f"market-research-migrate ok backend={result.get('backend')} "
+                    f"source={result.get('url_source')} separated={result.get('separated')} "
+                    f"applied={result.get('applied')} schema={result.get('schema_version')}"
+                )
+            return 0
+        except Exception as exc:
+            print(f"market-research-migrate failed: {exc}")
+            return 1
+
+    if args.command == "research-stress-test":
+        from bot.research.market_events.signal_intelligence.research_stress_s60 import (
+            format_research_stress_report,
+            run_research_stress_test,
+        )
+        workers = int(getattr(args, "workers", None) or 100)
+        try:
+            result = run_research_stress_test(workers=workers, live_ticks=max(20, workers // 2))
+            if args.json:
+                print(json.dumps(result, indent=2, default=str))
+            else:
+                print(format_research_stress_report(result))
+            return 0 if result.get("ok") else 1
+        except Exception as exc:
+            print(f"research-stress-test failed: {exc}")
             return 1
 
     if args.command == "market-regime":
@@ -1704,10 +1742,14 @@ def main(argv: list[str] | None = None) -> int:
             format_regime_report,
             run_regime_analysis,
         )
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            apply_research_migrations,
+            research_connection,
+        )
         try:
             def _run_regime() -> int:
-                with market_events_connection() as conn:
-                    apply_migrations(conn)
+                with research_connection() as conn:
+                    apply_research_migrations(conn)
                     if args.backfill or args.backfill_last is not None:
                         limit = int(args.backfill_last) if args.backfill_last is not None else None
                         result = backfill_regimes(conn, limit=limit)
@@ -1732,11 +1774,6 @@ def main(argv: list[str] | None = None) -> int:
                             print(format_regime_report(conn))
                             print("")
                             print(out.get("llm_text") or "")
-                            print(
-                                f"\nrun_id={out.get('run_id')} "
-                                f"suggestions={out.get('suggestions_created')} "
-                                f"method={out.get('llm_method')}"
-                            )
                         return 0
                     conn.commit()
                     if args.json:
@@ -1757,6 +1794,10 @@ def main(argv: list[str] | None = None) -> int:
         if _audit_s42_db_path(command="trade-suggestions") != 0:
             return 1
         from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            apply_research_migrations,
+            research_connection,
+        )
         from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
             STATUS_WAITING,
             format_suggestion,
@@ -1764,8 +1805,8 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         def _list() -> int:
-            with market_events_connection() as conn:
-                apply_migrations(conn)
+            with research_connection() as conn:
+                apply_research_migrations(conn)
                 conn.commit()
                 rows = list_suggestions(conn, status=None if args.json else STATUS_WAITING, limit=100)
             if args.json:

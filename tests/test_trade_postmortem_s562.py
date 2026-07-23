@@ -12,6 +12,10 @@ from bot.research.market_events.db import market_events_connection
 from bot.research.market_events.db_config import configure_unit_test_db_isolation
 from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence import trade_postmortem_s56 as s56
+from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+    research_connection,
+)
+from tests.research_db_helpers import ensure_research_schema
 
 
 _EXITS = ("STOP", "TP1", "TP2", "TRAILING", "TIMEOUT", "PORTFOLIO_REPLACE")
@@ -26,6 +30,7 @@ class TestS562DeepStats(unittest.TestCase):
         with market_events_connection() as conn:
             apply_migrations(conn)
             conn.commit()
+        ensure_research_schema()
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -93,13 +98,25 @@ class TestS562DeepStats(unittest.TestCase):
             )
         conn.commit()
 
-    def test_deep_stats_tables(self) -> None:
-        with market_events_connection() as conn:
-            self._seed(conn, n=120)
-            for r in conn.execute("SELECT * FROM market_events_paper_trades_s42").fetchall():
-                s56.record_close_snapshot(conn, trade_row=r, now=self.now)
-            conn.commit()
+    def _seed_research_snapshots(self, *, n: int) -> None:
+        with market_events_connection() as live:
+            self._seed(live, n=n)
+            trades = live.execute("SELECT * FROM market_events_paper_trades_s42").fetchall()
+            feats = {
+                (str(r["s40_signal_type"]), int(r["s40_signal_id"])): dict(r)
+                for r in live.execute("SELECT * FROM market_events_trade_features_s55").fetchall()
+            }
+        with research_connection() as research:
+            for r in trades:
+                key = (str(r["s40_signal_type"]), int(r["s40_signal_id"]))
+                s56.record_close_snapshot(
+                    research, trade_row=r, now=self.now, features=feats.get(key),
+                )
+            research.commit()
 
+    def test_deep_stats_tables(self) -> None:
+        self._seed_research_snapshots(n=120)
+        with research_connection() as conn:
             deep = s56.compute_deep_stats(conn)
             self.assertGreaterEqual(deep["overall"]["n"], 120)
             self.assertEqual(len(deep["hours"]), 24)
@@ -134,11 +151,8 @@ class TestS562DeepStats(unittest.TestCase):
             self.assertIn("Exits:", block)
 
     def test_feature_importance_includes_categoricals(self) -> None:
-        with market_events_connection() as conn:
-            self._seed(conn, n=100)
-            for r in conn.execute("SELECT * FROM market_events_paper_trades_s42").fetchall():
-                s56.record_close_snapshot(conn, trade_row=r, now=self.now)
-            conn.commit()
+        self._seed_research_snapshots(n=100)
+        with research_connection() as conn:
             winners = s56.top_winners(conn, n=40)
             losers = s56.top_losers(conn, n=40)
             imp = s56.compute_feature_importance(winners, losers)
@@ -147,10 +161,8 @@ class TestS562DeepStats(unittest.TestCase):
             self.assertTrue({"hour", "funding", "ai_score", "news_score"} & feats)
 
     def test_suggestions_disabled_by_default(self) -> None:
-        with market_events_connection() as conn:
-            self._seed(conn, n=80)
-            for r in conn.execute("SELECT * FROM market_events_paper_trades_s42").fetchall():
-                s56.record_close_snapshot(conn, trade_row=r, now=self.now)
+        self._seed_research_snapshots(n=80)
+        with research_connection() as conn:
             with patch.object(s56, "S56_MIN_EVIDENCE", 10), patch.object(s56, "S56_LLM_ENABLED", False):
                 out = s56.run_postmortem(conn, force=True, now=self.now)
             conn.commit()

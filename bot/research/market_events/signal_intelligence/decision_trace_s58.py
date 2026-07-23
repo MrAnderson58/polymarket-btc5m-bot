@@ -222,6 +222,7 @@ def record_decision_on_open(
     open_count: int | None = None,
     candidate_rank: int | None = None,
     now: int | None = None,
+    emas: dict[str, float | None] | None = None,
 ) -> bool:
     """Persist one decision row for an opened paper trade. Never raises into trading."""
     now = int(now if now is not None else time.time())
@@ -229,7 +230,7 @@ def record_decision_on_open(
     try:
         symbol = str(features.get("symbol") or "")
         direction = str(features.get("direction") or "")
-        emas = _candles_emas(conn, symbol)
+        emas_map = emas if emas is not None else _candles_emas(conn, symbol)
         portfolio = _portfolio_state(conn, open_count=open_count)
         exp_pct = _safe_float(estimate.get("expected_pnl_pct"))
         why = build_why_opened(
@@ -237,7 +238,7 @@ def record_decision_on_open(
             features=features,
             estimate=estimate,
             gate_decision=gate_decision,
-            emas=emas,
+            emas=emas_map,
             portfolio=portfolio,
         )
         rejected = build_rejected_alternatives(direction=direction, reasons=why)
@@ -248,7 +249,7 @@ def record_decision_on_open(
                 if k not in ("nearest_neighbours",)
             },
             "regime_meta": estimate.get("regime"),
-            "emas": emas,
+            "emas": emas_map,
             "portfolio": portfolio,
         }
         price = entry_price if entry_price is not None else _safe_float(features.get("entry"))
@@ -293,9 +294,9 @@ def record_decision_on_open(
                 price,
                 features.get("market_regime"),
                 _safe_float(features.get("regime_btc_return_pct")),
-                emas.get("ema20"),
-                emas.get("ema50"),
-                emas.get("ema200"),
+                emas_map.get("ema20"),
+                emas_map.get("ema50"),
+                emas_map.get("ema200"),
                 _safe_float(features.get("atr")),
                 _safe_float(features.get("rsi")),
                 _safe_float(features.get("volume")),

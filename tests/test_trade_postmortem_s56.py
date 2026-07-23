@@ -13,6 +13,10 @@ from bot.research.market_events.db_config import configure_unit_test_db_isolatio
 from bot.research.market_events.event_schema import SCHEMA_VERSION, apply_migrations
 from bot.research.market_events.signal_intelligence import signal_paper_performance_s42 as s42
 from bot.research.market_events.signal_intelligence import trade_postmortem_s56 as s56
+from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+    research_connection,
+)
+from tests.research_db_helpers import ensure_research_schema
 
 
 class TestTradePostmortemS56(unittest.TestCase):
@@ -23,6 +27,7 @@ class TestTradePostmortemS56(unittest.TestCase):
         with market_events_connection() as conn:
             apply_migrations(conn)
             conn.commit()
+        ensure_research_schema()
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -88,7 +93,7 @@ class TestTradePostmortemS56(unittest.TestCase):
 
     def test_schema_v66(self) -> None:
         self.assertGreaterEqual(SCHEMA_VERSION, 66)
-        with market_events_connection() as conn:
+        with research_connection() as conn:
             row = conn.execute(
                 "SELECT name FROM sqlite_master WHERE name='market_events_rule_suggestions_s56'",
             ).fetchone()
@@ -110,16 +115,26 @@ class TestTradePostmortemS56(unittest.TestCase):
             row = conn.execute("SELECT * FROM market_events_paper_trades_s42").fetchone()
             s42._close_trade(conn, row=row, exit_price=105.0, exit_reason="TP1", now=self.now + 10)
             conn.commit()
-            n = conn.execute(
+        with research_connection() as rconn:
+            n = rconn.execute(
                 "SELECT COUNT(*) AS n FROM market_events_trade_snapshots_s56",
             ).fetchone()["n"]
             self.assertEqual(n, 1)
 
     def test_top_winners_losers_and_rca(self) -> None:
-        with market_events_connection() as conn:
-            self._seed_closed(conn, n=80)
-            for r in conn.execute("SELECT * FROM market_events_paper_trades_s42").fetchall():
-                s56.record_close_snapshot(conn, trade_row=r, now=self.now)
+        with market_events_connection() as live:
+            self._seed_closed(live, n=80)
+            trades = live.execute("SELECT * FROM market_events_paper_trades_s42").fetchall()
+            feats = {
+                (str(r["s40_signal_type"]), int(r["s40_signal_id"])): dict(r)
+                for r in live.execute("SELECT * FROM market_events_trade_features_s55").fetchall()
+            }
+        with research_connection() as conn:
+            for r in trades:
+                key = (str(r["s40_signal_type"]), int(r["s40_signal_id"]))
+                s56.record_close_snapshot(
+                    conn, trade_row=r, now=self.now, features=feats.get(key),
+                )
             conn.commit()
             winners = s56.top_winners(conn, n=20)
             losers = s56.top_losers(conn, n=20)
@@ -131,10 +146,19 @@ class TestTradePostmortemS56(unittest.TestCase):
             self.assertTrue(isinstance(imp, list))
 
     def test_postmortem_creates_waiting_suggestions(self) -> None:
-        with market_events_connection() as conn:
-            self._seed_closed(conn, n=80)
-            for r in conn.execute("SELECT * FROM market_events_paper_trades_s42").fetchall():
-                s56.record_close_snapshot(conn, trade_row=r, now=self.now)
+        with market_events_connection() as live:
+            self._seed_closed(live, n=80)
+            trades = live.execute("SELECT * FROM market_events_paper_trades_s42").fetchall()
+            feats = {
+                (str(r["s40_signal_type"]), int(r["s40_signal_id"])): dict(r)
+                for r in live.execute("SELECT * FROM market_events_trade_features_s55").fetchall()
+            }
+        with research_connection() as conn:
+            for r in trades:
+                key = (str(r["s40_signal_type"]), int(r["s40_signal_id"]))
+                s56.record_close_snapshot(
+                    conn, trade_row=r, now=self.now, features=feats.get(key),
+                )
             with patch.object(s56, "S56_MIN_EVIDENCE", 10), patch.object(s56, "S56_LLM_ENABLED", False):
                 out = s56.run_postmortem(conn, force=True, now=self.now)
             conn.commit()
@@ -147,7 +171,7 @@ class TestTradePostmortemS56(unittest.TestCase):
             self.assertIn("Human approval required", text)
 
     def test_approve_does_not_apply_strategy(self) -> None:
-        with market_events_connection() as conn:
+        with research_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO market_events_rule_suggestions_s56 (

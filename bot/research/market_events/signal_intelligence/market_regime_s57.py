@@ -560,17 +560,8 @@ def compute_regime_stats(conn: Any, *, symbol_top_n: int | None = None) -> dict[
     }
 
 
-def lookup_regime_direction_stats(
-    conn: Any,
-    regime: str | None,
-    direction: str | None,
-) -> dict[str, Any]:
-    """Lightweight regime×direction metrics for the gate (no full report)."""
-    reg = _canon_regime(regime)
-    direction = str(direction or "").upper()
-    empty = bucket_metrics([])
-    if not reg or direction not in ("LONG", "SHORT"):
-        return empty
+def _iter_regime_stat_rows(conn: Any) -> list[dict[str, Any]]:
+    """Load closed outcomes for regime×direction stats (snapshots preferred)."""
     rows: list[dict[str, Any]] = []
     try:
         snap = conn.execute(
@@ -581,17 +572,54 @@ def lookup_regime_direction_stats(
             """,
         ).fetchall()
         for r in snap:
-            row = _row(r)
-            rreg = _canon_regime(row.get("market_regime"))
-            if rreg is None and any(row.get(k) is not None for k in ("trend", "fear_greed", "funding")):
-                rreg = classify_from_row_features(row)
-            if rreg != reg:
-                continue
-            if str(row.get("direction") or "").upper() != direction:
-                continue
-            rows.append(row)
+            rows.append(_row(r))
     except Exception:
         pass
+    return rows
+
+
+def lookup_regime_direction_stats(
+    conn: Any,
+    regime: str | None,
+    direction: str | None,
+) -> dict[str, Any]:
+    """Lightweight regime×direction metrics for the gate (no full report).
+
+    S60: snapshot history lives on the research DB; live ``conn`` is only a
+    fallback for features / non-separated installs.
+    """
+    reg = _canon_regime(regime)
+    direction = str(direction or "").upper()
+    empty = bucket_metrics([])
+    if not reg or direction not in ("LONG", "SHORT"):
+        return empty
+
+    raw: list[dict[str, Any]] = []
+    try:
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            research_connection,
+            resolve_research_db_config,
+        )
+
+        if resolve_research_db_config().separated:
+            with research_connection(readonly=True) as rconn:
+                raw = _iter_regime_stat_rows(rconn)
+        else:
+            raw = _iter_regime_stat_rows(conn)
+    except Exception:
+        raw = _iter_regime_stat_rows(conn)
+
+    rows: list[dict[str, Any]] = []
+    for row in raw:
+        rreg = _canon_regime(row.get("market_regime"))
+        if rreg is None and any(row.get(k) is not None for k in ("trend", "fear_greed", "funding")):
+            rreg = classify_from_row_features(row)
+        if rreg != reg:
+            continue
+        if str(row.get("direction") or "").upper() != direction:
+            continue
+        rows.append(row)
+
     if not rows:
         try:
             feat = conn.execute(

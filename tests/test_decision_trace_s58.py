@@ -13,6 +13,10 @@ from bot.research.market_events.db_config import configure_unit_test_db_isolatio
 from bot.research.market_events.event_schema import SCHEMA_VERSION, apply_migrations
 from bot.research.market_events.signal_intelligence import decision_trace_s58 as s58
 from bot.research.market_events.signal_intelligence import signal_paper_performance_s42 as s42
+from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+    research_connection,
+)
+from tests.research_db_helpers import ensure_research_schema
 
 
 class TestDecisionTraceS58(unittest.TestCase):
@@ -23,13 +27,14 @@ class TestDecisionTraceS58(unittest.TestCase):
         with market_events_connection() as conn:
             apply_migrations(conn)
             conn.commit()
+        ensure_research_schema()
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
     def test_schema_v68(self) -> None:
         self.assertGreaterEqual(SCHEMA_VERSION, 68)
-        with market_events_connection() as conn:
+        with research_connection() as conn:
             row = conn.execute(
                 "SELECT name FROM sqlite_master WHERE name='market_events_trade_decisions_s58'",
             ).fetchone()
@@ -49,22 +54,23 @@ class TestDecisionTraceS58(unittest.TestCase):
         )
 
     def test_decision_saved_and_restored(self) -> None:
-        with market_events_connection() as conn:
-            self._insert_open_trade(conn, trade_id=7)
-            conn.commit()
-            features = {
-                "symbol": "BTC",
-                "direction": "LONG",
-                "funding": -0.0004,
-                "ai_score": 0.64,
-                "market_regime": "WEAK_BULL",
-                "regime_btc_return_pct": 0.55,
-                "atr": 1.2,
-                "fear_greed": 58,
-                "news_score": 0.4,
-                "macro_score": 0.3,
-            }
-            estimate = {"expected_pnl_pct": 3.8, "similar_count": 12}
+        with market_events_connection() as live:
+            self._insert_open_trade(live, trade_id=7)
+            live.commit()
+        features = {
+            "symbol": "BTC",
+            "direction": "LONG",
+            "funding": -0.0004,
+            "ai_score": 0.64,
+            "market_regime": "WEAK_BULL",
+            "regime_btc_return_pct": 0.55,
+            "atr": 1.2,
+            "fear_greed": 58,
+            "news_score": 0.4,
+            "macro_score": 0.3,
+        }
+        estimate = {"expected_pnl_pct": 3.8, "similar_count": 12}
+        with research_connection() as conn:
             with patch.object(s58, "_candles_emas", return_value={"ema20": 101.0, "ema50": 100.0, "ema200": 98.0}):
                 ok = s58.record_decision_on_open(
                     conn,
@@ -103,11 +109,12 @@ class TestDecisionTraceS58(unittest.TestCase):
             self.assertIn("✓ Funding", text)
 
     def test_decision_finalized_on_close(self) -> None:
-        with market_events_connection() as conn:
-            self._insert_open_trade(conn, trade_id=9)
-            conn.commit()
+        with market_events_connection() as live:
+            self._insert_open_trade(live, trade_id=9)
+            live.commit()
+        with research_connection() as rconn:
             s58.record_decision_on_open(
-                conn,
+                rconn,
                 paper_trade_id=9,
                 s40_signal_type="s58",
                 s40_signal_id=9,
@@ -117,21 +124,24 @@ class TestDecisionTraceS58(unittest.TestCase):
                 entry_price=100.0,
                 now=self.now,
             )
-            row = conn.execute("SELECT * FROM market_events_paper_trades_s42 WHERE id=9").fetchone()
-            s42._close_trade(conn, row=row, exit_price=98.0, exit_reason="STOP", now=self.now + 500)
-            conn.commit()
-            d = s58.get_decision(conn, 9)
+            rconn.commit()
+        with market_events_connection() as live:
+            row = live.execute("SELECT * FROM market_events_paper_trades_s42 WHERE id=9").fetchone()
+            s42._close_trade(live, row=row, exit_price=98.0, exit_reason="STOP", now=self.now + 500)
+            live.commit()
+        with research_connection() as rconn:
+            d = s58.get_decision(rconn, 9)
             assert d is not None
             self.assertEqual(d["exit_reason"], "STOP")
             self.assertIsNotNone(d["final_pnl_usd"])
             self.assertLess(float(d["final_pnl_usd"]), 0)
             self.assertEqual(int(d["duration_sec"]), 600)
-            text = s58.format_explain_trade(conn, 9)
+            text = s58.format_explain_trade(rconn, 9)
             self.assertIn("STOP", text)
             self.assertIn("Difference:", text)
 
     def test_decision_report(self) -> None:
-        with market_events_connection() as conn:
+        with research_connection() as conn:
             for i in range(1, 21):
                 pnl = 15.0 - i  # winners and losers
                 conn.execute(

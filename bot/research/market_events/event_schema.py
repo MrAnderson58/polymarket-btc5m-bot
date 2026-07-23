@@ -7,7 +7,9 @@ import time
 from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
-SCHEMA_VERSION = 69
+# Live trading DB stops at S55 (gate features). S56+ lives on ResearchRepository.
+LIVE_SCHEMA_VERSION = 65
+SCHEMA_VERSION = 70  # project watermark (research S60)
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -268,7 +270,7 @@ def apply_migrations(conn: Any) -> list[str]:
         applied.append("v8")
         current = 8
 
-    if current < SCHEMA_VERSION:
+    if current < LIVE_SCHEMA_VERSION:
         if current < 9:
             conn.executescript(E5_DDL)
             now = int(time.time())
@@ -1035,65 +1037,12 @@ def apply_migrations(conn: Any) -> list[str]:
             applied.append("v65")
             current = 65
 
-        if current < 66:
-            _ensure_s56_postmortem(conn)
-            now = int(time.time())
-            conn.execute(
-                f"""
-                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
-                VALUES (?, datetime(?, 'unixepoch'), ?)
-                """,
-                (66, now, "Phase S56 trade postmortem snapshots and rule suggestions"),
-            )
-            applied.append("v66")
-            current = 66
+        # S56–S59 / S60 research tables are NOT applied on the live trading DB.
+        # Use: python -m bot.research.market_events market-research-migrate
 
-        if current < 67:
-            _ensure_s57_market_regime(conn)
-            now = int(time.time())
-            conn.execute(
-                f"""
-                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
-                VALUES (?, datetime(?, 'unixepoch'), ?)
-                """,
-                (67, now, "Phase S57 market regime intelligence"),
-            )
-            applied.append("v67")
-            current = 67
-
-        if current < 68:
-            _ensure_s58_decision_trace(conn)
-            now = int(time.time())
-            conn.execute(
-                f"""
-                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
-                VALUES (?, datetime(?, 'unixepoch'), ?)
-                """,
-                (68, now, "Phase S58 trade decision trace"),
-            )
-            applied.append("v68")
-            current = 68
-
-        if current < 69:
-            _ensure_s59_feature_lab(conn)
-            now = int(time.time())
-            conn.execute(
-                f"""
-                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
-                VALUES (?, datetime(?, 'unixepoch'), ?)
-                """,
-                (69, now, "Phase S59 feature laboratory"),
-            )
-            applied.append("v69")
-            current = 69
-
-    # Idempotent repair for DBs that skipped v64+/recording.
+    # Idempotent repair for live trading schema only (no analytics DDL).
     _ensure_s54_trailing_columns(conn)
     _ensure_s55_trade_features(conn)
-    _ensure_s56_postmortem(conn)
-    _ensure_s57_market_regime(conn)
-    _ensure_s58_decision_trace(conn)
-    _ensure_s59_feature_lab(conn)
 
     if not applied:
         conn.commit()

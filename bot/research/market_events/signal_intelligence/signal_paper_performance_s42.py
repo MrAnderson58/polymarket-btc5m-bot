@@ -16,7 +16,6 @@ from datetime import datetime
 from typing import Any
 
 from bot.research.market_events.db import execute_with_retry, market_events_connection, market_events_readonly_connection
-from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence.candles import load_recent_candles
 
 logger = logging.getLogger(__name__)
@@ -610,13 +609,13 @@ def open_paper_trades_from_s40(conn: Any, *, limit: int = 100) -> int:
             estimate=estimate,
             now=now,
         )
-        # S58 Decision Trace — write-only; never affects allow/deny.
+        # S58 Decision Trace — research DB only (S60); never affects allow/deny.
         if trade_id is not None:
             try:
-                from bot.research.market_events.signal_intelligence.decision_trace_s58 import (
-                    record_decision_on_open,
+                from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+                    write_open_decision,
                 )
-                record_decision_on_open(
+                write_open_decision(
                     conn,
                     paper_trade_id=int(trade_id),
                     s40_signal_type=str(r["signal_type"]),
@@ -630,7 +629,7 @@ def open_paper_trades_from_s40(conn: Any, *, limit: int = 100) -> int:
                     now=now,
                 )
             except Exception as exc:
-                logger.warning("s58 record_decision_on_open failed: %s", exc)
+                logger.warning("s60 write_open_decision failed: %s", exc)
         opened += 1
         open_count += 1
     return opened
@@ -719,9 +718,10 @@ def _close_trade(
     except Exception as exc:
         logger.warning("s55 finalize on close failed: %s", exc)
 
+    # S60: S56 snapshot + S58 decision close → research DB (not live SQLite).
     try:
-        from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
-            record_close_snapshot,
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            write_close_analytics,
         )
         snap_row = dict(row)
         snap_row.update({
@@ -730,31 +730,13 @@ def _close_trade(
             "pnl_usd": pnl_usd,
             "pnl_pct": round(price_pnl, 4),
             "holding_seconds": holding,
+            "mfe_pct": round(mfe, 4),
+            "mae_pct": round(mae, 4),
             "status": STATUS_CLOSED,
         })
-        record_close_snapshot(conn, trade_row=snap_row, now=now)
+        write_close_analytics(conn, trade_row=snap_row, now=now)
     except Exception as exc:
-        logger.warning("s56 record_close_snapshot failed: %s", exc)
-
-    # S58 Decision Trace — write-only close outcome.
-    try:
-        from bot.research.market_events.signal_intelligence.decision_trace_s58 import (
-            finalize_decision_on_close,
-        )
-        finalize_decision_on_close(
-            conn,
-            paper_trade_id=int(row["id"]),
-            exit_reason=exit_reason,
-            duration_sec=holding,
-            max_profit_pct=round(mfe, 4),
-            max_drawdown_pct=round(mae, 4),
-            final_pnl_usd=pnl_usd,
-            final_pnl_pct=round(price_pnl, 4),
-            closed_at=now,
-            now=now,
-        )
-    except Exception as exc:
-        logger.warning("s58 finalize_decision_on_close failed: %s", exc)
+        logger.warning("s60 write_close_analytics failed: %s", exc)
 
 
 def _activate_trailing_after_tp1(
@@ -1366,9 +1348,11 @@ def maybe_emit_scheduled_reports_s42(conn: Any) -> dict[str, Any]:
 
 
 def run_paper_performance_cycle_s42() -> dict[str, Any]:
-    """Worker hook: portfolio sweep, open, tick, scheduled reports."""
+    """Worker hook: portfolio sweep, open, tick, scheduled reports.
+
+    S60: no DDL / apply_migrations on the live trading path.
+    """
     with market_events_connection() as conn:
-        apply_migrations(conn)
         _ensure_account(conn)
         portfolio: dict[str, Any] = {"stale_closed": 0, "hard_cap_closed": 0}
         try:
@@ -1551,44 +1535,39 @@ def format_paper_performance_s42(
     except Exception:
         pass
     try:
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            research_connection,
+        )
         from bot.research.market_events.signal_intelligence.trade_postmortem_s56 import (
             format_s56_report_block,
         )
-        lines.extend(format_s56_report_block(conn))
-    except Exception:
-        pass
-    try:
         from bot.research.market_events.signal_intelligence.market_regime_s57 import (
             format_s57_report_block,
         )
-        lines.extend(format_s57_report_block(conn))
-    except Exception:
-        pass
-    try:
         from bot.research.market_events.signal_intelligence.decision_trace_s58 import (
             doctor_s58_status,
         )
-        st = doctor_s58_status(conn)
-        lines.extend([
-            "",
-            "S58 Decision Trace",
-            f"  decisions={st.get('decisions', 0)}  closed={st.get('closed', 0)}",
-            "  Explain: python -m bot.research.market_events explain-decision --trade-id N",
-            "  Report:  python -m bot.research.market_events decision-report",
-        ])
-    except Exception:
-        pass
-    try:
         from bot.research.market_events.signal_intelligence.feature_lab_s59 import (
             doctor_s59_status,
         )
-        st = doctor_s59_status(conn)
-        lines.extend([
-            "",
-            "S59 Feature Lab",
-            f"  runs={st.get('runs', 0)}  last={st.get('last', '—')}",
-            "  Run: python -m bot.research.market_events feature-lab --force",
-        ])
+        with research_connection(readonly=True) as rconn:
+            lines.extend(format_s56_report_block(rconn))
+            lines.extend(format_s57_report_block(rconn))
+            st58 = doctor_s58_status(rconn)
+            lines.extend([
+                "",
+                "S58 Decision Trace",
+                f"  decisions={st58.get('decisions', 0)}  closed={st58.get('closed', 0)}",
+                "  Explain: python -m bot.research.market_events explain-decision --trade-id N",
+                "  Report:  python -m bot.research.market_events decision-report",
+            ])
+            st59 = doctor_s59_status(rconn)
+            lines.extend([
+                "",
+                "S59 Feature Lab",
+                f"  runs={st59.get('runs', 0)}  last={st59.get('last', '—')}",
+                "  Run: python -m bot.research.market_events feature-lab --force",
+            ])
     except Exception:
         pass
     if symbol:

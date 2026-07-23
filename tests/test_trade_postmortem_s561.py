@@ -15,6 +15,10 @@ from bot.research.market_events.doctor import format_doctor
 from bot.research.market_events.event_schema import apply_migrations
 from bot.research.market_events.signal_intelligence import signal_paper_performance_s42 as s42
 from bot.research.market_events.signal_intelligence import trade_postmortem_s56 as s56
+from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+    research_connection,
+)
+from tests.research_db_helpers import ensure_research_schema
 
 
 class TestS561Stabilization(unittest.TestCase):
@@ -25,6 +29,7 @@ class TestS561Stabilization(unittest.TestCase):
         with market_events_connection() as conn:
             apply_migrations(conn)
             conn.commit()
+        ensure_research_schema()
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -84,39 +89,46 @@ class TestS561Stabilization(unittest.TestCase):
         conn.commit()
 
     def test_diagnose_explains_zero_snapshots(self) -> None:
-        with market_events_connection() as conn:
-            self._seed_closed_without_snapshots(conn, n=10)
-            diag = s56.diagnose_snapshots(conn)
+        with market_events_connection() as live:
+            self._seed_closed_without_snapshots(live, n=10)
+            with research_connection() as research:
+                diag = s56.diagnose_snapshots(research, live_conn=live)
         self.assertEqual(diag["snapshots"], 0)
         self.assertEqual(diag["closed_s42"], 10)
         self.assertEqual(diag["missing"], 10)
         self.assertTrue(any("backfill" in r.lower() or "NEW closes" in r for r in diag["reasons"]))
 
     def test_backfill_writes_and_runs_rca(self) -> None:
-        with market_events_connection() as conn:
-            self._seed_closed_without_snapshots(conn, n=60)
-            with patch.object(s56, "S56_MIN_EVIDENCE", 10):
-                out = s56.backfill_snapshots(conn, limit=60, run_rca=True, now=self.now)
-            conn.commit()
-            self.assertTrue(out["ok"])
-            self.assertEqual(out["written"], 60)
-            self.assertEqual(s56.snapshot_count(conn), 60)
-            self.assertGreaterEqual(len(s56.top_winners(conn)), 1)
-            self.assertGreaterEqual(len(s56.top_losers(conn)), 1)
-            self.assertIsNotNone(out.get("postmortem"))
-            self.assertIsNotNone((out.get("postmortem") or {}).get("run_id"))
+        with market_events_connection() as live:
+            self._seed_closed_without_snapshots(live, n=60)
+            with research_connection() as research:
+                with patch.object(s56, "S56_MIN_EVIDENCE", 10):
+                    out = s56.backfill_snapshots(
+                        research, limit=60, run_rca=True, now=self.now, live_conn=live,
+                    )
+                research.commit()
+                self.assertTrue(out["ok"])
+                self.assertEqual(out["written"], 60)
+                self.assertEqual(s56.snapshot_count(research), 60)
+                self.assertGreaterEqual(len(s56.top_winners(research)), 1)
+                self.assertGreaterEqual(len(s56.top_losers(research)), 1)
+                self.assertIsNotNone(out.get("postmortem"))
+                self.assertIsNotNone((out.get("postmortem") or {}).get("run_id"))
 
     def test_backfill_last_limit(self) -> None:
-        with market_events_connection() as conn:
-            self._seed_closed_without_snapshots(conn, n=40)
-            out = s56.backfill_snapshots(conn, limit=15, run_rca=False, now=self.now)
-            conn.commit()
-            self.assertEqual(out["written"], 15)
-            self.assertEqual(s56.snapshot_count(conn), 15)
+        with market_events_connection() as live:
+            self._seed_closed_without_snapshots(live, n=40)
+            with research_connection() as research:
+                out = s56.backfill_snapshots(
+                    research, limit=15, run_rca=False, now=self.now, live_conn=live,
+                )
+                research.commit()
+                self.assertEqual(out["written"], 15)
+                self.assertEqual(s56.snapshot_count(research), 15)
 
     def test_snapshot_writer_uses_retry_on_lock(self) -> None:
-        with market_events_connection() as conn:
-            conn.execute(
+        with market_events_connection() as live:
+            live.execute(
                 """
                 INSERT INTO market_events_paper_trades_s42 (
                   s40_signal_type, s40_signal_id, symbol, direction,
@@ -128,9 +140,10 @@ class TestS561Stabilization(unittest.TestCase):
                 """,
                 (self.now, self.now, self.now),
             )
-            conn.commit()
-            row = conn.execute("SELECT * FROM market_events_paper_trades_s42").fetchone()
+            live.commit()
+            row = live.execute("SELECT * FROM market_events_paper_trades_s42").fetchone()
 
+        with research_connection() as conn:
             calls = {"n": 0}
             real_execute = conn.execute
 
@@ -147,13 +160,16 @@ class TestS561Stabilization(unittest.TestCase):
             self.assertGreaterEqual(calls["n"], 3)
 
     def test_report_and_doctor_show_s56(self) -> None:
-        with market_events_connection() as conn:
-            self._seed_closed_without_snapshots(conn, n=40)
-            s56.backfill_snapshots(conn, limit=40, run_rca=False, now=self.now)
-            conn.commit()
-            text = s42.format_paper_performance_s42(conn)
-            block = "\n".join(s56.format_s56_report_block(conn))
-            status = s56.doctor_s56_status(conn)
+        with market_events_connection() as live:
+            self._seed_closed_without_snapshots(live, n=40)
+            with research_connection() as research:
+                s56.backfill_snapshots(
+                    research, limit=40, run_rca=False, now=self.now, live_conn=live,
+                )
+                research.commit()
+                block = "\n".join(s56.format_s56_report_block(research))
+                status = s56.doctor_s56_status(research, live_conn=live)
+            text = s42.format_paper_performance_s42(live)
         self.assertIn("Top Winner", text)
         self.assertIn("Top Loser", text)
         self.assertIn("Most profitable symbol", text)
