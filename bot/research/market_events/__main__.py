@@ -249,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
             "market-regime",
             "decision-report",
             "feature-lab",
+            "strategy-discovery",
             "market-research-migrate",
             "research-stress-test",
             "trade-suggestions",
@@ -385,6 +386,12 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         help="research-stress-test: parallel worker count (default 100)",
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=None,
+        help="strategy-discovery: show top N ranked hypotheses (default 25)",
     )
     parser.add_argument("--timeframe", default="1m", help="Candle timeframe for backfill")
     parser.add_argument("--event-id", type=int, default=None, help="Event id for timeline/opportunity reports")
@@ -1192,6 +1199,51 @@ def main(argv: list[str] | None = None) -> int:
             return int(retry_on_db_locked(_run_lab))
         except Exception as exc:
             print(f"feature-lab failed: {exc}")
+            return 1
+
+    if args.command == "strategy-discovery":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            apply_research_migrations,
+            research_connection,
+        )
+        from bot.research.market_events.signal_intelligence.strategy_discovery_s61 import (
+            format_strategy_discovery_report,
+            latest_discovery_rows,
+            run_strategy_discovery,
+        )
+        try:
+            def _run_discovery() -> int:
+                with research_connection() as conn:
+                    apply_research_migrations(conn)
+                    top_n = getattr(args, "top", None)
+                    if args.force:
+                        out = run_strategy_discovery(
+                            conn,
+                            top_n=top_n,
+                            write_suggestions=bool(
+                                getattr(args, "write_suggestions", False),
+                            ),
+                        )
+                        conn.commit()
+                        if args.json:
+                            print(json.dumps(out, indent=2, default=str))
+                        else:
+                            print(format_strategy_discovery_report(conn, run_id=out.get("run_id")))
+                        return 0
+                    conn.commit()
+                    if args.json:
+                        print(json.dumps({
+                            "rows": latest_discovery_rows(conn, limit=int(top_n or 50)),
+                            "report": format_strategy_discovery_report(conn, top_n=top_n),
+                        }, indent=2, default=str))
+                    else:
+                        print(format_strategy_discovery_report(conn, top_n=top_n))
+                    return 0
+
+            return int(retry_on_db_locked(_run_discovery))
+        except Exception as exc:
+            print(f"strategy-discovery failed: {exc}")
             return 1
 
     if args.command == "pattern":

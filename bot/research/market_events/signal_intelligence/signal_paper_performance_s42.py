@@ -1568,6 +1568,13 @@ def format_paper_performance_s42(
                 f"  runs={st59.get('runs', 0)}  last={st59.get('last', '—')}",
                 "  Run: python -m bot.research.market_events feature-lab --force",
             ])
+            from bot.research.market_events.signal_intelligence.strategy_discovery_s61 import (
+                format_s61_report_block,
+            )
+            lines.extend([""] + format_s61_report_block(rconn)[:8])
+            lines.append(
+                "  Run: python -m bot.research.market_events strategy-discovery --force",
+            )
     except Exception:
         pass
     if symbol:

@@ -1,7 +1,7 @@
 """S60 — Research storage separation (analytics DB ≠ live trading DB).
 
 Live SQLite: signals, open trades, portfolio, execution, S55 gate features.
-Research DB (PostgreSQL preferred, sibling SQLite fallback): S56–S59 analytics.
+Research DB (PostgreSQL preferred, sibling SQLite fallback): S56–S61 analytics.
 
 No DDL on the live trading path. Research schema via market-research-migrate only.
 """
@@ -29,7 +29,7 @@ from bot.research.market_events.sqlite_manager_g05 import connect_sqlite as _con
 logger = logging.getLogger(__name__)
 
 RESEARCH_MIGRATIONS_TABLE = "market_events_research_migrations"
-RESEARCH_SCHEMA_VERSION = 70
+RESEARCH_SCHEMA_VERSION = 71
 
 
 @dataclass(frozen=True)
@@ -170,16 +170,18 @@ def _exec_ddl(conn: Any, ddl: str) -> None:
 
 
 def apply_research_migrations(conn: Any) -> list[str]:
-    """Create/upgrade research analytics schema only (S56–S59 + S60 marker)."""
+    """Create/upgrade research analytics schema only (S56–S61)."""
     from bot.research.market_events.event_schema import (
         S56_POSTMORTEM_DDL,
         S57_MARKET_REGIME_DDL,
         S58_DECISION_TRACE_DDL,
         S59_FEATURE_LAB_DDL,
+        S61_STRATEGY_DISCOVERY_DDL,
         _ensure_s56_postmortem,
         _ensure_s57_market_regime,
         _ensure_s58_decision_trace,
         _ensure_s59_feature_lab,
+        _ensure_s61_strategy_discovery,
     )
 
     applied: list[str] = []
@@ -214,6 +216,7 @@ CREATE TABLE IF NOT EXISTS market_events_research_ops_s60 (
     updated_at INTEGER NOT NULL
 );
 """),
+        (71, "S61 strategy discovery engine", S61_STRATEGY_DISCOVERY_DDL),
     ]
 
     for ver, desc, ddl in steps:
@@ -236,6 +239,7 @@ CREATE TABLE IF NOT EXISTS market_events_research_ops_s60 (
         _ensure_s57_market_regime(conn)
         _ensure_s58_decision_trace(conn)
         _ensure_s59_feature_lab(conn)
+        _ensure_s61_strategy_discovery(conn)
     except Exception as exc:
         logger.warning("s60 research ensure helpers: %s", exc)
 

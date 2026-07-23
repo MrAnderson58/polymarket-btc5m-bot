@@ -9,7 +9,7 @@ from typing import Any
 MIGRATIONS_TABLE = "market_events_migrations"
 # Live trading DB stops at S55 (gate features). S56+ lives on ResearchRepository.
 LIVE_SCHEMA_VERSION = 65
-SCHEMA_VERSION = 70  # project watermark (research S60)
+SCHEMA_VERSION = 71  # project watermark (research S61)
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -3714,6 +3714,62 @@ def _ensure_s59_feature_lab(conn: Any) -> None:
     """Create S59 feature laboratory tables if missing."""
     try:
         conn.executescript(S59_FEATURE_LAB_DDL)
+    except Exception:
+        pass
+
+
+S61_STRATEGY_DISCOVERY_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_strategy_discovery_runs_s61 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    n_trades INTEGER NOT NULL DEFAULT 0,
+    n_hypotheses INTEGER NOT NULL DEFAULT 0,
+    n_evaluated INTEGER NOT NULL DEFAULT 0,
+    top_n INTEGER NOT NULL DEFAULT 25,
+    baseline_json TEXT,
+    results_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_events_strategy_discovery_s61 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    rank INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
+    rule_text TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    direction TEXT,
+    n_matched INTEGER,
+    n_strategy INTEGER,
+    n_baseline INTEGER,
+    strategy_expectancy REAL,
+    strategy_pf REAL,
+    strategy_sharpe REAL,
+    strategy_winrate REAL,
+    baseline_expectancy REAL,
+    baseline_pf REAL,
+    baseline_sharpe REAL,
+    baseline_winrate REAL,
+    delta_expectancy REAL,
+    delta_pf REAL,
+    delta_sharpe REAL,
+    delta_wr REAL,
+    score REAL,
+    confidence TEXT,
+    atoms_json TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_s61_discovery_run_rank
+    ON market_events_strategy_discovery_s61(run_id, rank ASC);
+CREATE INDEX IF NOT EXISTS idx_s61_discovery_score
+    ON market_events_strategy_discovery_s61(run_id, score DESC);
+"""
+
+
+def _ensure_s61_strategy_discovery(conn: Any) -> None:
+    """Create S61 strategy discovery tables if missing."""
+    try:
+        conn.executescript(S61_STRATEGY_DISCOVERY_DDL)
     except Exception:
         pass
 
