@@ -162,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
             "ai-test",
             "demo-event",
             "telegram-health",
+            "telegram-health-report",
             "telegram-config",
             "telegram-retry-unsent",
             "multitimeframe-report",
@@ -611,6 +612,23 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_readonly_connection() as conn:
             print(run_telegram_health(conn))
         return 0
+
+    if args.command == "telegram-health-report":
+        from bot.research.market_events.signal_intelligence.telegram_diagnostics_s631 import (
+            format_telegram_diagnostics_summary,
+            run_telegram_diagnostics,
+        )
+        try:
+            out = run_telegram_diagnostics()
+            if args.json:
+                slim = {k: v for k, v in out.items() if k != "delivery_health_text"}
+                print(json.dumps(slim, indent=2, default=str))
+            else:
+                print(format_telegram_diagnostics_summary(out))
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"telegram-health-report failed: {exc}")
+            return 1
 
     if args.command == "telegram-config":
         from bot.research.market_events.telegram_ops.config_report import format_telegram_config_report
