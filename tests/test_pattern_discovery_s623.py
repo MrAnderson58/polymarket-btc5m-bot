@@ -132,14 +132,33 @@ class TestPatternDiscoveryS623(unittest.TestCase):
         dq = out.get("data_quality") or {}
         self.assertIn("rows_analysed", dq)
         self.assertIn("duplicate_patterns_removed", dq)
-        self.assertEqual(out.get("stage"), "S62.3.1")
+        self.assertEqual(out.get("stage"), "S63.2")
+        self.assertIn("adaptive_thresholds", out)
+        life = (out.get("universes") or {})["lifetime"]
+        self.assertEqual(life.get("adaptive_threshold"), 30)
+        self.assertEqual(out["adaptive_thresholds"].get("lifetime"), 30)
+        last100 = (out.get("universes") or {})["last_100"]
+        self.assertEqual(last100.get("adaptive_threshold"), 10)
+        self.assertIn("Adaptive thresholds", md)
+        self.assertIn("adaptive_threshold=", md)
 
         # Ranked lists should not contain Hour=… + Coin=… when Coin=… + Hour=… exists
-        life = (out.get("universes") or {})["lifetime"]
         labels = [c.get("label") for c in (life.get("top_best") or [])]
         for lab in labels:
             if lab and lab.startswith("Hour=") and " + Coin=" in lab:
                 self.fail(f"non-canonical label in top_best: {lab}")
+
+    def test_adaptive_min_trades_rules(self) -> None:
+        self.assertEqual(s623.adaptive_min_trades("lifetime", 1000), 50)
+        self.assertEqual(s623.adaptive_min_trades("lifetime", 1000, lifetime_min=40), 40)
+        self.assertEqual(s623.adaptive_min_trades("24h", 80), 30)
+        self.assertEqual(s623.adaptive_min_trades("3h", 15), 8)  # max(8, int(4.5))=8
+        self.assertEqual(s623.adaptive_min_trades("3h", 100), 30)  # max(8, 30)
+        self.assertEqual(s623.adaptive_min_trades("1h", 15), 5)  # max(5, int(4.5))=5
+        self.assertEqual(s623.adaptive_min_trades("1h", 40), 12)  # max(5, 12)
+        self.assertEqual(s623.adaptive_min_trades("last_100", 100), 10)
+        self.assertEqual(s623.adaptive_min_trades("last_500", 500), 20)
+        self.assertEqual(s623.adaptive_min_trades("last_1000", 1000), 30)
 
     def test_consolidate_permutations(self) -> None:
         a = {

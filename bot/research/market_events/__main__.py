@@ -422,7 +422,10 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         dest="min_trades",
-        help="discover-patterns: ignore combinations with fewer trades (default 50)",
+        help=(
+            "discover-patterns: lifetime min_trades override (default 50); "
+            "1h/3h/24h/last_N use adaptive thresholds"
+        ),
     )
     parser.add_argument(
         "--markdown",

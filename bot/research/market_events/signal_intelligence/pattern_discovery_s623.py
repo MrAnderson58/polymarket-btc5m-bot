@@ -1,8 +1,9 @@
-"""S62.3 / S62.3.1 — Pattern Discovery Engine (research-only, statistics only).
+"""S62.3 / S62.3.1 / S63.2 — Pattern Discovery Engine (research-only).
 
 Discover statistically significant combinations of existing S56–S59 features.
 S62.3.1 adds consolidation: canonical dedupe, root-cause grouping, robust
 sections, and data-quality — report quality only; metrics unchanged.
+S63.2 adaptive min_trades per universe (filtering only; metrics unchanged).
 
 No new indicators. No strategy changes. No AI. No production writes.
 """
@@ -43,6 +44,38 @@ DEFAULT_MIN_TRADES = 50
 DEFAULT_LAST_TRADES = (100, 500, 1000)
 TOP_PATTERNS = 100
 TOP_CANDIDATES = 20
+
+
+def adaptive_min_trades(universe: str, n_trades: int, *, lifetime_min: int = DEFAULT_MIN_TRADES) -> int:
+    """S63.2 — universe-specific min_trades (filtering only; metrics unchanged).
+
+    lifetime → lifetime_min (default 50)
+    24h → 30
+    3h → max(8, trades * 0.3)
+    1h → max(5, trades * 0.3)
+    last_100 → 10
+    last_500 → 20
+    last_1000 → 30
+    """
+    n = max(0, int(n_trades))
+    u = str(universe or "").strip().lower()
+    if u == "lifetime":
+        return max(1, int(lifetime_min))
+    if u == "24h":
+        return 30
+    if u == "3h":
+        return max(8, int(n * 0.3))
+    if u == "1h":
+        return max(5, int(n * 0.3))
+    if u == "last_100":
+        return 10
+    if u == "last_500":
+        return 20
+    if u == "last_1000":
+        return 30
+    # Unknown universe: conservative floor relative to sample size
+    return max(5, min(int(lifetime_min), max(1, int(n * 0.3))))
+
 
 # Fixed combo templates (existing fields only).
 COMBOS_2D: tuple[tuple[str, ...], ...] = (
@@ -713,7 +746,12 @@ def run_pattern_discovery(
         period_tagged[p] = [t for t in (tag_trade(r) for r in subset) if t is not None]
 
     # Index lifetime patterns by key for period recomputation
-    life_patterns = discover_combos(period_tagged.get("lifetime") or tagged_all, min_trades=min_trades)
+    life_n = len(period_tagged.get("lifetime") or tagged_all)
+    life_min = adaptive_min_trades("lifetime", life_n, lifetime_min=min_trades)
+    life_patterns = discover_combos(
+        period_tagged.get("lifetime") or tagged_all,
+        min_trades=life_min,
+    )
     # Build value→metrics for each period without re-discovering keys from short windows only
     # Re-group each period for same templates (fast) then join by key
     period_metrics_by_key: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
@@ -757,11 +795,15 @@ def run_pattern_discovery(
         if e.get("stability") is not None:
             stab_by_canon[ck] = float(e["stability"])
 
-    # Universe rankings (selected)
+    # Universe rankings (selected) — S63.2 adaptive min_trades per universe
     universes: dict[str, Any] = {}
+    thresholds_used: dict[str, int] = {}
 
     def _rank_universe(name: str, tagged: list[dict[str, Any]]) -> dict[str, Any]:
-        found = discover_combos(tagged, min_trades=min_trades)
+        n_trades = len(tagged)
+        thresh = adaptive_min_trades(name, n_trades, lifetime_min=min_trades)
+        thresholds_used[name] = thresh
+        found = discover_combos(tagged, min_trades=thresh)
         cards = []
         for pat in found:
             ck = canonical_key_from_pairs(
@@ -793,7 +835,9 @@ def run_pattern_discovery(
         )[: top_n * 2]
         uniq = consolidate_patterns(cards)
         return {
-            "n_trades": len(tagged),
+            "n_trades": n_trades,
+            "min_trades_threshold": thresh,
+            "adaptive_threshold": thresh,
             "n_patterns": len(cards),
             "n_patterns_unique": uniq["unique_retained"],
             "duplicates_removed": uniq["duplicates_removed"],
@@ -874,12 +918,14 @@ def run_pattern_discovery(
     elapsed = round(time.time() - t0, 3)
     report = {
         "ok": True,
-        "stage": "S62.3.1",
+        "stage": "S63.2",
         "as_of": as_of,
         "as_of_mode": as_of_info["as_of_mode"],
         "n_trades_loaded": len(rows),
         "n_trades_tagged": len(tagged_all),
         "min_trades": min_trades,
+        "min_trades_lifetime": life_min,
+        "adaptive_thresholds": thresholds_used,
         "selected_periods": selected_periods,
         "selected_last_trades": selected_last,
         "combos_2d": [list(c) for c in COMBOS_2D],
@@ -934,15 +980,30 @@ def _fmt(v: Any, *, digits: int = 4) -> str:
 
 def format_patterns_markdown(report: dict[str, Any]) -> str:
     lines = [
-        "# Pattern Discovery (S62.3.1)",
+        "# Pattern Discovery (S63.2)",
         "",
-        f"_trades={report.get('n_trades_tagged')} min_trades={report.get('min_trades')} "
+        f"_trades={report.get('n_trades_tagged')} lifetime_min={report.get('min_trades_lifetime')} "
         f"as_of_mode={report.get('as_of_mode')} elapsed={report.get('elapsed_sec')}s_",
         "",
         "Statistics only. No new indicators. No strategy changes. No AI.",
         "Consolidation merges equivalent permutations; metrics are unchanged.",
+        "S63.2 adaptive min_trades per universe (filtering only).",
         "",
     ]
+
+    thresh = report.get("adaptive_thresholds") or {}
+    if thresh:
+        lines.extend([
+            "## Adaptive thresholds",
+            "",
+        ])
+        for name, t in thresh.items():
+            u = (report.get("universes") or {}).get(name) or {}
+            lines.append(
+                f"- **{name}**: trades={u.get('n_trades', '—')} "
+                f"adaptive_threshold=**{t}** patterns={u.get('n_patterns', '—')}"
+            )
+        lines.append("")
 
     dq = report.get("data_quality") or {}
     lines.extend([
@@ -1010,8 +1071,8 @@ def format_patterns_markdown(report: dict[str, Any]) -> str:
     for uname, u in (report.get("universes") or {}).items():
         lines.extend([
             f"## Universe: {uname} "
-            f"(n={u.get('n_trades')}, raw={u.get('n_patterns')}, "
-            f"unique={u.get('n_patterns_unique')})",
+            f"(n={u.get('n_trades')}, adaptive_threshold={u.get('adaptive_threshold')}, "
+            f"raw={u.get('n_patterns')}, unique={u.get('n_patterns_unique')})",
             "",
             "### TOP Best Patterns",
             "",
@@ -1116,8 +1177,8 @@ def format_discovery_summary(report: dict[str, Any]) -> str:
     dq = report.get("data_quality") or {}
     cons = report.get("consolidation") or {}
     lines = [
-        "S62.3.1 Pattern Discovery (consolidated)",
-        f"  trades={report.get('n_trades_tagged')} min_trades={report.get('min_trades')} "
+        "S63.2 Pattern Discovery (adaptive min_trades)",
+        f"  trades={report.get('n_trades_tagged')} lifetime_min={report.get('min_trades_lifetime')} "
         f"elapsed={report.get('elapsed_sec')}s as_of_mode={report.get('as_of_mode')}",
         f"  consolidation: raw={cons.get('raw_count')} "
         f"unique={cons.get('unique_retained')} removed={cons.get('duplicates_removed')}",
@@ -1129,7 +1190,8 @@ def format_discovery_summary(report: dict[str, Any]) -> str:
         best = (u.get("top_best") or [None])[0]
         worst = (u.get("top_worst") or [None])[0]
         lines.append(
-            f"  {name}: raw={u.get('n_patterns')} unique={u.get('n_patterns_unique')} "
+            f"  {name}: trades={u.get('n_trades')} threshold={u.get('adaptive_threshold')} "
+            f"patterns={u.get('n_patterns')} unique={u.get('n_patterns_unique')} "
             f"best={best.get('label') if best else '—'} "
             f"worst={worst.get('label') if worst else '—'}"
         )
@@ -1145,6 +1207,7 @@ def format_discovery_summary(report: dict[str, Any]) -> str:
 
 __all__ = [
     "DEFAULT_MIN_TRADES",
+    "adaptive_min_trades",
     "consolidate_patterns",
     "format_candidates_markdown",
     "format_discovery_summary",
