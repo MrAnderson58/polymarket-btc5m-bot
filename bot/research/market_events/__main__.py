@@ -260,6 +260,7 @@ def main(argv: list[str] | None = None) -> int:
             "pnl-killers",
             "simulate-filters",
             "long-short-analysis",
+            "audit-trade-data",
             "backfill-history",
             "market-research-migrate",
             "research-stress-test",
@@ -1532,6 +1533,26 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"long-short-analysis failed: {exc}")
+            return 1
+
+    if args.command == "audit-trade-data":
+        from bot.research.market_events.signal_intelligence.trade_data_audit_s66 import (
+            format_data_quality_summary,
+            run_trade_data_audit,
+        )
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            research_connection,
+        )
+        try:
+            with research_connection() as conn:
+                out = run_trade_data_audit(conn)
+            if args.json:
+                print(json.dumps(out, indent=2, default=str))
+            else:
+                print(format_data_quality_summary(out))
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"audit-trade-data failed: {exc}")
             return 1
 
     if args.command == "backfill-history":

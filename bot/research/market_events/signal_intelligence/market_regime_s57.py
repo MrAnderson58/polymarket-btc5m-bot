@@ -47,6 +47,9 @@ REGIME_ORDER = (
     REGIME_STRONG_BEAR,
 )
 
+# Persisted on every open so audits can track classifier revisions.
+MARKET_REGIME_VERSION = "s57_v1"
+
 GATE_REGIME_BLOCK = "REGIME_BLOCK"
 GATE_REGIME_PASS = "REGIME_PASS"
 GATE_REGIME_COLD = "REGIME_COLD"
@@ -319,6 +322,7 @@ def attach_regime_to_features(conn: Any, features: dict[str, Any]) -> dict[str, 
     features["regime_score"] = clf.score
     features["regime_confidence"] = clf.confidence
     features["regime_btc_return_pct"] = clf.btc_return_pct
+    features["market_regime_version"] = MARKET_REGIME_VERSION
     # Keep features_json in sync if present
     try:
         payload = json.loads(features.get("features_json") or "{}")
@@ -329,6 +333,7 @@ def attach_regime_to_features(conn: Any, features: dict[str, Any]) -> dict[str, 
         payload["regime_confidence"] = clf.confidence
         payload["regime_btc_return_pct"] = clf.btc_return_pct
         payload["regime_inputs"] = clf.inputs
+        payload["market_regime_version"] = MARKET_REGIME_VERSION
         features["features_json"] = json.dumps(payload, default=str)
     except Exception:
         pass
@@ -1115,6 +1120,7 @@ __all__ = [
     "GATE_REGIME_COLD",
     "GATE_REGIME_DISABLED",
     "GATE_REGIME_PASS",
+    "MARKET_REGIME_VERSION",
     "REGIME_LABELS",
     "REGIME_ORDER",
     "apply_regime_gate",

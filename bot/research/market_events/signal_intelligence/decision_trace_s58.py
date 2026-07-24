@@ -241,9 +241,33 @@ def record_decision_on_open(
             emas=emas_map,
             portfolio=portfolio,
         )
+        # S66: stamp a compact entry_reason from why_opened tags at open.
+        entry_tags: list[str] = []
+        for item in why[:4]:
+            if isinstance(item, dict):
+                tag = item.get("tag") or item.get("reason")
+                if tag:
+                    entry_tags.append(str(tag))
+        entry_reason = " + ".join(entry_tags)[:120] if entry_tags else str(gate_decision)
+        features["entry_reason"] = entry_reason
+
+        # Derive ema_trend from candle EMAs when available.
+        e20 = _safe_float(emas_map.get("ema20"))
+        e50 = _safe_float(emas_map.get("ema50"))
+        if e20 is not None and e50 is not None:
+            features["ema_trend"] = round(e20 - e50, 6)
+
         rejected = build_rejected_alternatives(direction=direction, reasons=why)
+        feat_payload = {k: v for k, v in features.items() if k != "features_json"}
+        feat_payload["entry_reason"] = entry_reason
+        feat_payload["session"] = features.get("session")
+        feat_payload["market_regime_version"] = features.get("market_regime_version")
+        feat_payload["decision_confidence"] = features.get("decision_confidence") or features.get("ai_score")
+        feat_payload["open_interest"] = features.get("open_interest")
+        feat_payload["btc_dominance"] = features.get("btc_dominance")
+        feat_payload["ema_trend"] = features.get("ema_trend")
         inputs = {
-            "features": {k: v for k, v in features.items() if k != "features_json"},
+            "features": feat_payload,
             "estimate": {
                 k: v for k, v in estimate.items()
                 if k not in ("nearest_neighbours",)
@@ -251,6 +275,8 @@ def record_decision_on_open(
             "regime_meta": estimate.get("regime"),
             "emas": emas_map,
             "portfolio": portfolio,
+            "entry_reason": entry_reason,
+            "attribution_version": "s66_v1",
         }
         price = entry_price if entry_price is not None else _safe_float(features.get("entry"))
         execute_with_retry(

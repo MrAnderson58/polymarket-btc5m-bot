@@ -333,7 +333,63 @@ def record_close_snapshot(
         "weekday": int(weekday) if weekday is not None else None,
         "market_regime": feat.get("market_regime"),
     }
-    snap["snapshot_json"] = json.dumps(snap, default=str)
+
+    # S66: pack open-time attribution into snapshot_json (columns stay stable).
+    feat_json: dict[str, Any] = {}
+    raw_fj = feat.get("features_json")
+    if raw_fj:
+        try:
+            parsed = json.loads(raw_fj) if isinstance(raw_fj, str) else dict(raw_fj)
+            if isinstance(parsed, dict):
+                feat_json = parsed
+        except Exception:
+            feat_json = {}
+
+    def _feat_get(*keys: str) -> Any:
+        for k in keys:
+            if feat.get(k) is not None:
+                return feat.get(k)
+            if feat_json.get(k) is not None:
+                return feat_json.get(k)
+        return None
+
+    hour_i = int(hour) if hour is not None else None
+    session = _feat_get("session")
+    if session is None and hour_i is not None:
+        if 0 <= hour_i < 8:
+            session = "Asia"
+        elif 8 <= hour_i < 13:
+            session = "London"
+        elif 13 <= hour_i < 21:
+            session = "NewYork"
+        else:
+            session = "Offhours"
+
+    attribution = {
+        "strategy": s_type or _feat_get("strategy"),
+        "coin": str(snap["symbol"] or "").upper().replace("USDT", ""),
+        "entry_reason": _feat_get("entry_reason"),
+        "decision_confidence": _safe_float(
+            _feat_get("decision_confidence", "confidence")
+        ) or _safe_float(t.get("decision_confidence")),
+        "confidence": _safe_float(
+            _feat_get("confidence", "decision_confidence", "ai_score")
+        ) or _safe_float(t.get("decision_confidence")),
+        "open_interest": _safe_float(_feat_get("open_interest")),
+        "btc_dominance": _safe_float(_feat_get("btc_dominance")),
+        "session": session,
+        "ema_trend": _safe_float(_feat_get("ema_trend", "trend")),
+        "market_regime_version": _feat_get("market_regime_version") or "unknown",
+        "rsi": _safe_float(_feat_get("rsi")),
+        "ema20": _safe_float(_feat_get("ema20")),
+        "ema50": _safe_float(_feat_get("ema50")),
+        "ema200": _safe_float(_feat_get("ema200")),
+        "attribution_version": "s66_v1",
+    }
+    payload = dict(snap)
+    payload["features"] = feat_json or {k: v for k, v in feat.items() if k != "features_json"}
+    payload.update({k: v for k, v in attribution.items() if v is not None})
+    snap["snapshot_json"] = json.dumps(payload, default=str)
 
     try:
         execute_with_retry(

@@ -125,8 +125,31 @@ def _row_get(row: Any, key: str, default: Any = None) -> Any:
         return default
 
 
+def _session_from_hour(hour: int | None) -> str | None:
+    """UTC session bucket for attribution (S66)."""
+    if hour is None:
+        return None
+    try:
+        h = int(hour)
+    except (TypeError, ValueError):
+        return None
+    if 0 <= h < 8:
+        return "Asia"
+    if 8 <= h < 13:
+        return "London"
+    if 13 <= h < 21:
+        return "NewYork"
+    if 0 <= h <= 23:
+        return "Offhours"
+    return None
+
+
 def build_entry_features(conn: Any, s40_row: Any) -> dict[str, Any]:
-    """Build entry feature vector from an S40 signal row (+ optional enrichment)."""
+    """Build entry feature vector from an S40 signal row (+ optional enrichment).
+
+    S66: persist attribution fields at open (session, confidence, OI, dominance,
+    regime version, strategy) — not only after close.
+    """
     ts = int(_row_get(s40_row, "timestamp") or time.time())
     dt = datetime.fromtimestamp(ts)
     funding = _safe_float(_row_get(s40_row, "snapshot_funding"))
@@ -134,11 +157,13 @@ def build_entry_features(conn: Any, s40_row: Any) -> dict[str, Any]:
     atr = _safe_float(_row_get(s40_row, "snapshot_atr"))
     volume = _safe_float(_row_get(s40_row, "snapshot_volume"))
     fear = _safe_float(_row_get(s40_row, "snapshot_fear_greed"))
-    trend = _safe_float(_row_get(s40_row, "snapshot_trend"))
+    trend_raw = _row_get(s40_row, "snapshot_trend")
+    trend = _safe_float(trend_raw)
     news = _safe_float(_row_get(s40_row, "snapshot_news_score"))
-    ai = _safe_float(_row_get(s40_row, "snapshot_decision_confidence"))
+    confidence = _safe_float(_row_get(s40_row, "snapshot_decision_confidence"))
+    ai = confidence  # historical alias used by S55/S56 columns
 
-    # Best-effort extras from same-symbol recent snapshot if columns missing on row.
+    # Best-effort extras from recent market snapshot.
     rsi = None
     oi_delta = None
     etf_flow = None
@@ -148,17 +173,20 @@ def build_entry_features(conn: Any, s40_row: Any) -> dict[str, Any]:
     shock_score = None
     market_regime = None
     volatility = atr
+    prev_oi = None
 
     symbol = str(_row_get(s40_row, "symbol") or "").upper()
+    strategy = str(_row_get(s40_row, "signal_type") or _row_get(s40_row, "s40_signal_type") or "").strip() or None
     try:
-        snap = conn.execute(
+        snaps = conn.execute(
             """
-            SELECT funding, open_interest, atr, fear_greed, volume
+            SELECT funding, open_interest, atr, fear_greed, volume, btc_dominance
             FROM market_snapshots_g3
-            ORDER BY snapshot_ts DESC LIMIT 1
+            ORDER BY snapshot_ts DESC LIMIT 2
             """,
-        ).fetchone()
-        if snap:
+        ).fetchall()
+        if snaps:
+            snap = snaps[0]
             if funding is None:
                 funding = _safe_float(snap["funding"])
             if oi is None:
@@ -170,37 +198,94 @@ def build_entry_features(conn: Any, s40_row: Any) -> dict[str, Any]:
                 fear = _safe_float(snap["fear_greed"])
             if volume is None:
                 volume = _safe_float(snap["volume"])
+            if btc_dominance is None:
+                btc_dominance = _safe_float(snap["btc_dominance"])
+            if len(snaps) > 1:
+                prev_oi = _safe_float(snaps[1]["open_interest"])
     except Exception:
-        pass
+        # Older DBs may lack btc_dominance — retry without it.
+        try:
+            snaps = conn.execute(
+                """
+                SELECT funding, open_interest, atr, fear_greed, volume
+                FROM market_snapshots_g3
+                ORDER BY snapshot_ts DESC LIMIT 2
+                """,
+            ).fetchall()
+            if snaps:
+                snap = snaps[0]
+                if funding is None:
+                    funding = _safe_float(snap["funding"])
+                if oi is None:
+                    oi = _safe_float(snap["open_interest"])
+                if atr is None:
+                    atr = _safe_float(snap["atr"])
+                    volatility = atr
+                if fear is None:
+                    fear = _safe_float(snap["fear_greed"])
+                if volume is None:
+                    volume = _safe_float(snap["volume"])
+                if len(snaps) > 1:
+                    prev_oi = _safe_float(snaps[1]["open_interest"])
+        except Exception:
+            pass
+
+    if oi is not None and prev_oi is not None:
+        oi_delta = oi - prev_oi
 
     funding_sign = None
     if funding is not None:
         funding_sign = 1 if funding > 0 else (-1 if funding < 0 else 0)
 
+    hour = dt.hour
+    weekday = dt.weekday()
+    session = _session_from_hour(hour)
+
+    # EMA trend proxy from snapshot trend when candle EMAs are not yet available.
+    ema_trend = trend
+    if ema_trend is None and isinstance(trend_raw, str) and trend_raw.strip():
+        raw = trend_raw.strip().upper()
+        if raw in ("UP", "BULL", "LONG"):
+            ema_trend = 1.0
+        elif raw in ("DOWN", "BEAR", "SHORT"):
+            ema_trend = -1.0
+
     feats = {
         "symbol": symbol,
+        "coin": symbol.replace("USDT", "") if symbol else symbol,
         "direction": str(_row_get(s40_row, "direction") or "").upper(),
-        "hour": dt.hour,
-        "weekday": dt.weekday(),
+        "strategy": strategy,
+        "hour": hour,
+        "weekday": weekday,
+        "session": session,
         "volatility": volatility,
         "atr": atr,
         "rsi": rsi,
         "funding": funding,
+        "open_interest": oi,
         "oi_delta": oi_delta if oi_delta is not None else oi,
         "etf_flow": etf_flow,
         "macro_score": macro_score,
         "news_score": news,
         "ai_score": ai,
-        "trend": trend,
+        "decision_confidence": confidence,
+        "confidence": confidence,
+        "trend": trend if trend is not None else ema_trend,
+        "ema_trend": ema_trend,
         "volume": volume,
         "fear_greed": fear,
         "btc_dominance": btc_dominance,
         "spread": spread,
         "funding_sign": funding_sign,
         "market_regime": market_regime,
+        "market_regime_version": None,  # filled by S57 attach
         "shock_score": shock_score,
+        "entry_reason": None,  # filled when S58 why_opened is built; keep slot
     }
-    feats["features_json"] = json.dumps({k: v for k, v in feats.items() if k != "features_json"}, default=str)
+    feats["features_json"] = json.dumps(
+        {k: v for k, v in feats.items() if k != "features_json"},
+        default=str,
+    )
     # S57: classify regime before gate / open decisions.
     try:
         from bot.research.market_events.signal_intelligence.market_regime_s57 import (
@@ -209,6 +294,15 @@ def build_entry_features(conn: Any, s40_row: Any) -> dict[str, Any]:
         attach_regime_to_features(conn, feats)
     except Exception as exc:
         logger.warning("s57 attach_regime_to_features failed: %s", exc)
+        if not feats.get("market_regime_version"):
+            feats["market_regime_version"] = "unknown"
+            try:
+                payload = json.loads(feats.get("features_json") or "{}")
+                if isinstance(payload, dict):
+                    payload["market_regime_version"] = "unknown"
+                    feats["features_json"] = json.dumps(payload, default=str)
+            except Exception:
+                pass
     return feats
 
 
