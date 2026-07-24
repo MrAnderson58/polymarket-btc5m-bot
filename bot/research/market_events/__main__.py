@@ -258,6 +258,7 @@ def main(argv: list[str] | None = None) -> int:
             "discover-patterns",
             "morning-report",
             "pnl-killers",
+            "simulate-filters",
             "backfill-history",
             "market-research-migrate",
             "research-stress-test",
@@ -1490,6 +1491,26 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"pnl-killers failed: {exc}")
+            return 1
+
+    if args.command == "simulate-filters":
+        from bot.research.market_events.signal_intelligence.filter_simulator_s65 import (
+            format_filter_simulator_summary,
+            run_filter_simulator,
+        )
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            research_connection,
+        )
+        try:
+            with research_connection() as conn:
+                out = run_filter_simulator(conn)
+            if args.json:
+                print(json.dumps(out, indent=2, default=str))
+            else:
+                print(format_filter_simulator_summary(out))
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"simulate-filters failed: {exc}")
             return 1
 
     if args.command == "backfill-history":

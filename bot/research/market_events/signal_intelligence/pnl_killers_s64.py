@@ -234,42 +234,43 @@ def _weekday(r: dict[str, Any]) -> str | None:
     return WEEKDAYS[datetime.fromtimestamp(ts, tz=timezone.utc).weekday()]
 
 
+def _direction(r: dict[str, Any]) -> str:
+    return str(r.get("direction") or "unknown").upper()
+
+
+def _regime(r: dict[str, Any]) -> str:
+    return _regime_family(r.get("market_regime"))
+
+
+DIM_KEY_FNS: dict[str, Callable[[dict[str, Any]], str | None]] = {
+    "strategy": _strategy,
+    "coin": _coin,
+    "direction": _direction,
+    "regime": _regime,
+    "hour": _hour,
+    "weekday": _weekday,
+    "confidence": lambda r: _bucket_name(_confidence_scaled(r), CONFIDENCE_BUCKETS),
+    "funding": lambda r: _bucket_name(_safe_float(r.get("funding")), FUNDING_BUCKETS),
+    "ai_score": lambda r: _bucket_name(_ai_scaled(r), AI_BUCKETS),
+    "entry_reason": _entry_reason_key,
+}
+
+
+def dimension_value(r: dict[str, Any], dimension: str) -> str:
+    """Resolve a trade's categorical value for a S64 dimension."""
+    fn = DIM_KEY_FNS.get(dimension)
+    if fn is None:
+        return "unknown"
+    key = fn(r)
+    if key is None or key == "":
+        return "unknown"
+    return str(key)
+
+
 def build_dimension_tables(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     return {
-        "strategy": _group_cards(rows, dimension="strategy", key_fn=_strategy),
-        "coin": _group_cards(rows, dimension="coin", key_fn=_coin),
-        "direction": _group_cards(
-            rows,
-            dimension="direction",
-            key_fn=lambda r: str(r.get("direction") or "unknown").upper(),
-        ),
-        "regime": _group_cards(
-            rows,
-            dimension="regime",
-            key_fn=lambda r: _regime_family(r.get("market_regime")),
-        ),
-        "hour": _group_cards(rows, dimension="hour", key_fn=_hour),
-        "weekday": _group_cards(rows, dimension="weekday", key_fn=_weekday),
-        "confidence": _group_cards(
-            rows,
-            dimension="confidence",
-            key_fn=lambda r: _bucket_name(_confidence_scaled(r), CONFIDENCE_BUCKETS),
-        ),
-        "funding": _group_cards(
-            rows,
-            dimension="funding",
-            key_fn=lambda r: _bucket_name(_safe_float(r.get("funding")), FUNDING_BUCKETS),
-        ),
-        "ai_score": _group_cards(
-            rows,
-            dimension="ai_score",
-            key_fn=lambda r: _bucket_name(_ai_scaled(r), AI_BUCKETS),
-        ),
-        "entry_reason": _group_cards(
-            rows,
-            dimension="entry_reason",
-            key_fn=_entry_reason_key,
-        ),
+        dim: _group_cards(rows, dimension=dim, key_fn=fn)
+        for dim, fn in DIM_KEY_FNS.items()
     }
 
 
@@ -404,6 +405,8 @@ def run_pnl_killers(
 
 
 __all__ = [
+    "DIM_LABEL",
+    "dimension_value",
     "format_pnl_killers_markdown",
     "format_pnl_killers_summary",
     "pnl_report_dir",
