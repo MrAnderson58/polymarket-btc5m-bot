@@ -255,6 +255,7 @@ def main(argv: list[str] | None = None) -> int:
             "intelligence-report",
             "explain-drift",
             "discover-patterns",
+            "morning-report",
             "backfill-history",
             "market-research-migrate",
             "research-stress-test",
@@ -1425,6 +1426,28 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"discover-patterns failed: {exc}")
+            return 1
+
+    if args.command == "morning-report":
+        from bot.research.market_events.signal_intelligence.morning_report_s63 import (
+            format_morning_summary,
+            run_morning_report,
+        )
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            research_connection,
+        )
+        try:
+            with research_connection() as conn:
+                out = run_morning_report(conn)
+            if args.json:
+                slim = dict(out)
+                # keep actionable payload; patterns lists already capped
+                print(json.dumps(slim, indent=2, default=str))
+            else:
+                print(format_morning_summary(out))
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"morning-report failed: {exc}")
             return 1
 
     if args.command == "backfill-history":
