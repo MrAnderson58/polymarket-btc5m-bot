@@ -762,18 +762,32 @@ def format_morning_markdown(report: dict[str, Any]) -> str:
 
     lines.extend(["", "## PATTERNS", "", f"_source={p.get('source')}_", "", "### Top 10 improvements", ""])
     for i, c in enumerate(p.get("top_improvements") or [], 1):
-        label = c.get("label") or c.get("reason") or c.get("category") or "—"
+        label = c.get("label") or c.get("reason") or (
+            f"{c.get('dimension')}={c.get('category')}" if c.get("dimension") else None
+        ) or "—"
         met = c.get("metrics") or {}
-        lines.append(
-            f"{i}. {label} — PF={_fmt(met.get('profit_factor') or c.get('pf'))} "
-            f"E={_fmt(met.get('expectancy') or c.get('expectancy'))}"
-        )
+        vs = c.get("vs_lifetime_24h") or {}
+        pf = met.get("profit_factor") if met else None
+        exp = met.get("expectancy") if met else None
+        if pf is None and vs:
+            pf = vs.get("delta_profit_factor")
+            exp = vs.get("delta_expectancy")
+            lines.append(
+                f"{i}. {label} — ΔPF={_fmt(pf)} ΔE={_fmt(exp)}"
+            )
+        else:
+            lines.append(
+                f"{i}. {label} — PF={_fmt(pf or c.get('pf'))} "
+                f"E={_fmt(exp if exp is not None else c.get('expectancy'))}"
+            )
     if not (p.get("top_improvements") or []):
         lines.append("_None._")
 
     lines.extend(["", "### Top 10 deteriorations", ""])
     for i, c in enumerate(p.get("top_deteriorations") or [], 1):
-        label = c.get("label") or c.get("reason") or c.get("category") or "—"
+        label = c.get("label") or c.get("reason") or (
+            f"{c.get('dimension')}={c.get('category')}" if c.get("dimension") else None
+        ) or "—"
         lines.append(f"{i}. {label}")
     if not (p.get("top_deteriorations") or []):
         lines.append("_None._")
