@@ -257,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
             "explain-drift",
             "discover-patterns",
             "morning-report",
+            "pnl-killers",
             "backfill-history",
             "market-research-migrate",
             "research-stress-test",
@@ -1469,6 +1470,26 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"morning-report failed: {exc}")
+            return 1
+
+    if args.command == "pnl-killers":
+        from bot.research.market_events.signal_intelligence.pnl_killers_s64 import (
+            format_pnl_killers_summary,
+            run_pnl_killers,
+        )
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            research_connection,
+        )
+        try:
+            with research_connection() as conn:
+                out = run_pnl_killers(conn)
+            if args.json:
+                print(json.dumps(out, indent=2, default=str))
+            else:
+                print(format_pnl_killers_summary(out))
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"pnl-killers failed: {exc}")
             return 1
 
     if args.command == "backfill-history":
