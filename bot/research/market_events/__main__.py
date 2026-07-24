@@ -259,6 +259,7 @@ def main(argv: list[str] | None = None) -> int:
             "morning-report",
             "pnl-killers",
             "simulate-filters",
+            "long-short-analysis",
             "backfill-history",
             "market-research-migrate",
             "research-stress-test",
@@ -1511,6 +1512,26 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"simulate-filters failed: {exc}")
+            return 1
+
+    if args.command == "long-short-analysis":
+        from bot.research.market_events.signal_intelligence.long_short_analysis_s641 import (
+            format_long_short_summary,
+            run_long_short_analysis,
+        )
+        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
+            research_connection,
+        )
+        try:
+            with research_connection() as conn:
+                out = run_long_short_analysis(conn)
+            if args.json:
+                print(json.dumps(out, indent=2, default=str))
+            else:
+                print(format_long_short_summary(out))
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"long-short-analysis failed: {exc}")
             return 1
 
     if args.command == "backfill-history":
