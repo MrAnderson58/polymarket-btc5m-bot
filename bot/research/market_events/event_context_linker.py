@@ -182,10 +182,12 @@ def _link_polymarket_state(conn: Any, event_id: int, event_ts: int) -> int:
         window = CONTEXT_WINDOWS_SEC["POLYMARKET_STATE"]
         rows = trades.execute(
             """
-            SELECT id, market_slug, window_start_ts, strike_price, btc_price,
+            SELECT id, market_slug,
+                   cast(strftime('%s', checked_at) AS integer) AS checked_ts,
+                   strike_price, btc_price,
                    yes_bid, yes_ask, seconds_remaining
             FROM market_checks
-            WHERE window_start_ts BETWEEN ? AND ?
+            WHERE cast(strftime('%s', checked_at) AS integer) BETWEEN ? AND ?
             ORDER BY id DESC
             LIMIT 20
             """,
@@ -198,7 +200,7 @@ def _link_polymarket_state(conn: Any, event_id: int, event_ts: int) -> int:
                 context_type="POLYMARKET_STATE",
                 source="trades.db",
                 source_record_id=str(row["id"]),
-                context_ts=int(row["window_start_ts"]),
+                context_ts=int(row["checked_ts"]),
                 event_ts=event_ts,
                 relevance_score=0.5,
                 context_json={
