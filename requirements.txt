@@ -3,3 +3,5 @@ python-dotenv>=1.0.0
 requests>=2.31.0
 # Optional — PostgreSQL read-only source for raw Telegram data (production)
 psycopg2-binary>=2.9.9
+# Optional — Phase 5B lab_dataset.parquet export
+pyarrow>=14.0.0
