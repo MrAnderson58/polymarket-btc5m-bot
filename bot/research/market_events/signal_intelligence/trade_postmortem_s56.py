@@ -19,6 +19,9 @@ from datetime import datetime
 from typing import Any
 
 from bot.research.market_events.db import execute_with_retry, is_database_locked, retry_on_db_locked
+from bot.research.market_events.signal_intelligence.lib.feature_utils import (
+    safe_float as _safe_float,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -147,15 +150,6 @@ def _apply_defaults() -> None:
 
 
 _apply_defaults()
-
-
-def _safe_float(x: Any) -> float | None:
-    if x is None:
-        return None
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return None
 
 
 def _row(row: Any) -> dict[str, Any]:

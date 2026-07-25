@@ -23,6 +23,10 @@ from bot.research.market_events.signal_intelligence.drift_analyzer_s622 import (
     resolve_as_of,
 )
 from bot.research.market_events.signal_intelligence.feature_lab_s59 import load_lab_trades
+from bot.research.market_events.signal_intelligence.lib.feature_utils import (
+    normalize_coin,
+    normalize_score_0_100,
+)
 from bot.research.market_events.signal_intelligence.trading_intelligence_report_s621 import (
     AI_BUCKETS,
     FUNDING_BUCKETS,
@@ -154,17 +158,12 @@ def _bucket_name(value: float | None, specs: tuple) -> str | None:
 
 
 def _ai_scaled(r: dict[str, Any]) -> float | None:
-    v = _safe_float(r.get("ai_score"))
-    if v is None:
-        return None
-    if 0 <= v <= 1.0:
-        return v * 100.0
-    return v
+    return normalize_score_0_100(_safe_float(r.get("ai_score")))
 
 
 def tag_trade(r: dict[str, Any]) -> dict[str, Any] | None:
     """Project a research trade onto categorical discovery dims + metric fields."""
-    coin = str(r.get("symbol") or "").upper().replace("USDT", "").strip()
+    coin = normalize_coin(r.get("symbol"))
     direction = str(r.get("direction") or "").upper().strip()
     if not coin or direction not in ("LONG", "SHORT"):
         return None

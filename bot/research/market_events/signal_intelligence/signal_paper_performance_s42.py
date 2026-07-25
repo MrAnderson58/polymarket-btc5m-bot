@@ -17,6 +17,9 @@ from typing import Any
 
 from bot.research.market_events.db import execute_with_retry, market_events_connection, market_events_readonly_connection
 from bot.research.market_events.signal_intelligence.candles import load_recent_candles
+from bot.research.market_events.signal_intelligence.lib.feature_utils import (
+    safe_float as _safe_float,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,15 +71,6 @@ _TRADES = "market_events_paper_trades_s42"
 _ACCOUNT = "market_events_paper_account_s42"
 _REPORTS = "market_events_paper_reports_s42"
 _OPS = "market_events_paper_ops_state_s42"
-
-
-def _safe_float(x: Any) -> float | None:
-    if x is None:
-        return None
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return None
 
 
 def _pnl_pct(entry: float, price: float, *, is_long: bool) -> float:

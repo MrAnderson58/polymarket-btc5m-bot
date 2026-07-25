@@ -16,6 +16,9 @@ import time
 from typing import Any, Callable
 
 from bot.research.market_events.db import execute_with_retry
+from bot.research.market_events.signal_intelligence.lib.feature_utils import (
+    safe_float as _safe_float,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,15 +62,6 @@ def _apply_defaults() -> None:
 
 
 _apply_defaults()
-
-
-def _safe_float(v: Any) -> float | None:
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
 
 
 def _row(r: Any) -> dict[str, Any]:

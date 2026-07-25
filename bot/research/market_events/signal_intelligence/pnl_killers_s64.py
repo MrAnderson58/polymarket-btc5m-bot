@@ -17,6 +17,10 @@ from bot.research.market_events.signal_intelligence.drift_analyzer_s622 import (
     _enrich_from_snapshot_json,
 )
 from bot.research.market_events.signal_intelligence.feature_lab_s59 import load_lab_trades
+from bot.research.market_events.signal_intelligence.lib.feature_utils import (
+    normalize_coin,
+    normalize_score_0_100,
+)
 from bot.research.market_events.signal_intelligence.trading_intelligence_report_s621 import (
     AI_BUCKETS,
     FUNDING_BUCKETS,
@@ -91,21 +95,14 @@ def _bucket_name(value: float | None, specs: tuple) -> str:
 
 
 def _ai_scaled(r: dict[str, Any]) -> float | None:
-    v = _safe_float(r.get("ai_score"))
-    if v is None:
-        return None
-    if 0 <= v <= 1.0:
-        return v * 100.0
-    return v
+    return normalize_score_0_100(_safe_float(r.get("ai_score")))
 
 
 def _confidence_scaled(r: dict[str, Any]) -> float | None:
     for key in ("decision_confidence", "confidence", "entry_confidence", "dynamic_confidence"):
-        v = _safe_float(r.get(key))
+        v = normalize_score_0_100(_safe_float(r.get(key)))
         if v is None:
             continue
-        if 0 <= v <= 1.0:
-            return v * 100.0
         return v
     raw = r.get("snapshot_json")
     if raw:
@@ -115,11 +112,9 @@ def _confidence_scaled(r: dict[str, Any]) -> float | None:
             d = None
         if isinstance(d, dict):
             for key in ("decision_confidence", "confidence", "entry_confidence"):
-                v = _safe_float(d.get(key))
+                v = normalize_score_0_100(_safe_float(d.get(key)))
                 if v is None:
                     continue
-                if 0 <= v <= 1.0:
-                    return v * 100.0
                 return v
     return None
 
@@ -194,7 +189,7 @@ def _group_cards(
 
 
 def _coin(r: dict[str, Any]) -> str:
-    return str(r.get("symbol") or "?").upper().replace("USDT", "").strip() or "unknown"
+    return normalize_coin(r.get("symbol") or "?") or "unknown"
 
 
 def _strategy(r: dict[str, Any]) -> str:

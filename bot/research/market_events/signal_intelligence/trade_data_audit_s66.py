@@ -16,6 +16,10 @@ from bot.research.market_events.signal_intelligence.drift_analyzer_s622 import (
     _enrich_from_snapshot_json,
 )
 from bot.research.market_events.signal_intelligence.feature_lab_s59 import load_lab_trades
+from bot.research.market_events.signal_intelligence.lib.feature_utils import (
+    normalize_coin,
+    session_from_hour as _session_from_hour,
+)
 from bot.research.market_events.signal_intelligence.pnl_killers_s64 import (
     _entry_reason_key,
     pnl_report_dir,
@@ -36,24 +40,6 @@ def _repo_root() -> Path:
         if (p / "bot" / "research" / "market_events" / "__main__.py").exists():
             return p
     return Path.cwd()
-
-
-def _session_from_hour(hour: int | None) -> str | None:
-    if hour is None:
-        return None
-    try:
-        h = int(hour)
-    except (TypeError, ValueError):
-        return None
-    if 0 <= h < 8:
-        return "Asia"
-    if 8 <= h < 13:
-        return "London"
-    if 13 <= h < 21:
-        return "NewYork"
-    if 0 <= h <= 23:
-        return "Offhours"
-    return None
 
 
 def _json_blob(r: dict[str, Any]) -> dict[str, Any]:
@@ -92,10 +78,7 @@ def _extractors() -> list[tuple[str, Callable[[dict[str, Any]], Any]]]:
     """Canonical attribution fields → value extractor after enrichment."""
 
     def coin(r: dict[str, Any]) -> Any:
-        return (
-            str(r.get("symbol") or "").upper().replace("USDT", "").strip()
-            or _from_json(r, "coin")
-        )
+        return normalize_coin(r.get("symbol")) or _from_json(r, "coin")
 
     def strategy(r: dict[str, Any]) -> Any:
         return r.get("s40_signal_type") or _from_json(r, "strategy", "s40_signal_type")

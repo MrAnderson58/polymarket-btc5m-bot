@@ -13,6 +13,11 @@ import time
 from datetime import datetime
 from typing import Any
 
+from bot.research.market_events.signal_intelligence.lib.feature_utils import (
+    safe_float as _safe_float,
+    session_from_hour as _session_from_hour,
+)
+
 logger = logging.getLogger(__name__)
 
 _TABLE = "market_events_trade_features_s55"
@@ -105,15 +110,6 @@ def _apply_s55_defaults() -> None:
 _apply_s55_defaults()
 
 
-def _safe_float(x: Any) -> float | None:
-    if x is None:
-        return None
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return None
-
-
 def _row_get(row: Any, key: str, default: Any = None) -> Any:
     try:
         keys = row.keys() if hasattr(row, "keys") else None
@@ -123,25 +119,6 @@ def _row_get(row: Any, key: str, default: Any = None) -> Any:
         return default if val is None else val
     except Exception:
         return default
-
-
-def _session_from_hour(hour: int | None) -> str | None:
-    """UTC session bucket for attribution (S66)."""
-    if hour is None:
-        return None
-    try:
-        h = int(hour)
-    except (TypeError, ValueError):
-        return None
-    if 0 <= h < 8:
-        return "Asia"
-    if 8 <= h < 13:
-        return "London"
-    if 13 <= h < 21:
-        return "NewYork"
-    if 0 <= h <= 23:
-        return "Offhours"
-    return None
 
 
 def build_entry_features(conn: Any, s40_row: Any) -> dict[str, Any]:

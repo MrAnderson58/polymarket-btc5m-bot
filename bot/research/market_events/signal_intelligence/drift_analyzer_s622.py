@@ -20,6 +20,9 @@ from bot.research.market_events.signal_intelligence.feature_lab_s59 import (
     latest_lab_rows,
     load_lab_trades,
 )
+from bot.research.market_events.signal_intelligence.lib.feature_utils import (
+    normalize_score_0_100,
+)
 from bot.research.market_events.signal_intelligence.trading_intelligence_report_s621 import (
     AI_BUCKETS,
     FUNDING_BUCKETS,
@@ -167,12 +170,7 @@ def _bucket_by_specs(
 
 
 def _ai_value(r: dict[str, Any]) -> float | None:
-    v = _safe_float(r.get("ai_score"))
-    if v is None:
-        return None
-    if 0 <= v <= 1.0:
-        return v * 100.0
-    return v
+    return normalize_score_0_100(_safe_float(r.get("ai_score")))
 
 
 def _strategy_key(r: dict[str, Any]) -> str:

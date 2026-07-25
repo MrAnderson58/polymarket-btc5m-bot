@@ -21,6 +21,10 @@ from bot.research.market_events.signal_intelligence.feature_lab_s59 import (
     latest_lab_rows,
     load_lab_trades,
 )
+from bot.research.market_events.signal_intelligence.lib.feature_utils import (
+    normalize_score_0_100,
+    safe_float as _safe_float,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,15 +87,6 @@ def _repo_root() -> Path:
 
 def default_report_dir(root: Path | None = None) -> Path:
     return (root or _repo_root()) / "research" / "reports" / "intelligence"
-
-
-def _safe_float(v: Any) -> float | None:
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
 
 
 def _trade_ts(r: dict[str, Any]) -> int:
@@ -438,13 +433,7 @@ def rsi_buckets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def ai_score_buckets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     def _ai(r: dict[str, Any]) -> float | None:
-        v = _safe_float(r.get("ai_score"))
-        if v is None:
-            return None
-        # Normalize 0–1 scores to 0–100
-        if 0 <= v <= 1.0:
-            return v * 100.0
-        return v
+        return normalize_score_0_100(_safe_float(r.get("ai_score")))
 
     return _bucket_table(rows, value_fn=_ai, specs=AI_BUCKETS)
 
