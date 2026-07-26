@@ -485,6 +485,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         paper_performance_dashboard_s42,
                     )
                     _json_response(self, paper_performance_dashboard_s42(conn))
+                elif path == "/shadow-profiles":
+                    from bot.research.market_events.adaptive_shock_shadow import (
+                        shadow_profiles_dashboard,
+                    )
+                    days = _query_int(qs, "days", 1)
+                    _json_response(self, shadow_profiles_dashboard(conn, days=max(1, days)))
                 else:
                     _json_response(self, {
                         "endpoints": [
@@ -499,6 +505,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             "/validation/optimizer",                             "/quant-research", "/market-memory",
                             "/signal-discovery", "/experimental-signals", "/shadow-signals",
                             "/signal-inbox", "/pattern-explorer", "/news-feed", "/paper-performance",
+                            "/shadow-profiles",
                         ],
                     })
         except Exception as exc:

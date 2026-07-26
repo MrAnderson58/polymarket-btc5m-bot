@@ -218,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
             "experimental",
             "threshold-simulator",
             "shadow-report",
+            "g40-shadow-report",
             "shadow-open",
             "shadow-trace",
             "shadow-self-test",
@@ -1090,6 +1091,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "shadow-report":
+        from bot.research.market_events.adaptive_shock_shadow import shadow_profile_report
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(shadow_profile_report(conn, days=max(1, args.days)))
+        return 0
+
+    if args.command == "g40-shadow-report":
         from bot.research.market_events.signal_intelligence.shadow_g40 import (
             format_shadow_report_g40,
             lane_comparison_stats_g40,

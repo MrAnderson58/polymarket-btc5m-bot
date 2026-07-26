@@ -428,6 +428,16 @@ class ShockPaperRunner:
         )
         self.metrics.detector_diag = diag
 
+        try:
+            from bot.research.market_events.adaptive_shock_shadow import run_shadow_ab_cycle
+            run_shadow_ab_cycle(
+                conn, self.feed, symbols,
+                now_ts=now,
+                runner_state=self.metrics.shadow_state,
+            )
+        except Exception as exc:
+            logger.debug("adaptive shadow cycle skipped: %s", exc)
+
         self._process_pending_shocks(conn, symbols, now)
         shocks = scan_universe_for_shocks(self.feed, symbols, now_ts=now)
         for shock in shocks:

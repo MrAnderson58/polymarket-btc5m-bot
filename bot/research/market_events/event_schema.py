@@ -1043,6 +1043,7 @@ def apply_migrations(conn: Any) -> list[str]:
     # Idempotent repair for live trading schema only (no analytics DDL).
     _ensure_s54_trailing_columns(conn)
     _ensure_s55_trade_features(conn)
+    _ensure_market_events_shadow(conn)
 
     if not applied:
         conn.commit()
@@ -3490,6 +3491,39 @@ def _ensure_s55_trade_features(conn: Any) -> None:
     """Create S55 trade feature / outcome table if missing."""
     try:
         conn.executescript(S55_TRADE_FEATURES_DDL)
+    except Exception:
+        pass
+
+
+MARKET_EVENTS_SHADOW_DDL = """
+CREATE TABLE IF NOT EXISTS market_events_shadow (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    profile_name TEXT NOT NULL,
+    detector TEXT NOT NULL,
+    window_sec INTEGER NOT NULL,
+    return_pct REAL,
+    threshold_pct REAL NOT NULL,
+    accepted INTEGER NOT NULL DEFAULT 0,
+    reject_reason TEXT,
+    volume_z REAL,
+    relative_return_pct REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_me_shadow_created
+    ON market_events_shadow(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_me_shadow_profile_det
+    ON market_events_shadow(profile_name, detector, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_me_shadow_symbol
+    ON market_events_shadow(symbol, profile_name, created_at DESC);
+"""
+
+
+def _ensure_market_events_shadow(conn: Any) -> None:
+    """Create adaptive/baseline shadow A/B table if missing (live-safe, idempotent)."""
+    try:
+        conn.executescript(MARKET_EVENTS_SHADOW_DDL)
     except Exception:
         pass
 

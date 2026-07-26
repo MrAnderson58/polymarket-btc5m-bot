@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from bot.research.market_events.detector_diagnostics import DetectorDiagnostics
+from bot.research.market_events.adaptive_shock_shadow import ShadowProfileMetrics, ShadowRunnerState
 
 
 def format_uptime(seconds: int) -> str:
@@ -38,6 +39,7 @@ class CollectorMetrics:
     cycle_latencies_ms: list[float] = field(default_factory=list)
     last_heartbeat_ts: int = 0
     detector_diag: DetectorDiagnostics = field(default_factory=DetectorDiagnostics)
+    shadow_state: ShadowRunnerState = field(default_factory=ShadowRunnerState)
 
     def record_cycle(self, latency_ms: float, *, fetch_ok: int, fetch_failed: int) -> None:
         self.cycles += 1
@@ -84,6 +86,10 @@ class CollectorMetrics:
         if diag_lines:
             lines.append("detector_rejections:")
             lines.extend(diag_lines)
+        adaptive = self.shadow_state.metrics.get("adaptive_v1")
+        if adaptive is None:
+            adaptive = ShadowProfileMetrics(profile_name="adaptive_v1")
+        lines.extend(adaptive.format_heartbeat_block())
         return "\n".join(lines)
 
     def emit_heartbeat(self, text: str) -> None:

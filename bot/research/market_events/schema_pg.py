@@ -42,6 +42,7 @@ from bot.research.market_events.event_schema import (
     G36_DDL,
     G37_ALTER_STATEMENTS,
     G351_DDL,
+    MARKET_EVENTS_SHADOW_DDL,
     MIGRATIONS_TABLE,
     S55_TRADE_FEATURES_DDL,
     S56_POSTMORTEM_DDL,
@@ -164,6 +165,7 @@ def full_pg_ddl() -> str:
         G36_DDL,
         S55_TRADE_FEATURES_DDL,
         S56_POSTMORTEM_DDL,
+        MARKET_EVENTS_SHADOW_DDL,
     ]
     ddl = sqlite_ddl_to_pg("\n".join(blocks))
     alters = [pg_alter_add_column(s) for s in (
@@ -223,6 +225,7 @@ def apply_pg_migrations(conn: Any) -> list[str]:
                 _ensure_s57_market_regime,
                 _ensure_s58_decision_trace,
                 _ensure_s59_feature_lab,
+                _ensure_market_events_shadow,
             )
             _ensure_s54_trailing_columns(conn)
             _ensure_s55_trade_features(conn)
@@ -230,6 +233,7 @@ def apply_pg_migrations(conn: Any) -> list[str]:
             _ensure_s57_market_regime(conn)
             _ensure_s58_decision_trace(conn)
             _ensure_s59_feature_lab(conn)
+            _ensure_market_events_shadow(conn)
         except Exception:
             pass
 
@@ -251,6 +255,7 @@ ALL_TABLES: tuple[str, ...] = (
     "market_events_discovery_runs",
     "market_event_lifecycle_decisions",
     "market_events_shadow_candidates",
+    "market_events_shadow",
     "market_events_pending_shocks",
     "market_events_profile_shadow_candidates",
     "market_events_counterfactual_studies",

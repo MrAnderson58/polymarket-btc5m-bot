@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
@@ -9,6 +10,30 @@ from typing import Any
 from bot.research.market_events.config import SHOCK_THRESHOLDS
 from bot.research.market_events.event_types import DETECTOR_IDS
 from bot.research.market_events.price_feed import SymbolPriceState
+
+logger = logging.getLogger(__name__)
+
+
+def _log_reject(
+    *,
+    symbol: str,
+    detector_id: str,
+    reason: str,
+    return_pct: float | None,
+    threshold_pct: float,
+    window_sec: int,
+) -> None:
+    """Log actual move vs threshold for a rejected detector evaluation."""
+    ret_s = "n/a" if return_pct is None else f"{return_pct:+.4f}"
+    logger.debug(
+        "shock reject %s %s reason=%s return_pct=%s threshold_pct=%.4f window=%ss",
+        symbol,
+        detector_id,
+        reason,
+        ret_s,
+        threshold_pct,
+        window_sec,
+    )
 
 REJECTION_INSUFFICIENT_HISTORY = "insufficient_history"
 REJECTION_BELOW_RETURN = "below_return_threshold"
@@ -96,27 +121,57 @@ def diagnose_detectors_for_state(
         rel_ret = (ret - btc_ret) if btc_ret is not None else None
 
         if det_id in ("SHOCK_A", "SHOCK_B", "SHOCK_C"):
-            if abs(ret) >= float(cfg["min_abs_return_pct"]):
+            thr = float(cfg["min_abs_return_pct"])
+            if abs(ret) >= thr:
                 diag.record(det_id, REJECTION_FIRED, symbol=sym)
             else:
                 diag.record(det_id, REJECTION_BELOW_RETURN, symbol=sym)
+                _log_reject(
+                    symbol=sym,
+                    detector_id=det_id,
+                    reason=REJECTION_BELOW_RETURN,
+                    return_pct=ret,
+                    threshold_pct=thr,
+                    window_sec=window,
+                )
         elif det_id == "SHOCK_D":
-            if abs(ret) < float(cfg["min_abs_return_pct"]):
+            thr = float(cfg["min_abs_return_pct"])
+            if abs(ret) < thr:
                 diag.record(det_id, REJECTION_BELOW_RETURN, symbol=sym)
+                _log_reject(
+                    symbol=sym,
+                    detector_id=det_id,
+                    reason=REJECTION_BELOW_RETURN,
+                    return_pct=ret,
+                    threshold_pct=thr,
+                    window_sec=window,
+                )
             elif vol_z is None or vol_z < float(cfg["min_volume_zscore"]):
                 diag.record(det_id, REJECTION_VOLUME_FAILED, symbol=sym)
             else:
                 diag.record(det_id, REJECTION_FIRED, symbol=sym)
         elif det_id == "SHOCK_E":
+            thr = float(cfg["min_relative_return_pct"])
+            compare_ret: float | None = None
             fired = False
             if rel_ret is not None:
-                fired = abs(rel_ret) >= float(cfg["min_relative_return_pct"])
+                compare_ret = rel_ret
+                fired = abs(rel_ret) >= thr
             elif median_market_return is not None:
-                fired = abs(ret - median_market_return) >= float(cfg["min_relative_return_pct"])
+                compare_ret = ret - median_market_return
+                fired = abs(compare_ret) >= thr
             if fired:
                 diag.record(det_id, REJECTION_FIRED, symbol=sym)
             else:
                 diag.record(det_id, REJECTION_RELATIVE_FAILED, symbol=sym)
+                _log_reject(
+                    symbol=sym,
+                    detector_id=det_id,
+                    reason=REJECTION_RELATIVE_FAILED,
+                    return_pct=compare_ret,
+                    threshold_pct=thr,
+                    window_sec=window,
+                )
 
     return diag
 

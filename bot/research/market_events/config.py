@@ -26,6 +26,7 @@ PRICE_HISTORY_SEC = int(os.getenv("ME_PRICE_HISTORY_SEC", "300"))
 SHOCK_DEDUP_WINDOW_SEC = int(os.getenv("ME_SHOCK_DEDUP_WINDOW_SEC", "300"))
 
 # Fixed shock detector thresholds (% move, not optimized).
+# Baseline / production profile — do not change without an explicit migration plan.
 SHOCK_THRESHOLDS = {
     "SHOCK_A": {"window_sec": 30, "min_abs_return_pct": 1.5},
     "SHOCK_B": {"window_sec": 60, "min_abs_return_pct": 2.0},
@@ -33,6 +34,30 @@ SHOCK_THRESHOLDS = {
     "SHOCK_D": {"window_sec": 60, "min_abs_return_pct": 1.5, "min_volume_zscore": 2.0},
     "SHOCK_E": {"window_sec": 60, "min_relative_return_pct": 1.0},
 }
+
+# Shadow A/B profiles. Production pipeline always uses SHOCK_THRESHOLDS (baseline).
+PROFILE_BASELINE = "baseline"
+PROFILE_ADAPTIVE_V1 = "adaptive_v1"
+
+# Adaptive shadow thresholds — research only; never activate paper/live pipeline.
+ADAPTIVE_V1_THRESHOLDS = {
+    "SHOCK_A": {"window_sec": 30, "min_abs_return_pct": 0.30},
+    "SHOCK_B": {"window_sec": 60, "min_abs_return_pct": 0.50},
+    "SHOCK_C": {"window_sec": 180, "min_abs_return_pct": 0.80},
+    "SHOCK_D": {"window_sec": 60, "min_abs_return_pct": 0.50, "min_volume_zscore": 2.0},
+    "SHOCK_E": {"window_sec": 60, "min_relative_return_pct": 0.30},
+}
+
+SHOCK_PROFILE_THRESHOLDS: dict[str, dict[str, dict[str, float]]] = {
+    PROFILE_BASELINE: SHOCK_THRESHOLDS,
+    PROFILE_ADAPTIVE_V1: ADAPTIVE_V1_THRESHOLDS,
+}
+
+# Shadow persistence: accepted rows always; rejects flushed on this interval (sec).
+SHADOW_REJECT_FLUSH_SEC = int(os.getenv("ME_SHADOW_REJECT_FLUSH_SEC", "60"))
+SHADOW_ENABLED = os.getenv("ME_ADAPTIVE_SHADOW_ENABLED", "1").strip().lower() not in (
+    "0", "false", "no", "off",
+)
 
 # Reversal confirmation (fixed).
 REVERSAL_CONFIGS = {
