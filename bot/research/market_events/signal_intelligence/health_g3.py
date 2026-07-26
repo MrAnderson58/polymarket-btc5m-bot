@@ -8,8 +8,11 @@ from typing import Any
 
 
 def set_g3_ops_state(conn: Any, key: str, value: str) -> None:
+    from bot.research.market_events.db import execute_with_retry
+
     now = int(time.time())
-    conn.execute(
+    execute_with_retry(
+        conn,
         """
         INSERT INTO market_events_g3_ops_state (key, value, updated_at)
         VALUES (?, ?, ?)

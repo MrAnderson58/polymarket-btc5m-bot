@@ -18,7 +18,7 @@ from bot.research.market_events.config import (
     REVERSAL_CONFIGS,
 )
 from bot.research.market_events.collector_heartbeat import CollectorMetrics
-from bot.research.market_events.db import insert_returning_id, market_events_connection
+from bot.research.market_events.db import insert_returning_id, market_events_connection, retry_on_db_locked
 from bot.research.market_events.detector_diagnostics import (
     REJECTION_DUPLICATE,
     diagnose_universe,
@@ -390,6 +390,11 @@ class ShockPaperRunner:
             scheduler_tick(conn)
         except Exception as exc:
             logger.debug("scheduler tick skipped: %s", exc)
+        try:
+            from bot.research.market_events.adaptive_shock_shadow import flush_shadow_writes
+            flush_shadow_writes(conn, self.metrics.shadow_state)
+        except Exception as exc:
+            logger.debug("adaptive shadow flush skipped: %s", exc)
         if self._near_miss:
             persist_near_miss_snapshots(
                 conn, self._near_miss,
@@ -769,19 +774,24 @@ class ShockPaperRunner:
             while not self._shutdown:
                 try:
                     self.run_once(conn, symbols)
-                    conn.commit()
+                    retry_on_db_locked(conn.commit)
                     try:
                         from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
                             write_system_heartbeat,
                         )
                         write_system_heartbeat(conn, writer="shock-paper")
-                        conn.commit()
+                        retry_on_db_locked(conn.commit)
                     except Exception as exc:
                         logger.debug("shock-paper heartbeat write skipped: %s", exc)
                     self._maybe_heartbeat(conn, symbols)
+                    retry_on_db_locked(conn.commit)
                 except Exception as exc:
                     self.stats.errors.append(str(exc))
                     logger.error("cycle error: %s", exc)
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
                 cycles += 1
                 if self.max_cycles and cycles >= self.max_cycles:
                     break

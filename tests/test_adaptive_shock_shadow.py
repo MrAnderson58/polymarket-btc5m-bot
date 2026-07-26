@@ -11,6 +11,7 @@ from bot.research.market_events.adaptive_shock_shadow import (
     ShadowRunnerState,
     assert_baseline_unchanged,
     evaluate_detectors_for_profile,
+    flush_shadow_writes,
     ingest_shadow_cycle,
     persist_shadow_evals,
     shadow_profile_report,
@@ -89,10 +90,12 @@ class TestAdaptiveShockShadow(unittest.TestCase):
                 thresholds=ADAPTIVE_V1_THRESHOLDS, now_ts=now,
             )
             state = ShadowRunnerState()
-            to_write = ingest_shadow_cycle(state, evals, now_ts=now)
-            # Force flush rejects for report coverage.
-            to_write.extend(state.pending_rejects.values())
-            persist_shadow_evals(conn, to_write)
+            ingest_shadow_cycle(state, evals, now_ts=now)
+            # Force reject flush into buffer for report coverage.
+            state.pending_writes.extend(state.pending_rejects.values())
+            state.pending_rejects.clear()
+            n = flush_shadow_writes(conn, state)
+            self.assertGreater(n, 0)
             conn.commit()
 
             report = shadow_profile_report(conn, days=1)
@@ -127,6 +130,25 @@ class TestAdaptiveShockShadow(unittest.TestCase):
         )
         self.assertIn("shadow-report", proc.stdout + proc.stderr)
         self.assertIn("g40-shadow-report", proc.stdout + proc.stderr)
+
+    def test_batched_persist_is_lock_retried(self) -> None:
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            now = int(time.time())
+            rows = []
+            for i in range(25):
+                st = _state_with_move(f"T{i}", ret_pct=0.40, window_sec=30)
+                rows.extend(
+                    evaluate_detectors_for_profile(
+                        st, profile_name=PROFILE_ADAPTIVE_V1,
+                        thresholds=ADAPTIVE_V1_THRESHOLDS, now_ts=now,
+                    ),
+                )
+            n = persist_shadow_evals(conn, rows)
+            self.assertEqual(n, len(rows))
+            conn.commit()
+            count = conn.execute("SELECT COUNT(*) AS n FROM market_events_shadow").fetchone()["n"]
+            self.assertGreaterEqual(int(count), 25)
 
 
 if __name__ == "__main__":

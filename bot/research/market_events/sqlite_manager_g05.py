@@ -178,6 +178,15 @@ class TracedConnectionG05:
         self._lease.tx_started_at = None
         self._lease.tx_mode = None
 
+    def executemany(self, sql: str, params_seq: Any) -> TracedCursorG05:
+        self._note_sql(sql)
+        try:
+            cur = self._conn.executemany(sql, params_seq)
+            return TracedCursorG05(cur, self._lease)
+        except Exception as exc:
+            maybe_log_database_locked(exc, lease=self._lease)
+            raise
+
     def execute(self, sql: str, params: Any = ()) -> TracedCursorG05:
         self._note_sql(sql)
         try:

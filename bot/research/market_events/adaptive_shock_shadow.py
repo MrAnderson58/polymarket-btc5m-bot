@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -15,10 +16,13 @@ from bot.research.market_events.config import (
     SHOCK_PROFILE_THRESHOLDS,
     SHOCK_THRESHOLDS,
 )
-from bot.research.market_events.db import insert_returning_id
+from bot.research.market_events.db import (
+    execute_with_retry,
+    is_database_locked,
+    retry_on_db_locked,
+)
 from bot.research.market_events.detector_diagnostics import (
     REJECTION_BELOW_RETURN,
-    REJECTION_FIRED,
     REJECTION_INSUFFICIENT_HISTORY,
     REJECTION_RELATIVE_FAILED,
     REJECTION_VOLUME_FAILED,
@@ -27,7 +31,19 @@ from bot.research.market_events.event_report import _days_ago_ts
 from bot.research.market_events.event_types import DETECTOR_IDS
 from bot.research.market_events.price_feed import SymbolPriceState
 
+logger = logging.getLogger(__name__)
+
 SHADOW_TABLE = "market_events_shadow"
+# Flush buffered rows before heartbeat if buffer grows (adaptive accepts can spike).
+SHADOW_FLUSH_MAX_BUFFER = 400
+
+_SHADOW_INSERT_SQL = f"""
+INSERT INTO {SHADOW_TABLE} (
+  created_at, symbol, profile_name, detector, window_sec,
+  return_pct, threshold_pct, accepted, reject_reason,
+  volume_z, relative_return_pct
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
 
 
 @dataclass
@@ -87,10 +103,11 @@ class ShadowProfileMetrics:
 
 @dataclass
 class ShadowRunnerState:
-    """Buffers reject rows until flush interval; accepts persist immediately."""
+    """Buffers shadow rows; DB writes happen in batched flushes (lock-safe)."""
 
     metrics: dict[str, ShadowProfileMetrics] = field(default_factory=dict)
     pending_rejects: dict[tuple[str, str, str], ShadowEval] = field(default_factory=dict)
+    pending_writes: list[ShadowEval] = field(default_factory=list)
     last_reject_flush_ts: int = 0
 
     def metrics_for(self, profile_name: str) -> ShadowProfileMetrics:
@@ -99,6 +116,10 @@ class ShadowRunnerState:
             m = ShadowProfileMetrics(profile_name=profile_name)
             self.metrics[profile_name] = m
         return m
+
+    @property
+    def buffered_rows(self) -> int:
+        return len(self.pending_writes)
 
 
 def evaluate_detectors_for_profile(
@@ -249,7 +270,7 @@ def ingest_shadow_cycle(
     *,
     now_ts: int,
 ) -> list[ShadowEval]:
-    """Update metrics; return rows that should be written this cycle."""
+    """Update metrics; enqueue rows for batched flush (no DB I/O here)."""
     to_write: list[ShadowEval] = []
     for ev in evals:
         state.metrics_for(ev.profile_name).record(ev)
@@ -267,39 +288,63 @@ def ingest_shadow_cycle(
         to_write.extend(state.pending_rejects.values())
         state.pending_rejects.clear()
         state.last_reject_flush_ts = now_ts
+    if to_write:
+        state.pending_writes.extend(to_write)
     return to_write
 
 
+def _shadow_row_params(ev: ShadowEval) -> tuple[Any, ...]:
+    return (
+        ev.created_at or int(time.time()),
+        ev.symbol,
+        ev.profile_name,
+        ev.detector,
+        ev.window_sec,
+        ev.return_pct,
+        ev.threshold_pct,
+        1 if ev.accepted else 0,
+        ev.reject_reason,
+        ev.volume_z,
+        ev.relative_return_pct,
+    )
+
+
 def persist_shadow_evals(conn: Any, rows: list[ShadowEval]) -> int:
+    """Batch-insert shadow rows with lock retry. Same rows as before; safer I/O."""
     if not rows:
         return 0
-    n = 0
-    for ev in rows:
-        insert_returning_id(
-            conn,
-            f"""
-            INSERT INTO {SHADOW_TABLE} (
-              created_at, symbol, profile_name, detector, window_sec,
-              return_pct, threshold_pct, accepted, reject_reason,
-              volume_z, relative_return_pct
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                ev.created_at or int(time.time()),
-                ev.symbol,
-                ev.profile_name,
-                ev.detector,
-                ev.window_sec,
-                ev.return_pct,
-                ev.threshold_pct,
-                1 if ev.accepted else 0,
-                ev.reject_reason,
-                ev.volume_z,
-                ev.relative_return_pct,
-            ),
-        )
-        n += 1
-    return n
+    params = [_shadow_row_params(ev) for ev in rows]
+
+    def _batch() -> int:
+        # Prefer executemany (one SQLite statement round-trip); fall back to loop.
+        executemany = getattr(conn, "executemany", None)
+        if callable(executemany):
+            executemany(_SHADOW_INSERT_SQL, params)
+        else:
+            for p in params:
+                execute_with_retry(conn, _SHADOW_INSERT_SQL, p)
+        return len(params)
+
+    return int(retry_on_db_locked(_batch))
+
+
+def flush_shadow_writes(conn: Any, state: ShadowRunnerState) -> int:
+    """Persist buffered shadow rows; keep buffer on lock failure for retry."""
+    if not state.pending_writes:
+        return 0
+    batch = list(state.pending_writes)
+    try:
+        n = persist_shadow_evals(conn, batch)
+        state.pending_writes = state.pending_writes[len(batch):]
+        return n
+    except Exception as exc:
+        if is_database_locked(exc):
+            logger.warning(
+                "shadow flush deferred (database is locked); buffered=%s",
+                len(state.pending_writes),
+            )
+            return 0
+        raise
 
 
 def run_shadow_ab_cycle(
@@ -310,16 +355,20 @@ def run_shadow_ab_cycle(
     now_ts: int,
     runner_state: ShadowRunnerState,
 ) -> ShadowRunnerState:
-    """Evaluate baseline + adaptive_v1; persist shadow rows; never touch main pipeline."""
+    """Evaluate baseline + adaptive_v1 into memory; flush only when buffer is large.
+
+    Heartbeat path calls flush_shadow_writes for the regular durable write.
+    Never raises lock errors into the main paper pipeline.
+    """
     if not SHADOW_ENABLED:
         return runner_state
     evals = evaluate_shadow_universe(feed, symbols, now_ts=now_ts)
-    to_write = ingest_shadow_cycle(runner_state, evals, now_ts=now_ts)
-    try:
-        persist_shadow_evals(conn, to_write)
-    except Exception:
-        # Table may be mid-migrate; never break the paper runner.
-        raise
+    ingest_shadow_cycle(runner_state, evals, now_ts=now_ts)
+    if runner_state.buffered_rows >= SHADOW_FLUSH_MAX_BUFFER:
+        try:
+            flush_shadow_writes(conn, runner_state)
+        except Exception as exc:
+            logger.debug("adaptive shadow early flush skipped: %s", exc)
     return runner_state
 
 

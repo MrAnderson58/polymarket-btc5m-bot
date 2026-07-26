@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from bot.research.market_events.config import SHOCK_THRESHOLDS
-from bot.research.market_events.db import insert_returning_id
+from bot.research.market_events.db import execute_with_retry, retry_on_db_locked
 from bot.research.market_events.event_report import _days_ago_ts
 from bot.research.market_events.event_types import SHOCK_DIRECTION_DOWN, SHOCK_DIRECTION_UP
 from bot.research.market_events.price_feed import PriceTick, SymbolPriceState
@@ -18,6 +18,16 @@ from bot.research.market_events.shock_profiles import profile_name_for_symbol
 
 NEAR_MISS_WINDOWS = (30, 60, 180)
 THRESHOLD_FRACTIONS = (0.25, 0.50, 0.75, 0.90)
+
+_NEAR_MISS_INSERT_SQL = """
+INSERT INTO market_events_near_miss_summaries (
+  symbol, profile_name, window_sec, direction, session_regime,
+  max_abs_return_pct, current_abs_return_pct, p95_abs_return_pct, p99_abs_return_pct,
+  threshold_pct, max_threshold_reached_pct, max_volume_zscore, max_relative_return_pct,
+  episodes_25pct, episodes_50pct, episodes_75pct, episodes_90pct,
+  period_start, period_end, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
 
 
 @dataclass
@@ -108,35 +118,35 @@ def persist_near_miss_snapshots(
     period_start: int,
     period_end: int,
 ) -> int:
-    n = 0
+    if not tracker:
+        return 0
+    now = int(time.time())
+    params: list[tuple[Any, ...]] = []
     for snap in tracker.values():
         p95 = p99 = None
         if len(snap.abs_returns) >= 5:
             ordered = sorted(snap.abs_returns)
             p95 = ordered[int(len(ordered) * 0.95)]
             p99 = ordered[int(len(ordered) * 0.99)]
-        insert_returning_id(
-            conn,
-            """
-            INSERT INTO market_events_near_miss_summaries (
-              symbol, profile_name, window_sec, direction, session_regime,
-              max_abs_return_pct, current_abs_return_pct, p95_abs_return_pct, p99_abs_return_pct,
-              threshold_pct, max_threshold_reached_pct, max_volume_zscore, max_relative_return_pct,
-              episodes_25pct, episodes_50pct, episodes_75pct, episodes_90pct,
-              period_start, period_end, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                snap.symbol, snap.profile_name, snap.window_sec, snap.direction,
-                snap.session_regime, snap.max_abs_return_pct, snap.current_abs_return_pct,
-                p95, p99, snap.threshold_pct, snap.max_threshold_reached_pct,
-                snap.max_volume_zscore, snap.max_relative_return_pct,
-                snap.episodes_25, snap.episodes_50, snap.episodes_75, snap.episodes_90,
-                period_start, period_end, int(time.time()),
-            ),
-        )
-        n += 1
-    return n
+        params.append((
+            snap.symbol, snap.profile_name, snap.window_sec, snap.direction,
+            snap.session_regime, snap.max_abs_return_pct, snap.current_abs_return_pct,
+            p95, p99, snap.threshold_pct, snap.max_threshold_reached_pct,
+            snap.max_volume_zscore, snap.max_relative_return_pct,
+            snap.episodes_25, snap.episodes_50, snap.episodes_75, snap.episodes_90,
+            period_start, period_end, now,
+        ))
+
+    def _batch() -> int:
+        executemany = getattr(conn, "executemany", None)
+        if callable(executemany):
+            executemany(_NEAR_MISS_INSERT_SQL, params)
+        else:
+            for p in params:
+                execute_with_retry(conn, _NEAR_MISS_INSERT_SQL, p)
+        return len(params)
+
+    return int(retry_on_db_locked(_batch))
 
 
 def _return_at(series: list[tuple[int, float]], idx: int, window_sec: int) -> float | None:
