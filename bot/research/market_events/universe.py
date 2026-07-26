@@ -34,7 +34,7 @@ def select_universe(
 
     if mode == "core":
         symbols = list(CORE_SYMBOLS)[:max_symbols]
-        reason = f"mode=core e1_binance crypto={len(symbols)}"
+        reason = f"mode=core e1_bybit crypto={len(symbols)}"
         version_tag = f"core-{int(time.time())}"
         _log_universe(conn, version_tag, symbols, reason)
         return symbols, version_tag

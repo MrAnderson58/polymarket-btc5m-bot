@@ -48,7 +48,7 @@ from bot.research.market_events.near_miss_shadow import (
     persist_near_miss_snapshots,
     update_near_miss_from_state,
 )
-from bot.research.market_events.price_feed import BinanceFuturesPriceFeed
+from bot.research.market_events.bybit_price_feed import BybitPriceFeed
 from bot.research.market_events.reversal_confirmation import evaluate_all_reversals
 from bot.research.market_events.shock_classifier import classify_shock
 from bot.research.market_events.shock_detector import ShockCandidate, scan_universe_for_shocks
@@ -83,14 +83,16 @@ class ShockPaperRunner:
         paper_only: bool = True,
         max_cycles: int | None = None,
         explicit_symbols: list[str] | None = None,
-        feed: BinanceFuturesPriceFeed | None = None,
+        feed: Any | None = None,
         heartbeat_sec: int | None = None,
     ) -> None:
         self.universe_mode = universe_mode
         self.paper_only = paper_only
         self.max_cycles = max_cycles
         self.explicit_symbols = explicit_symbols
-        self.feed = feed or BinanceFuturesPriceFeed()
+        # Core default: Bybit (no fapi.binance.com). BinanceFuturesPriceFeed kept for
+        # MultiVenuePriceFeed / explicit injection — not deleted.
+        self.feed = feed or BybitPriceFeed()
         self.heartbeat_sec = heartbeat_sec if heartbeat_sec is not None else DEFAULT_HEARTBEAT_SEC
         self.stats = RunnerStats()
         self.metrics = CollectorMetrics()
