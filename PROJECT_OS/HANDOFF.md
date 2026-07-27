@@ -7,7 +7,7 @@
 develop-terminal
 
 ## Last Commit
-_(filled after ship — see git log)_
+f4ce39c805c33577b6cef5d047cf6c2993859067
 
 ## Current Status
 
