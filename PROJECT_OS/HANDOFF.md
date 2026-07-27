@@ -7,7 +7,7 @@
 develop-terminal
 
 ## Last Commit
-b3463600151a558ccd8c7bc707adda3cf410f18e
+d829c6459042ad596e890412ea809551d440dfab
 
 (TI foundation: `f4ce39c Add Trade Intelligence V1 foundation and project handoff`)
 
