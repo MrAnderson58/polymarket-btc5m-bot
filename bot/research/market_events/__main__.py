@@ -155,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
             "doctor",
             "watch",
             "self-test",
+            "performance",
             "trading-audit",
             "report",
             "telegram-status",
@@ -535,6 +536,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="watch: print one frame and exit (no full-screen loop)",
     )
+    parser.add_argument(
+        "--equity",
+        action="store_true",
+        help="performance: ASCII equity curve",
+    )
+    parser.add_argument(
+        "--csv",
+        metavar="PATH",
+        default=None,
+        help="performance: export completed trades CSV",
+    )
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
 
@@ -594,6 +606,21 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.runtime_health import run_self_test
 
         print(run_self_test(skip_network=bool(args.skip_network)))
+        return 0
+
+    if args.command == "performance":
+        from bot.research.market_events.performance import run_performance_cli
+
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(
+                run_performance_cli(
+                    conn,
+                    equity=bool(args.equity),
+                    csv_path=args.csv,
+                    days=None,
+                ),
+            )
         return 0
 
     if args.command == "trading-audit":
