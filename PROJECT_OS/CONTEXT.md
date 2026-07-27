@@ -2,7 +2,8 @@
 
 **Updated:** 2026-07-27  
 **Branch:** `develop-terminal`  
-**Companion:** always refresh `PROJECT_OS/HANDOFF.md` every session.
+**Tip:** `b346360` (TI V1 foundation: `f4ce39c`)  
+**Companion:** refresh `PROJECT_OS/HANDOFF.md` every session.
 
 ---
 
@@ -18,7 +19,7 @@ Live spine: detect → paper → learn. Primary DB: `data/market_events.db`.
 | Live feed | Restored — Bybit/Polymarket fetch OK when network available |
 | SQLite | Contention fix shipped (`79986a5`); locks ~0 |
 | Performance | CLI `performance` shipped; read-only on `paper_strategy_runs` |
-| Trade Intelligence V1 | Knowledge layer foundation (`ti_*`, schema v66) |
+| Trade Intelligence V1 | **Shipped** — `bot/research/market_events/trade_intelligence/`, schema v66, CLI `trade import\|list\|report\|similar` |
 | Doctor | HEALTHY (core + tradfi + dashboard typical) |
 | Paper book | **0 completed / 0 open** — waiting for first real fills |
 
@@ -40,10 +41,20 @@ Do **not** change:
 | Path | Role |
 |------|------|
 | `PROJECT_OS/HANDOFF.md` | Session bootstrap (status, metrics, commands) |
+| `PROJECT_OS/CONTEXT.md` | This file — short project context |
 | `bot/research/market_events/trade_intelligence/` | TI V1 package |
 | `bot/research/market_events/performance.py` | Paper analytics (do not alter for TI) |
 | `data/market_events.db` | Live market events + paper + `ti_*` |
 
-## Out of scope leftovers (do not mix into TI commits)
+## Trade Intelligence V1 commands
 
-Local feed-restore / proxy scrub and misc `PROJECT_OS/*` research docs may still be uncommitted. Ship them only under their own task.
+```bash
+python -m bot.research.market_events trade import --source paper
+python -m bot.research.market_events trade list
+python -m bot.research.market_events trade report
+python -m bot.research.market_events trade similar --trade-id ID
+```
+
+## Local leftovers (not part of TI V1)
+
+Uncommitted feed-restore / proxy scrub (`process_manager.py`, `venue_bybit.py`, `okx_client.py`), misc `PROJECT_OS/*` research docs, dataset provenance — ship only under their own task. Do **not** fold into TI commits. Never commit `logs/`.
