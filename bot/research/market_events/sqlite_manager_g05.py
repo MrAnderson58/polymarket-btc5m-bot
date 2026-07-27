@@ -197,7 +197,7 @@ def get_recent_lock_events(*, lookback_sec: float = 300.0) -> list[dict[str, Any
     try:
         if WRITE_TRACE_FILE.is_file():
             import json as _json
-            for line in WRITE_TRACE_FILE.read_text(errors="ignore").splitlines()[-2000:]:
+            for line in WRITE_TRACE_FILE.read_text(errors="ignore").splitlines()[-15000:]:
                 try:
                     ev = _json.loads(line)
                 except Exception:
@@ -215,6 +215,103 @@ def get_recent_lock_events(*, lookback_sec: float = 300.0) -> list[dict[str, Any
         seen.add(key)
         uniq.append(ev)
     return uniq
+
+
+def cluster_lock_incidents(
+    events: list[dict[str, Any]],
+    *,
+    gap_sec: float = 2.0,
+) -> list[dict[str, Any]]:
+    """One collision = first lock for (pid, table) within gap_sec."""
+    items = sorted(events, key=lambda e: float(e.get("ts") or 0))
+    last: dict[tuple[Any, Any], float] = {}
+    out: list[dict[str, Any]] = []
+    for ev in items:
+        key = (ev.get("pid"), str(ev.get("table") or ""))
+        ts = float(ev.get("ts") or 0)
+        prev = last.get(key)
+        if prev is None or (ts - prev) > gap_sec:
+            out.append(ev)
+        last[key] = ts
+    return out
+
+
+_INTEGRITY_FILE = Path(__file__).resolve().parents[3] / "logs" / "me-sqlite-integrity.jsonl"
+_integrity_lock = threading.Lock()
+
+
+def record_integrity_event(kind: str, *, detail: str = "") -> None:
+    """Append integrity marker (deferred write / lost write / lost paper)."""
+    event = {
+        "ts": time.time(),
+        "kind": str(kind),
+        "detail": str(detail)[:240],
+        "pid": os.getpid(),
+    }
+    try:
+        _INTEGRITY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with _integrity_lock:
+            with open(_INTEGRITY_FILE, "a", encoding="utf-8") as fp:
+                import json as _json
+                fp.write(_json.dumps(event, separators=(",", ":")) + "\n")
+    except Exception:
+        pass
+
+
+def get_integrity_counts(*, lookback_sec: float = 300.0) -> dict[str, int]:
+    cutoff = time.time() - lookback_sec
+    counts = {"writes_lost": 0, "paper_trades_lost": 0, "mfe_mae_deferred": 0}
+    try:
+        if not _INTEGRITY_FILE.is_file():
+            return counts
+        import json as _json
+        for line in _INTEGRITY_FILE.read_text(errors="ignore").splitlines()[-5000:]:
+            try:
+                ev = _json.loads(line)
+            except Exception:
+                continue
+            if float(ev.get("ts") or 0) < cutoff:
+                continue
+            kind = str(ev.get("kind") or "")
+            if kind in counts:
+                counts[kind] += 1
+            elif kind == "write_lost":
+                counts["writes_lost"] += 1
+            elif kind == "paper_trade_lost":
+                counts["paper_trades_lost"] += 1
+    except Exception:
+        pass
+    return counts
+
+
+def summarize_lock_diagnostics(*, lookback_sec: float = 300.0) -> dict[str, Any]:
+    """Doctor-facing lock breakdown: raw events vs retries vs real incidents."""
+    raw_events = get_recent_lock_events(lookback_sec=lookback_sec)
+    incidents = cluster_lock_incidents(raw_events, gap_sec=2.0)
+    raw_n = len(raw_events)
+    inc_n = len(incidents)
+    retry_n = max(0, raw_n - inc_n)
+    integrity = get_integrity_counts(lookback_sec=lookback_sec)
+    return {
+        "lookback_sec": float(lookback_sec),
+        "raw_lock_events": raw_n,
+        "retry_attempts": retry_n,
+        "real_lock_incidents": inc_n,
+        "writes_lost": int(integrity.get("writes_lost") or 0),
+        "paper_trades_lost": int(integrity.get("paper_trades_lost") or 0),
+        "mfe_mae_deferred": int(integrity.get("mfe_mae_deferred") or 0),
+    }
+
+
+def format_lock_diagnostics_block(summary: dict[str, Any] | None = None) -> list[str]:
+    s = summary if summary is not None else summarize_lock_diagnostics()
+    return [
+        f"  Raw lock events ........ {int(s.get('raw_lock_events') or 0)}",
+        f"  Retry attempts ......... {int(s.get('retry_attempts') or 0)}",
+        f"  Real lock incidents .... {int(s.get('real_lock_incidents') or 0)}",
+        f"  Writes lost ............ {int(s.get('writes_lost') or 0)}",
+        f"  Paper trades lost ...... {int(s.get('paper_trades_lost') or 0)}",
+    ]
 
 
 def format_sqlite_contention_report(*, window_sec: float = 300.0) -> str:

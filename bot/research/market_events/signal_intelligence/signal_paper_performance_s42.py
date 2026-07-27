@@ -13,9 +13,15 @@ import logging
 import os
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
-from bot.research.market_events.db import execute_with_retry, market_events_connection, market_events_readonly_connection
+from bot.research.market_events.db import (
+    execute_with_retry,
+    is_database_locked,
+    market_events_connection,
+    market_events_readonly_connection,
+)
 from bot.research.market_events.signal_intelligence.candles import load_recent_candles
 from bot.research.market_events.signal_intelligence.lib.feature_utils import (
     safe_float as _safe_float,
@@ -38,6 +44,14 @@ EXIT_TP2 = "TP2"
 EXIT_STOP = "STOP"
 EXIT_TIMEOUT = "TIMEOUT"
 EXIT_TRAILING = "TRAILING"
+
+# Durable local queue for MFE/MAE updates that failed after SQLite lock retries.
+_MFE_QUEUE_PATH = Path(
+    os.environ.get(
+        "ME_PAPER_MFE_QUEUE",
+        str(Path(__file__).resolve().parents[4] / "logs" / "me-paper-mfe-queue.jsonl"),
+    )
+)
 
 # ===== S54 (production default: trailing after TP1) =====
 TRAIL_AFTER_TP1 = True
@@ -785,11 +799,151 @@ def _activate_trailing_after_tp1(
     }
 
 
+def _enqueue_mfe_mae_update(
+    *,
+    trade_id: int,
+    mfe_pct: float,
+    mae_pct: float,
+    updated_at: int,
+) -> None:
+    """Persist a deferred MFE/MAE write so a lock timeout cannot drop the update."""
+    _MFE_QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    row = {
+        "ts": time.time(),
+        "trade_id": int(trade_id),
+        "mfe_pct": float(mfe_pct),
+        "mae_pct": float(mae_pct),
+        "updated_at": int(updated_at),
+    }
+    with open(_MFE_QUEUE_PATH, "a", encoding="utf-8") as fp:
+        fp.write(json.dumps(row, separators=(",", ":")) + "\n")
+    try:
+        from bot.research.market_events.sqlite_manager_g05 import record_integrity_event
+
+        record_integrity_event("mfe_mae_deferred", detail=f"trade_id={trade_id}")
+    except Exception:
+        pass
+
+
+def _flush_mfe_mae_queue(conn: Any) -> int:
+    """Apply queued MFE/MAE updates (latest wins per trade_id). Returns applied count."""
+    if not _MFE_QUEUE_PATH.is_file():
+        return 0
+    try:
+        lines = _MFE_QUEUE_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+    if not lines:
+        return 0
+
+    latest: dict[int, dict[str, Any]] = {}
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+            tid = int(row["trade_id"])
+            latest[tid] = row
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            continue
+
+    applied = 0
+    remaining: list[dict[str, Any]] = []
+    for tid, row in latest.items():
+        try:
+            # Monotonic extremes: never shrink MFE / never grow MAE vs DB.
+            execute_with_retry(
+                conn,
+                f"""
+                UPDATE {_TRADES}
+                SET mfe_pct = CASE
+                      WHEN mfe_pct IS NULL OR mfe_pct < ? THEN ?
+                      ELSE mfe_pct END,
+                    mae_pct = CASE
+                      WHEN mae_pct IS NULL OR mae_pct > ? THEN ?
+                      ELSE mae_pct END,
+                    updated_at = CASE
+                      WHEN COALESCE(updated_at, 0) < ? THEN ?
+                      ELSE updated_at END
+                WHERE id = ? AND status = ?
+                """,
+                (
+                    float(row["mfe_pct"]),
+                    float(row["mfe_pct"]),
+                    float(row["mae_pct"]),
+                    float(row["mae_pct"]),
+                    int(row["updated_at"]),
+                    int(row["updated_at"]),
+                    tid,
+                    STATUS_OPEN,
+                ),
+            )
+            applied += 1
+        except Exception as exc:
+            if is_database_locked(exc):
+                remaining.append(row)
+                logger.warning("mfe queue flush deferred trade_id=%s (locked)", tid)
+            else:
+                logger.warning("mfe queue flush failed trade_id=%s: %s", tid, exc)
+                remaining.append(row)
+
+    try:
+        if remaining:
+            with open(_MFE_QUEUE_PATH, "w", encoding="utf-8") as fp:
+                for row in remaining:
+                    fp.write(json.dumps(row, separators=(",", ":")) + "\n")
+        else:
+            _MFE_QUEUE_PATH.write_text("", encoding="utf-8")
+    except OSError as exc:
+        logger.warning("mfe queue rewrite failed: %s", exc)
+    return applied
+
+
+def _apply_mfe_mae_update(
+    conn: Any,
+    *,
+    trade_id: int,
+    mfe_pct: float,
+    mae_pct: float,
+    updated_at: int,
+) -> bool:
+    """Write MFE/MAE; on lock exhaustion enqueue and continue (never abort the cycle)."""
+    try:
+        execute_with_retry(
+            conn,
+            f"UPDATE {_TRADES} SET mfe_pct = ?, mae_pct = ?, updated_at = ? WHERE id = ?",
+            (round(mfe_pct, 4), round(mae_pct, 4), updated_at, int(trade_id)),
+        )
+        return True
+    except Exception as exc:
+        if is_database_locked(exc):
+            _enqueue_mfe_mae_update(
+                trade_id=int(trade_id),
+                mfe_pct=round(mfe_pct, 4),
+                mae_pct=round(mae_pct, 4),
+                updated_at=int(updated_at),
+            )
+            logger.warning(
+                "mfe/mae update queued after lock retries trade_id=%s",
+                trade_id,
+            )
+            return False
+        raise
+
+
 def tick_open_paper_trades_s42(conn: Any) -> int:
     """Update MFE/MAE and close open paper trades (Classic or S54 trailing).
 
     S55.3: aged opens without a live price still timeout (prevents zombie OPEN backlog).
+    Lock-resilient: MFE/MAE failures after retries are queued and retried next cycle;
+    one locked trade does not abort the whole tick loop.
     """
+    try:
+        _flush_mfe_mae_queue(conn)
+    except Exception as exc:
+        logger.warning("mfe queue flush skipped: %s", exc)
+
     rows = conn.execute(
         f"SELECT * FROM {_TRADES} WHERE status = ? ORDER BY created_at ASC",
         (STATUS_OPEN,),
@@ -800,142 +954,163 @@ def tick_open_paper_trades_s42(conn: Any) -> int:
     now = int(time.time())
     ticked = 0
     for row in rows:
-        symbol = str(row["symbol"])
-        price = _current_price(conn, symbol)
-        age = now - int(row["created_at"])
-        if price is None:
-            # Zombie fix: still honour hard timeout using entry as mark.
-            if age >= TIMEOUT_SECONDS:
-                _close_trade(
-                    conn,
-                    row=row,
-                    exit_price=float(row["entry"]),
-                    exit_reason=EXIT_TIMEOUT,
-                    now=now,
-                )
-                ticked += 1
-            continue
-        ticked += 1
-        entry = float(row["entry"])
-        is_long = str(row["direction"]).upper() == "LONG"
-        pnl = _pnl_pct(entry, price, is_long=is_long)
-        mfe = max(float(row["mfe_pct"] or 0), pnl)
-        mae = min(float(row["mae_pct"] or 0), pnl)
-        execute_with_retry(
-            conn,
-            f"UPDATE {_TRADES} SET mfe_pct = ?, mae_pct = ?, updated_at = ? WHERE id = ?",
-            (round(mfe, 4), round(mae, 4), now, int(row["id"])),
-        )
-
-        sl = _safe_float(row["stop"])
-        tp1 = _safe_float(row["tp1"])
-        tp2 = _safe_float(row["tp2"])
-        trailing_active = int(_row_get(row, "trailing_active", 0) or 0) == 1
-
-        # --- S54 trailing management (after TP1) ---
-        if trailing_active:
-            distance = trail_distance_from_entry_tp1(entry, float(tp1 or entry))
-            highest = float(_row_get(row, "highest_price_after_tp1", price) or price)
-            lowest = float(_row_get(row, "lowest_price_after_tp1", price) or price)
-            trail_stop = float(_row_get(row, "trailing_stop", entry) or entry)
-            highest, lowest, new_stop, moved = ratchet_trailing_stop(
-                is_long=is_long,
-                price=price,
-                distance=distance,
-                trailing_stop=trail_stop,
-                highest=highest,
-                lowest=lowest,
-            )
-            if moved or highest != float(_row_get(row, "highest_price_after_tp1", 0) or 0) \
-                    or lowest != float(_row_get(row, "lowest_price_after_tp1", 0) or 0):
-                if moved:
-                    _log_trailing(
-                        "Trailing stop moved",
-                        trade_id=int(row["id"]),
-                        trailing_stop=new_stop,
-                        price=price,
+        try:
+            symbol = str(row["symbol"])
+            price = _current_price(conn, symbol)
+            age = now - int(row["created_at"])
+            if price is None:
+                # Zombie fix: still honour hard timeout using entry as mark.
+                if age >= TIMEOUT_SECONDS:
+                    _close_trade(
+                        conn,
+                        row=row,
+                        exit_price=float(row["entry"]),
+                        exit_reason=EXIT_TIMEOUT,
+                        now=now,
                     )
-                execute_with_retry(
-                    conn,
-                    f"""
-                    UPDATE {_TRADES} SET
-                      trailing_stop = ?,
-                      highest_price_after_tp1 = ?,
-                      lowest_price_after_tp1 = ?,
-                      updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (new_stop, highest, lowest, now, int(row["id"])),
-                )
-                trail_stop = new_stop
-
-            if tp2 is not None and tp2 > 0 and _tp_hit(is_long, price, tp2):
-                _close_trade(
-                    conn, row=row, exit_price=price, exit_reason=EXIT_TP2, now=now,
-                    trailing_exit_reason="tp2",
-                )
+                    ticked += 1
                 continue
-            if _sl_hit(is_long, price, trail_stop):
-                tp1_pnl = _pnl_pct(entry, float(tp1 or entry), is_long=is_long)
-                exit_pnl = _pnl_pct(entry, price, is_long=is_long)
-                captured = _margin_pnl_usd(exit_pnl) - _margin_pnl_usd(tp1_pnl)
-                _log_trailing(
-                    "Trailing exit",
-                    trade_id=int(row["id"]),
+            ticked += 1
+            entry = float(row["entry"])
+            is_long = str(row["direction"]).upper() == "LONG"
+            pnl = _pnl_pct(entry, price, is_long=is_long)
+            mfe = max(float(row["mfe_pct"] or 0), pnl)
+            mae = min(float(row["mae_pct"] or 0), pnl)
+            _apply_mfe_mae_update(
+                conn,
+                trade_id=int(row["id"]),
+                mfe_pct=mfe,
+                mae_pct=mae,
+                updated_at=now,
+            )
+
+            sl = _safe_float(row["stop"])
+            tp1 = _safe_float(row["tp1"])
+            tp2 = _safe_float(row["tp2"])
+            trailing_active = int(_row_get(row, "trailing_active", 0) or 0) == 1
+
+            # --- S54 trailing management (after TP1) ---
+            if trailing_active:
+                distance = trail_distance_from_entry_tp1(entry, float(tp1 or entry))
+                highest = float(_row_get(row, "highest_price_after_tp1", price) or price)
+                lowest = float(_row_get(row, "lowest_price_after_tp1", price) or price)
+                trail_stop = float(_row_get(row, "trailing_stop", entry) or entry)
+                highest, lowest, new_stop, moved = ratchet_trailing_stop(
+                    is_long=is_long,
                     price=price,
+                    distance=distance,
                     trailing_stop=trail_stop,
+                    highest=highest,
+                    lowest=lowest,
                 )
-                _log_trailing(
-                    "Trailing profit captured",
-                    trade_id=int(row["id"]),
-                    additional_pnl_usd=round(captured, 4),
-                )
-                _close_trade(
-                    conn, row=row, exit_price=price, exit_reason=EXIT_TRAILING, now=now,
-                    trailing_exit_reason="trailing_stop",
-                )
-                continue
-            if sl is not None and _sl_hit(is_long, price, sl):
-                _close_trade(
-                    conn, row=row, exit_price=price, exit_reason=EXIT_STOP, now=now,
-                    trailing_exit_reason="emergency_stop",
-                )
-                continue
-            if age >= TIMEOUT_SECONDS:
-                _close_trade(
-                    conn, row=row, exit_price=price, exit_reason=EXIT_TIMEOUT, now=now,
-                    trailing_exit_reason="emergency_timeout",
-                )
-            continue
+                if moved or highest != float(_row_get(row, "highest_price_after_tp1", 0) or 0) \
+                        or lowest != float(_row_get(row, "lowest_price_after_tp1", 0) or 0):
+                    if moved:
+                        _log_trailing(
+                            "Trailing stop moved",
+                            trade_id=int(row["id"]),
+                            trailing_stop=new_stop,
+                            price=price,
+                        )
+                    try:
+                        execute_with_retry(
+                            conn,
+                            f"""
+                            UPDATE {_TRADES} SET
+                              trailing_stop = ?,
+                              highest_price_after_tp1 = ?,
+                              lowest_price_after_tp1 = ?,
+                              updated_at = ?
+                            WHERE id = ?
+                            """,
+                            (new_stop, highest, lowest, now, int(row["id"])),
+                        )
+                    except Exception as exc:
+                        if is_database_locked(exc):
+                            logger.warning(
+                                "trailing update deferred trade_id=%s (locked)",
+                                int(row["id"]),
+                            )
+                        else:
+                            raise
+                    trail_stop = new_stop
 
-        # --- Classic path (and TP1 → optional trail arm) ---
-        if sl is not None and _sl_hit(is_long, price, sl):
-            _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_STOP, now=now)
-            continue
-        if tp2 is not None and tp2 > 0 and _tp_hit(is_long, price, tp2):
-            _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TP2, now=now)
-            continue
-        if tp1 is not None and tp1 > 0 and _tp_hit(is_long, price, tp1):
-            if TRAIL_AFTER_TP1:
-                state = _activate_trailing_after_tp1(
-                    conn, row=row, price=price, now=now, is_long=is_long,
-                )
-                # Same tick: exit if already through TP2 or trailing stop
                 if tp2 is not None and tp2 > 0 and _tp_hit(is_long, price, tp2):
                     _close_trade(
                         conn, row=row, exit_price=price, exit_reason=EXIT_TP2, now=now,
                         trailing_exit_reason="tp2",
                     )
-                elif _sl_hit(is_long, price, float(state["trailing_stop"])):
+                    continue
+                if _sl_hit(is_long, price, trail_stop):
+                    tp1_pnl = _pnl_pct(entry, float(tp1 or entry), is_long=is_long)
+                    exit_pnl = _pnl_pct(entry, price, is_long=is_long)
+                    captured = _margin_pnl_usd(exit_pnl) - _margin_pnl_usd(tp1_pnl)
+                    _log_trailing(
+                        "Trailing exit",
+                        trade_id=int(row["id"]),
+                        price=price,
+                        trailing_stop=trail_stop,
+                    )
+                    _log_trailing(
+                        "Trailing profit captured",
+                        trade_id=int(row["id"]),
+                        additional_pnl_usd=round(captured, 4),
+                    )
                     _close_trade(
                         conn, row=row, exit_price=price, exit_reason=EXIT_TRAILING, now=now,
                         trailing_exit_reason="trailing_stop",
                     )
+                    continue
+                if sl is not None and _sl_hit(is_long, price, sl):
+                    _close_trade(
+                        conn, row=row, exit_price=price, exit_reason=EXIT_STOP, now=now,
+                        trailing_exit_reason="emergency_stop",
+                    )
+                    continue
+                if age >= TIMEOUT_SECONDS:
+                    _close_trade(
+                        conn, row=row, exit_price=price, exit_reason=EXIT_TIMEOUT, now=now,
+                        trailing_exit_reason="emergency_timeout",
+                    )
                 continue
-            _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TP1, now=now)
-            continue
-        if age >= TIMEOUT_SECONDS:
-            _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TIMEOUT, now=now)
+
+            # --- Classic path (and TP1 → optional trail arm) ---
+            if sl is not None and _sl_hit(is_long, price, sl):
+                _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_STOP, now=now)
+                continue
+            if tp2 is not None and tp2 > 0 and _tp_hit(is_long, price, tp2):
+                _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TP2, now=now)
+                continue
+            if tp1 is not None and tp1 > 0 and _tp_hit(is_long, price, tp1):
+                if TRAIL_AFTER_TP1:
+                    state = _activate_trailing_after_tp1(
+                        conn, row=row, price=price, now=now, is_long=is_long,
+                    )
+                    # Same tick: exit if already through TP2 or trailing stop
+                    if tp2 is not None and tp2 > 0 and _tp_hit(is_long, price, tp2):
+                        _close_trade(
+                            conn, row=row, exit_price=price, exit_reason=EXIT_TP2, now=now,
+                            trailing_exit_reason="tp2",
+                        )
+                    elif _sl_hit(is_long, price, float(state["trailing_stop"])):
+                        _close_trade(
+                            conn, row=row, exit_price=price, exit_reason=EXIT_TRAILING, now=now,
+                            trailing_exit_reason="trailing_stop",
+                        )
+                    continue
+                _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TP1, now=now)
+                continue
+            if age >= TIMEOUT_SECONDS:
+                _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TIMEOUT, now=now)
+        except Exception as exc:
+            if is_database_locked(exc):
+                logger.warning(
+                    "tick row deferred trade_id=%s (locked): %s",
+                    int(row["id"]),
+                    exc,
+                )
+                continue
+            raise
 
     return ticked
 

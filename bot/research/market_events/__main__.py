@@ -270,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
             "learning-health",
             "learning-worker",
             "paper-performance",
+            "paper-gate-funnel",
             "trade-regression-audit",
             "trade-postmortem",
             "market-regime",
@@ -359,7 +360,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--heartbeat-sec", type=int, default=None, help="Heartbeat interval (default 60)")
     parser.add_argument("--seconds", type=int, default=30, help="Duration for collector-path-audit")
     parser.add_argument("--days", type=int, default=7)
-    parser.add_argument("--hours", type=int, default=24, help="Hours of candle history (G3.8)")
+    parser.add_argument("--hours", type=int, default=24, help="Hours lookback (G3.8 / paper-gate-funnel)")
     parser.add_argument(
         "--limit",
         type=int,
@@ -2135,6 +2136,16 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 1
             raise
+        return 0
+
+    if args.command == "paper-gate-funnel":
+        from bot.research.market_events.signal_intelligence.paper_gate_funnel_s55 import (
+            format_paper_gate_funnel,
+        )
+
+        hours = float(getattr(args, "hours", None) or 24)
+        with market_events_readonly_connection() as conn:
+            print(format_paper_gate_funnel(conn, since_hours=hours, limit_details=100))
         return 0
 
     if args.command == "trade-regression-audit":

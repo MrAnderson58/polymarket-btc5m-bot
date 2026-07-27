@@ -45,6 +45,7 @@ class RuntimeHealth:
     prices: dict[str, float | None] = field(default_factory=dict)
     uptime_sec: int | None = None
     last_fetch_ts: int | None = None
+    sqlite_summary: dict[str, Any] = field(default_factory=dict)
 
     @property
     def healthy(self) -> bool:
@@ -121,23 +122,41 @@ def _heartbeat_age(conn: Any) -> tuple[int | None, str | None]:
     return age, writer
 
 
-def _sqlite_lock_recent() -> tuple[bool, str]:
-    """True if no lock errors in the lookback window.
+def _sqlite_lock_recent() -> tuple[bool, str, dict[str, Any]]:
+    """SQLite lock health + breakdown for doctor.
 
-    Prefers timestamped instrumentation (write-trace JSONL + ISO-stamped log lines).
-    Ignores legacy unstamped 'database is locked' lines that can linger in a quiet log tail.
+    Returns (ok, short_detail, summary_dict).
+    ok=False when real lock incidents > 0 OR writes/paper lost > 0 in the window.
     """
-    now = int(time.time())
-    cutoff = now - LOCK_LOG_LOOKBACK_SEC
+    summary: dict[str, Any] = {
+        "raw_lock_events": 0,
+        "retry_attempts": 0,
+        "real_lock_incidents": 0,
+        "writes_lost": 0,
+        "paper_trades_lost": 0,
+        "mfe_mae_deferred": 0,
+        "lookback_sec": float(LOCK_LOG_LOOKBACK_SEC),
+    }
     try:
-        from bot.research.market_events.sqlite_manager_g05 import get_recent_lock_events
+        from bot.research.market_events.sqlite_manager_g05 import summarize_lock_diagnostics
 
-        traced = get_recent_lock_events(lookback_sec=float(LOCK_LOG_LOOKBACK_SEC))
-        if traced:
-            return False, f"{len(traced)} lock event(s) in {LOCK_LOG_LOOKBACK_SEC}s"
+        summary = summarize_lock_diagnostics(lookback_sec=float(LOCK_LOG_LOOKBACK_SEC))
+        incidents = int(summary.get("real_lock_incidents") or 0)
+        lost = int(summary.get("writes_lost") or 0) + int(summary.get("paper_trades_lost") or 0)
+        if incidents > 0 or lost > 0:
+            detail = (
+                f"{incidents} incident(s), "
+                f"{int(summary.get('raw_lock_events') or 0)} raw / "
+                f"{int(summary.get('retry_attempts') or 0)} retries in {LOCK_LOG_LOOKBACK_SEC}s"
+            )
+            return False, detail, summary
+        return True, "0 real incidents", summary
     except Exception:
         pass
 
+    # Fallback: legacy stamped log lines
+    now = int(time.time())
+    cutoff = now - LOCK_LOG_LOOKBACK_SEC
     hits: list[str] = []
     log_dir = _logs_dir()
     for name in ("me-shock-paper-core.log", "me-shock-paper-tradfi.log"):
@@ -151,7 +170,6 @@ def _sqlite_lock_recent() -> tuple[bool, str]:
         for line in text.splitlines()[-ERROR_LOG_LINES:]:
             if "database is locked" not in line and "database table is locked" not in line:
                 continue
-            # Only ISO-stamped g05 lines count (legacy lines lack timestamps)
             if len(line) < 19 or line[4] != "-" or line[10] != "T":
                 continue
             stamp = line[:19]
@@ -164,18 +182,10 @@ def _sqlite_lock_recent() -> tuple[bool, str]:
                 continue
             hits.append(line.strip()[:120])
     if hits:
-        return False, f"{len(hits)} recent lock line(s) in logs"
-    try:
-        from bot.research.market_events.sqlite_manager_g05 import get_last_locked_diag
-
-        diag = get_last_locked_diag()
-        if diag and diag.get("ts"):
-            age = now - int(float(diag["ts"]))
-            if age < LOCK_LOG_LOOKBACK_SEC:
-                return False, "g05 lock diag recent"
-    except Exception:
-        pass
-    return True, "none in tail"
+        summary["raw_lock_events"] = len(hits)
+        summary["real_lock_incidents"] = len(hits)
+        return False, f"{len(hits)} recent lock line(s) in logs", summary
+    return True, "none in tail", summary
 
 
 def _count_since(conn: Any, table: str, ts_col: str, since: int) -> int:
@@ -265,12 +275,15 @@ def collect_runtime_health(*, skip_network: bool = False) -> RuntimeHealth:
     if not poly_ok:
         rh.reasons.append("Polymarket unreachable")
 
-    lock_ok, lock_d = _sqlite_lock_recent()
+    lock_ok, lock_d, lock_summary = _sqlite_lock_recent()
+    rh.sqlite_summary = lock_summary
     rh.lines.append(
-        _line("SQLite", lock_ok, "Recent lock warnings: 0" if lock_ok else lock_d),
+        _line("SQLite", lock_ok, "0 real incidents" if lock_ok else lock_d),
     )
     if not lock_ok:
         rh.reasons.append("database is locked (recent)")
+    if int(lock_summary.get("writes_lost") or 0) or int(lock_summary.get("paper_trades_lost") or 0):
+        rh.reasons.append("sqlite integrity loss recorded")
 
     rh.db_bytes = _db_size_bytes()
 
@@ -388,10 +401,17 @@ def format_runtime_health(rh: RuntimeHealth) -> str:
         elif label == "SQLite":
             if item.ok:
                 lines.append(_pad("SQLite", "OK"))
-                if item.detail:
-                    lines.append(f"  {item.detail}")
             else:
                 lines.append(_pad("SQLite", f"FAIL — {item.detail}" if item.detail else "FAIL"))
+            try:
+                from bot.research.market_events.sqlite_manager_g05 import (
+                    format_lock_diagnostics_block,
+                )
+
+                summary = rh.sqlite_summary or None
+                lines.extend(format_lock_diagnostics_block(summary))
+            except Exception:
+                pass
         elif item.ok:
             lines.append(_pad(label, "OK"))
         else:

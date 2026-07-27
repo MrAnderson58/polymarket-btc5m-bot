@@ -15,7 +15,7 @@ d829c6459042ad596e890412ea809551d440dfab
 
 ✅ Live feed restored
 
-✅ SQLite contention fixed
+⏸ SQLite contention investigated — near-zero locks not achieved; WIP not pushed (see SQLITE_FINAL_REPORT.md)
 
 ✅ Performance complete
 

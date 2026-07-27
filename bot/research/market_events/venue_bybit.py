@@ -56,10 +56,13 @@ class BybitMarketClient:
         self._timeout = (connect_timeout, read_timeout) if timeout == DEFAULT_TIMEOUT else timeout
         self._connect_timeout = connect_timeout
         self._read_timeout = read_timeout
+        # Ignore HTTP(S)_PROXY from the parent process (e.g. dead IDE MITM on :65470).
+        self._session = requests.Session()
+        self._session.trust_env = False
 
     def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         timeout = (self._connect_timeout, self._read_timeout)
-        r = requests.get(f"{self._api}{path}", params=params, timeout=timeout)
+        r = self._session.get(f"{self._api}{path}", params=params, timeout=timeout)
         r.raise_for_status()
         data = r.json()
         if int(data.get("retCode", -1)) != 0:

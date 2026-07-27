@@ -12,11 +12,18 @@ logger = logging.getLogger(__name__)
 OKX_API = "https://www.okx.com"
 
 
+def _session() -> requests.Session:
+    """Direct session — do not inherit dead IDE/local HTTP proxies."""
+    s = requests.Session()
+    s.trust_env = False
+    return s
+
+
 def check_symbol_exists(symbol: str, *, timeout: float = 8.0) -> bool:
     """Check if USDT-SWAP exists for base coin (e.g. BTC -> BTC-USDT-SWAP)."""
     inst = f"{symbol.upper()}-USDT-SWAP"
     try:
-        resp = requests.get(
+        resp = _session().get(
             f"{OKX_API}/api/v5/market/ticker",
             params={"instId": inst},
             timeout=timeout,
@@ -31,7 +38,7 @@ def check_symbol_exists(symbol: str, *, timeout: float = 8.0) -> bool:
 def fetch_ticker_metrics(symbol: str, *, timeout: float = 8.0) -> dict[str, Any] | None:
     inst = f"{symbol.upper()}-USDT-SWAP"
     try:
-        resp = requests.get(
+        resp = _session().get(
             f"{OKX_API}/api/v5/market/ticker",
             params={"instId": inst},
             timeout=timeout,

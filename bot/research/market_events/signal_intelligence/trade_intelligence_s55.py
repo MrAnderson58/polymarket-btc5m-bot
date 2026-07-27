@@ -459,6 +459,37 @@ def should_open_trade(
     return True, GATE_ALLOWED, estimate
 
 
+def _features_json_with_gate_estimate(
+    features: dict[str, Any],
+    estimate: dict[str, Any],
+) -> str:
+    """Embed EV / winrate / probs into features_json for funnel reports."""
+    blob: dict[str, Any]
+    raw = features.get("features_json")
+    if isinstance(raw, dict):
+        blob = dict(raw)
+    elif isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            blob = dict(parsed) if isinstance(parsed, dict) else {"raw": raw}
+        except (json.JSONDecodeError, TypeError):
+            blob = {"raw": raw}
+    else:
+        blob = {}
+    blob["gate_estimate"] = {
+        "expected_pnl_pct": float(estimate.get("expected_pnl_pct") or 0.0),
+        "winrate": float(estimate.get("winrate") or 0.0),
+        "p_tp1": float(estimate.get("p_tp1") or 0.0),
+        "p_sl": float(estimate.get("p_sl") or 0.0),
+        "p_trailing": float(estimate.get("p_trailing") or 0.0),
+        "avg_mfe": float(estimate.get("avg_mfe") or 0.0),
+        "avg_mae": float(estimate.get("avg_mae") or 0.0),
+        "n": int(estimate.get("n") or 0),
+        "similar_count": int(estimate.get("similar_count") or estimate.get("n") or 0),
+    }
+    return json.dumps(blob, separators=(",", ":"), default=str)
+
+
 def record_trade_features_on_open(
     conn: Any,
     *,
@@ -472,6 +503,7 @@ def record_trade_features_on_open(
 ) -> None:
     """Persist entry features + gate metadata (outcomes filled later on close)."""
     now = int(now if now is not None else time.time())
+    features_json = _features_json_with_gate_estimate(features, estimate)
     try:
         conn.execute(
             f"""
@@ -516,7 +548,7 @@ def record_trade_features_on_open(
                 features.get("funding_sign"),
                 features.get("market_regime"),
                 features.get("shock_score"),
-                features.get("features_json"),
+                features_json,
                 gate_decision,
                 float(estimate.get("expected_pnl_pct") or 0.0),
                 int(estimate.get("similar_count") or estimate.get("n") or 0),

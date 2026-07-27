@@ -142,6 +142,24 @@ STOP_ORDER = tuple(reversed(SERVICES))
 
 _SUPERVISOR_EXCLUDES = ("start-all", "stop-all", " system-validation")
 
+# IDE / local MITM proxies (e.g. Cursor http://127.0.0.1:65470) break exchange polls
+# when inherited via os.environ.copy(). Market data must use direct connections.
+_PROXY_ENV_KEYS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+)
+
+
+def _scrub_proxy_env(env: dict[str, str]) -> dict[str, str]:
+    """Drop proxy env vars so requests/urllib talk to exchanges directly."""
+    for key in _PROXY_ENV_KEYS:
+        env.pop(key, None)
+    return env
+
 
 def _pid_path(key: str) -> Path:
     PID_DIR.mkdir(parents=True, exist_ok=True)
@@ -235,6 +253,7 @@ def start_service(svc: ManagedService) -> tuple[bool, str]:
 
     env = os.environ.copy()
     env.update(svc.env_overrides)
+    _scrub_proxy_env(env)
     log_path = logs_dir() / svc.log_name
     cmd = [str(project_python()), *svc.module_args]
     with open(log_path, "a", encoding="utf-8") as log_fp:

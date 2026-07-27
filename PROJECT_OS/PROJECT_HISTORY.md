@@ -17,7 +17,7 @@ Cursor appends an entry after each completed task.
 - `tests/test_runtime_health.py`, `tests/test_market_events_doctor.py`
 - `PROJECT_OS/PROJECT_HISTORY.md`, `NEXT_TASKS.md`, `OPERATING_RULES.md`
 
-**Commit:** (see git log after push)
+**Commit:** `d2f2f81` — Add runtime health tooling and project operating docs
 
 **Verify next:**
 - `python -m bot.research.market_events doctor`
