@@ -7,7 +7,9 @@
 develop-terminal
 
 ## Last Commit
-f4ce39c805c33577b6cef5d047cf6c2993859067
+b2582b7712cc9a0d06f044b1f621193c60b2100e
+
+(TI foundation: `f4ce39c`)
 
 ## Current Status
 
