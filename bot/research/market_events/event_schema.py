@@ -8,8 +8,8 @@ from typing import Any
 
 MIGRATIONS_TABLE = "market_events_migrations"
 # Live trading DB stops at S55 (gate features). S56+ lives on ResearchRepository.
-LIVE_SCHEMA_VERSION = 65
-SCHEMA_VERSION = 72  # project watermark (research S62)
+LIVE_SCHEMA_VERSION = 66
+SCHEMA_VERSION = 73  # project watermark (Trade Intelligence V1)
 
 E1_DDL = """
 CREATE TABLE IF NOT EXISTS market_events_migrations (
@@ -1037,6 +1037,19 @@ def apply_migrations(conn: Any) -> list[str]:
             applied.append("v65")
             current = 65
 
+        if current < 66:
+            _ensure_trade_intelligence_v1(conn)
+            now = int(time.time())
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {MIGRATIONS_TABLE} (version, applied_at, description)
+                VALUES (?, datetime(?, 'unixepoch'), ?)
+                """,
+                (66, now, "Trade Intelligence V1 knowledge layer"),
+            )
+            applied.append("v66")
+            current = 66
+
         # S56–S59 / S60 research tables are NOT applied on the live trading DB.
         # Use: python -m bot.research.market_events market-research-migrate
 
@@ -1044,6 +1057,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_s54_trailing_columns(conn)
     _ensure_s55_trade_features(conn)
     _ensure_market_events_shadow(conn)
+    _ensure_trade_intelligence_v1(conn)
 
     if not applied:
         conn.commit()
@@ -3526,6 +3540,15 @@ def _ensure_market_events_shadow(conn: Any) -> None:
         conn.executescript(MARKET_EVENTS_SHADOW_DDL)
     except Exception:
         pass
+
+
+def _ensure_trade_intelligence_v1(conn: Any) -> None:
+    """Create Trade Intelligence V1 knowledge tables if missing."""
+    from bot.research.market_events.trade_intelligence.schema import (
+        ensure_trade_intelligence_schema,
+    )
+
+    ensure_trade_intelligence_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """

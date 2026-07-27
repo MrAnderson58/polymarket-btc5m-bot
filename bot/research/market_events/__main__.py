@@ -23,6 +23,21 @@ def _parse_symbols(raw: str | None) -> list[str] | None:
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
+def _normalize_trade_argv(argv: list[str] | None) -> list[str] | None:
+    """Map `trade import|list|report|similar` → `trade-<action>` for flat argparse."""
+    if not argv:
+        return argv
+    if argv[0] != "trade":
+        return argv
+    if len(argv) == 1:
+        return ["trade-help", *argv[1:]]
+    action = argv[1].strip().lower()
+    if action in ("import", "list", "report", "similar", "help"):
+        mapped = "trade-help" if action == "help" else f"trade-{action}"
+        return [mapped, *argv[2:]]
+    return ["trade-help", *argv[1:]]
+
+
 def _audit_s42_db_path(*, command: str) -> int:
     """FIX-S4.3B: print DB path diagnostics before S4 CLI commands.
 
@@ -156,6 +171,11 @@ def main(argv: list[str] | None = None) -> int:
             "watch",
             "self-test",
             "performance",
+            "trade-import",
+            "trade-list",
+            "trade-report",
+            "trade-similar",
+            "trade-help",
             "trading-audit",
             "report",
             "telegram-status",
@@ -546,9 +566,21 @@ def main(argv: list[str] | None = None) -> int:
         "--csv",
         metavar="PATH",
         default=None,
-        help="performance: export completed trades CSV",
+        help="performance: export completed trades CSV | trade import --source csv: input path",
     )
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--side",
+        default=None,
+        help="trade import --source manual: LONG|SHORT",
+    )
+    parser.add_argument(
+        "--note",
+        default=None,
+        help="trade import --source manual: optional note text",
+    )
+    args = parser.parse_args(
+        _normalize_trade_argv(argv if argv is not None else sys.argv[1:]),
+    )
     explicit_symbols = _parse_symbols(args.symbols)
 
     if args.command == "ai-worker-run":
@@ -622,6 +654,36 @@ def main(argv: list[str] | None = None) -> int:
                     days=None,
                 ),
             )
+        return 0
+
+    if args.command in (
+        "trade-import",
+        "trade-list",
+        "trade-report",
+        "trade-similar",
+        "trade-help",
+    ):
+        from bot.research.market_events.trade_intelligence.cli import run_trade_cli
+
+        action = args.command.removeprefix("trade-")
+        if action == "help":
+            action = ""
+        with market_events_connection() as conn:
+            apply_migrations(conn)
+            print(
+                run_trade_cli(
+                    conn,
+                    action=action,
+                    source=args.source,
+                    csv_path=args.csv,
+                    trade_id=getattr(args, "trade_id", None),
+                    symbol=args.symbols,
+                    side=args.side,
+                    limit=max(1, int(args.limit or 50)),
+                    note=args.note,
+                ),
+            )
+            conn.commit()
         return 0
 
     if args.command == "trading-audit":

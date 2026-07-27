@@ -36,10 +36,10 @@ class TestStorageSeparationS60(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_live_schema_caps_at_s55(self) -> None:
-        self.assertEqual(LIVE_SCHEMA_VERSION, 65)
+        self.assertEqual(LIVE_SCHEMA_VERSION, 66)
         self.assertGreaterEqual(SCHEMA_VERSION, 70)
         with market_events_connection() as conn:
-            # Live may still have leftover names from older installs; new applies stop at 65.
+            # Live may still have leftover names from older installs; new applies stop at 66.
             # Research tables must exist on research DB.
             pass
         with s60.research_connection() as rconn:
