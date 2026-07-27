@@ -400,9 +400,9 @@ def deliver_report_key(
 
 
 def _doctor_delivery(*, settings: TelegramTerminalSettings) -> TelegramDelivery:
-    from bot.research.market_events.doctor import run_doctor
+    from bot.research.market_events.doctor import run_platform_doctor
 
-    text = format_doctor_telegram_html(run_doctor(skip_network=False))
+    text = format_doctor_telegram_html(run_platform_doctor(skip_network=False))
     return TelegramDelivery(
         text=text,
         parse_mode=settings.parse_mode,
@@ -585,9 +585,9 @@ def handle_ai_callback(action: str, *, reports_dir: Path | None = None) -> Teleg
         return handle_ai_research_command_sync("/stats", settings=settings, reports_dir=out_dir)
     if action == "doctor":
         # Skip live HTTP on button tap for snappy UX
-        from bot.research.market_events.doctor import run_doctor
+        from bot.research.market_events.doctor import run_platform_doctor
         return TelegramDelivery(
-            text=format_doctor_telegram_html(run_doctor(skip_network=True)),
+            text=format_doctor_telegram_html(run_platform_doctor(skip_network=True)),
             parse_mode=settings.parse_mode,
             reply_markup=build_reports_keyboard(),
         )

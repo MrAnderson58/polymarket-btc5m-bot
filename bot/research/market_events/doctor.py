@@ -413,9 +413,16 @@ def format_doctor(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def run_doctor(*, skip_network: bool = False) -> str:
-    """Build human-readable platform doctor report."""
+def run_platform_doctor(*, skip_network: bool = False) -> str:
+    """Legacy AI Trading Platform doctor (Telegram / ops cheat-sheet)."""
     return format_doctor(collect_doctor(skip_network=skip_network))
+
+
+def run_doctor(*, skip_network: bool = False) -> str:
+    """Runtime SYSTEM STATUS (default for CLI `doctor`)."""
+    from bot.research.market_events.runtime_health import run_runtime_doctor
+
+    return run_runtime_doctor(skip_network=skip_network)
 
 
 def doctor_as_dict(*, skip_network: bool = False) -> dict[str, Any]:

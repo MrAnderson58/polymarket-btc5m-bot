@@ -153,6 +153,8 @@ def main(argv: list[str] | None = None) -> int:
             "status",
             "health",
             "doctor",
+            "watch",
+            "self-test",
             "trading-audit",
             "report",
             "telegram-status",
@@ -515,7 +517,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--skip-network",
         action="store_true",
-        help="doctor: skip live HTTP / Telegram getMe probes",
+        help="doctor/self-test/watch: skip live HTTP API probes",
+    )
+    parser.add_argument(
+        "--platform",
+        action="store_true",
+        help="doctor: legacy AI Trading Platform report (Telegram uses runtime by default via /doctor)",
+    )
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=5.0,
+        help="watch: refresh interval seconds (default 5)",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="watch: print one frame and exit (no full-screen loop)",
     )
     args = parser.parse_args(argv)
     explicit_symbols = _parse_symbols(args.symbols)
@@ -548,8 +566,34 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "doctor":
-        from bot.research.market_events.doctor import run_doctor
-        print(run_doctor(skip_network=bool(args.skip_network)))
+        if args.platform:
+            from bot.research.market_events.doctor import run_platform_doctor
+
+            print(run_platform_doctor(skip_network=bool(args.skip_network)))
+        else:
+            from bot.research.market_events.runtime_health import run_runtime_doctor
+
+            print(run_runtime_doctor(skip_network=bool(args.skip_network)))
+        return 0
+
+    if args.command == "watch":
+        from bot.research.market_events.runtime_health import (
+            collect_watch_snapshot,
+            format_watch_frame,
+            run_watch,
+        )
+
+        if args.once:
+            rh = collect_watch_snapshot(skip_network=bool(args.skip_network))
+            print(format_watch_frame(rh))
+        else:
+            run_watch(interval_sec=max(1.0, float(args.interval)), skip_network=bool(args.skip_network))
+        return 0
+
+    if args.command == "self-test":
+        from bot.research.market_events.runtime_health import run_self_test
+
+        print(run_self_test(skip_network=bool(args.skip_network)))
         return 0
 
     if args.command == "trading-audit":

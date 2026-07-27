@@ -53,42 +53,42 @@ class DoctorUnitTests(unittest.TestCase):
 
     def test_run_doctor_skip_network_smoke(self) -> None:
         with patch(
-            "bot.research.market_events.doctor._check_telegram_bot",
-            return_value=Check("Connected", True, "skipped"),
+            "bot.research.market_events.runtime_health._check_polymarket",
+            return_value=(True, "ok"),
         ), patch(
-            "bot.research.market_events.doctor._check_sqlite",
-            return_value=Check("SQLite", True),
+            "bot.research.market_events.runtime_health._check_bybit",
+            return_value=(True, "ok"),
         ), patch(
-            "bot.research.market_events.doctor._check_postgres",
-            return_value=Check("PostgreSQL", True),
+            "bot.research.market_events.runtime_health._proc_ok",
+            return_value=(True, "PID 1"),
         ), patch(
-            "bot.research.market_events.doctor._check_news",
-            return_value=[
-                Check("RSS", True),
-                Check("Telegram", True),
-                Check("X", True),
-            ],
+            "bot.research.market_events.runtime_health._sqlite_lock_recent",
+            return_value=(True, "none"),
         ), patch(
-            "bot.research.market_events.doctor._check_ai",
-            return_value=[Check("Claude", True), Check("OpenAI", True)],
+            "bot.research.market_events.runtime_health._recent_errors",
+            return_value=[],
         ), patch(
-            "bot.research.market_events.doctor._check_paper_trading",
-            return_value=(Check("Running", True), 0),
-        ), patch(
-            "bot.research.market_events.doctor._signals_today",
-            return_value=0,
-        ), patch(
-            "bot.research.market_events.doctor._last_report_utc",
-            return_value="—",
-        ), patch(
-            "bot.research.market_events.doctor._git_sha",
-            return_value="deadbee",
+            "bot.research.market_events.runtime_health._db_size_bytes",
+            return_value=1000,
         ):
-            text = run_doctor(skip_network=True)
-        self.assertIn("AI Trading Platform", text)
-        self.assertIn("deadbee", text)
-        self.assertIn("✓ Yahoo", text)
-        self.assertIn("Everything OK", text)
+            with patch(
+                "bot.research.market_events.db.market_events_readonly_connection",
+            ) as ro:
+                from contextlib import contextmanager
+
+                @contextmanager
+                def _fake():
+                    import sqlite3
+
+                    con = sqlite3.connect(":memory:")
+                    con.row_factory = sqlite3.Row
+                    yield con
+                    con.close()
+
+                ro.side_effect = _fake
+                text = run_doctor(skip_network=True)
+        self.assertIn("SYSTEM STATUS", text)
+        self.assertIn("Overall:", text)
 
     def test_collect_doctor_dict_keys(self) -> None:
         with patch(
@@ -148,8 +148,8 @@ class DoctorCliTests(unittest.TestCase):
         from bot.research.market_events.__main__ import main
 
         with patch(
-            "bot.research.market_events.doctor.run_doctor",
-            return_value="AI Trading Platform\nEverything OK",
+            "bot.research.market_events.runtime_health.run_runtime_doctor",
+            return_value="SYSTEM STATUS\nOverall: HEALTHY",
         ) as mock_run:
             code = main(["doctor", "--skip-network"])
         self.assertEqual(code, 0)
