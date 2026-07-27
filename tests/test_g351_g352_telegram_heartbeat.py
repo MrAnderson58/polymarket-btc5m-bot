@@ -105,7 +105,7 @@ class HeartbeatDiagnosticsG352Tests(unittest.TestCase):
     def test_observe_writer_makes_status_ok(self) -> None:
         with market_events_connection() as conn:
             apply_migrations(conn)
-            write_system_heartbeat(conn, writer="observe-run", latency_ms=120)
+            write_system_heartbeat(conn, writer="observe-run", latency_ms=120, force=True)
             diag = read_heartbeat_diagnostics(conn)
         self.assertEqual(diag["status"], "OK")
         self.assertEqual(diag["writer"], "observe-run")
@@ -114,7 +114,7 @@ class HeartbeatDiagnosticsG352Tests(unittest.TestCase):
     def test_heartbeat_trace_cli_format(self) -> None:
         with market_events_connection() as conn:
             apply_migrations(conn)
-            write_system_heartbeat(conn, writer="g3-live")
+            write_system_heartbeat(conn, writer="g3-live", force=True)
             text = format_heartbeat_trace(conn)
         self.assertIn("Heartbeat Trace", text)
         self.assertIn("g3-live", text)
@@ -122,7 +122,7 @@ class HeartbeatDiagnosticsG352Tests(unittest.TestCase):
     def test_status_report_uses_combined_heartbeat(self) -> None:
         with market_events_connection() as conn:
             apply_migrations(conn)
-            write_system_heartbeat(conn, writer="observe-run")
+            write_system_heartbeat(conn, writer="observe-run", force=True)
             from bot.research.market_events.process_manager import _health_block
             lines = _health_block(conn)
         joined = "\n".join(lines)

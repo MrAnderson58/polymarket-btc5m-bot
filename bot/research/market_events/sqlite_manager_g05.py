@@ -21,11 +21,18 @@ logger = logging.getLogger(__name__)
 
 BUSY_TIMEOUT_MS = 10_000
 SLOW_TX_MS = 100.0
+WRITE_TRACE_MAX = 8_000
+WRITE_TRACE_FILE = Path(__file__).resolve().parents[3] / "logs" / "me-sqlite-write-trace.jsonl"
+_TRACE_WRITES = os.getenv("ME_SQLITE_TRACE_WRITES", "1").lower() in ("1", "true", "yes")
+_TRACE_COMMITS_INFO = os.getenv("ME_SQLITE_TRACE_COMMITS", "0").lower() in ("1", "true", "yes")
 
 _registry_lock = threading.Lock()
 _active: dict[int, "ConnectionLeaseG05"] = {}
 _conn_seq = 0
 _last_locked_diag: dict[str, Any] | None = None
+_write_events: list[dict[str, Any]] = []
+_write_events_lock = threading.Lock()
+_lock_events: list[dict[str, Any]] = []
 
 
 @dataclass
@@ -41,10 +48,12 @@ class ConnectionLeaseG05:
     opened_at: float
     last_sql: str = ""
     last_sql_at: float | None = None
-    tx_started_at: float | None = None
     tx_mode: str | None = None  # BEGIN / BEGIN IMMEDIATE / implicit
+    tx_started_at: float | None = None
     waiting: bool = False
     stack: str = ""
+    dirty: bool = False
+    last_retry_count: int = 0
 
 
 def _caller_frame(skip: int = 3) -> str:
@@ -101,6 +110,179 @@ def get_last_locked_diag() -> dict[str, Any] | None:
     return _last_locked_diag
 
 
+def _sql_type(sql: str) -> str:
+    token = (sql or "").strip().split(None, 1)
+    return (token[0].upper() if token else "UNKNOWN")
+
+
+def _sql_table(sql: str) -> str:
+    import re
+
+    preview = " ".join((sql or "").strip().split())
+    patterns = (
+        r"(?i)\bINTO\s+([A-Za-z0-9_]+)",
+        r"(?i)\bUPDATE\s+([A-Za-z0-9_]+)",
+        r"(?i)\bFROM\s+([A-Za-z0-9_]+)",
+        r"(?i)\bTABLE\s+(?:IF\s+EXISTS\s+)?([A-Za-z0-9_]+)",
+    )
+    for pat in patterns:
+        m = re.search(pat, preview)
+        if m:
+            return m.group(1)
+    return "—"
+
+
+def _is_dml_write(sql: str) -> bool:
+    u = (sql or "").lstrip().upper()
+    return u.startswith(("INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER"))
+
+
+def record_write_event(
+    *,
+    lease: ConnectionLeaseG05 | None,
+    sql: str,
+    duration_ms: float,
+    retry_count: int = 0,
+    kind: str = "execute",
+    locked: bool = False,
+) -> None:
+    if not _TRACE_WRITES and not locked:
+        return
+    event = {
+        "ts": time.time(),
+        "pid": os.getpid(),
+        "thread": threading.current_thread().name,
+        "thread_id": threading.get_ident(),
+        "conn_id": lease.conn_id if lease else None,
+        "caller": lease.caller if lease else _caller_frame(),
+        "table": _sql_table(sql),
+        "sql_type": _sql_type(sql),
+        "kind": kind,
+        "duration_ms": round(duration_ms, 3),
+        "retry_count": int(retry_count),
+        "locked": locked,
+        "sql": " ".join((sql or "").strip().split())[:200],
+    }
+    with _write_events_lock:
+        _write_events.append(event)
+        if len(_write_events) > WRITE_TRACE_MAX:
+            del _write_events[: len(_write_events) - WRITE_TRACE_MAX]
+        if locked:
+            _lock_events.append(event)
+            if len(_lock_events) > 500:
+                del _lock_events[: len(_lock_events) - 500]
+    if locked or duration_ms >= SLOW_TX_MS:
+        try:
+            WRITE_TRACE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(WRITE_TRACE_FILE, "a", encoding="utf-8") as fp:
+                import json as _json
+                fp.write(_json.dumps(event, separators=(",", ":")) + "\n")
+        except Exception:
+            pass
+
+
+def get_write_events(*, since_ts: float | None = None) -> list[dict[str, Any]]:
+    with _write_events_lock:
+        rows = list(_write_events)
+    if since_ts is None:
+        return rows
+    return [e for e in rows if float(e.get("ts") or 0) >= since_ts]
+
+
+def get_recent_lock_events(*, lookback_sec: float = 300.0) -> list[dict[str, Any]]:
+    cutoff = time.time() - lookback_sec
+    with _write_events_lock:
+        mem = [e for e in _lock_events if float(e.get("ts") or 0) >= cutoff]
+    out = list(mem)
+    try:
+        if WRITE_TRACE_FILE.is_file():
+            import json as _json
+            for line in WRITE_TRACE_FILE.read_text(errors="ignore").splitlines()[-2000:]:
+                try:
+                    ev = _json.loads(line)
+                except Exception:
+                    continue
+                if ev.get("locked") and float(ev.get("ts") or 0) >= cutoff:
+                    out.append(ev)
+    except Exception:
+        pass
+    seen: set[tuple] = set()
+    uniq: list[dict[str, Any]] = []
+    for ev in sorted(out, key=lambda e: float(e.get("ts") or 0)):
+        key = (ev.get("ts"), ev.get("pid"), ev.get("sql"))
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(ev)
+    return uniq
+
+
+def format_sqlite_contention_report(*, window_sec: float = 300.0) -> str:
+    """Phase 1–3 contention timeline + per-table frequency."""
+    import collections
+    import json as _json
+
+    now = time.time()
+    cutoff = now - window_sec
+    events = get_write_events(since_ts=cutoff)
+    try:
+        if WRITE_TRACE_FILE.is_file():
+            for line in WRITE_TRACE_FILE.read_text(errors="ignore").splitlines()[-5000:]:
+                try:
+                    ev = _json.loads(line)
+                except Exception:
+                    continue
+                if float(ev.get("ts") or 0) >= cutoff:
+                    events.append(ev)
+    except Exception:
+        pass
+
+    locks = [e for e in events if e.get("locked")]
+    writes = [e for e in events if e.get("sql_type") in ("INSERT", "UPDATE", "DELETE", "REPLACE")]
+    by_table: dict[str, list[float]] = collections.defaultdict(list)
+    lock_by_table: collections.Counter[str] = collections.Counter()
+    for e in writes:
+        by_table[str(e.get("table") or "—")].append(float(e.get("duration_ms") or 0))
+    for e in locks:
+        lock_by_table[str(e.get("table") or "—")] += 1
+
+    lines = [
+        "SQLite Contention Report",
+        f"Window: {int(window_sec)}s",
+        f"Write events: {len(writes)}",
+        f"Lock events: {len(locks)}",
+        "",
+        "Per-table",
+        f"{'table':<36} {'w/s':>8} {'avg_ms':>8} {'max_ms':>8} {'locks':>6}",
+    ]
+    for table, durs in sorted(by_table.items(), key=lambda kv: -len(kv[1])):
+        n = len(durs)
+        wps = n / window_sec if window_sec else 0.0
+        avg = sum(durs) / n if n else 0.0
+        mx = max(durs) if durs else 0.0
+        lines.append(
+            f"{table:<36} {wps:8.2f} {avg:8.2f} {mx:8.2f} {lock_by_table.get(table, 0):6d}",
+        )
+    lines.extend(["", "Recent lock timeline (up to 20)"])
+    for e in locks[-20:]:
+        ts = float(e.get("ts") or 0)
+        stamp = time.strftime("%H:%M:%S", time.localtime(ts))
+        lines.append(
+            f"  {stamp} pid={e.get('pid')} table={e.get('table')} "
+            f"retries={e.get('retry_count')} sql={str(e.get('sql'))[:80]}",
+        )
+    if not locks:
+        lines.append("  (none)")
+    lines.extend([
+        "",
+        "Overlap pattern (observed hot path)",
+        "  shock-paper-core ──┐",
+        "  shock-paper-tradfi ┼─► g3_ops_state (heartbeat×3/cycle) ─► COMMIT",
+        "                    └─► near_miss / shadow (heartbeat flush)",
+    ])
+    return "\n".join(lines)
+
+
 class TracedCursorG05:
     def __init__(self, cursor: sqlite3.Cursor, lease: ConnectionLeaseG05) -> None:
         self._cursor = cursor
@@ -152,6 +334,8 @@ class TracedConnectionG05:
         self._lease.last_sql = preview
         self._lease.last_sql_at = time.time()
         upper = preview.upper()
+        if _is_dml_write(preview):
+            self._lease.dirty = True
         if upper.startswith("BEGIN"):
             self._lease.tx_started_at = time.time()
             self._lease.tx_mode = preview.split(";")[0][:40]
@@ -167,10 +351,14 @@ class TracedConnectionG05:
     def _finish_tx(self, kind: str) -> None:
         started = self._lease.tx_started_at
         elapsed_ms = (time.time() - started) * 1000 if started else 0.0
-        if elapsed_ms >= SLOW_TX_MS or kind == "COMMIT":
-            level = logging.WARNING if elapsed_ms >= SLOW_TX_MS else logging.INFO
-            logger.log(
-                level,
+        if elapsed_ms >= SLOW_TX_MS:
+            logger.warning(
+                "%s sqlite conn_id=%s pid=%s elapsed=%.1fms sql=%s caller=%s",
+                kind, self._lease.conn_id, self._lease.pid, elapsed_ms,
+                self._lease.last_sql, self._lease.caller,
+            )
+        elif _TRACE_COMMITS_INFO and kind == "COMMIT":
+            logger.info(
                 "%s sqlite conn_id=%s pid=%s elapsed=%.1fms sql=%s caller=%s",
                 kind, self._lease.conn_id, self._lease.pid, elapsed_ms,
                 self._lease.last_sql, self._lease.caller,
@@ -180,20 +368,35 @@ class TracedConnectionG05:
 
     def executemany(self, sql: str, params_seq: Any) -> TracedCursorG05:
         self._note_sql(sql)
+        t0 = time.time()
         try:
             cur = self._conn.executemany(sql, params_seq)
+            record_write_event(
+                lease=self._lease, sql=sql,
+                duration_ms=(time.time() - t0) * 1000,
+                retry_count=self._lease.last_retry_count, kind="executemany",
+            )
+            self._lease.last_retry_count = 0
             return TracedCursorG05(cur, self._lease)
         except Exception as exc:
-            maybe_log_database_locked(exc, lease=self._lease)
+            maybe_log_database_locked(exc, lease=self._lease, sql=sql, duration_ms=(time.time() - t0) * 1000)
             raise
 
     def execute(self, sql: str, params: Any = ()) -> TracedCursorG05:
         self._note_sql(sql)
+        t0 = time.time()
         try:
             cur = self._conn.execute(sql, params)
+            if _is_dml_write(sql):
+                record_write_event(
+                    lease=self._lease, sql=sql,
+                    duration_ms=(time.time() - t0) * 1000,
+                    retry_count=self._lease.last_retry_count, kind="execute",
+                )
+                self._lease.last_retry_count = 0
             return TracedCursorG05(cur, self._lease)
         except Exception as exc:
-            maybe_log_database_locked(exc, lease=self._lease)
+            maybe_log_database_locked(exc, lease=self._lease, sql=sql, duration_ms=(time.time() - t0) * 1000)
             raise
 
     def executescript(self, sql: str) -> sqlite3.Cursor:
@@ -201,7 +404,7 @@ class TracedConnectionG05:
         try:
             return self._conn.executescript(sql)
         except Exception as exc:
-            maybe_log_database_locked(exc, lease=self._lease)
+            maybe_log_database_locked(exc, lease=self._lease, sql=sql[:240])
             raise
 
     def commit(self) -> None:
@@ -211,6 +414,8 @@ class TracedConnectionG05:
                 self._lease.conn_id, self._lease.caller,
             )
             raise sqlite3.OperationalError("attempt to write a readonly database (g05)")
+        if not self._lease.dirty and self._lease.tx_started_at is None:
+            return
         # Implicit write tx: measure commit wall time only (not full connection lifetime)
         if self._lease.tx_started_at is None:
             self._lease.tx_started_at = time.time()
@@ -219,25 +424,40 @@ class TracedConnectionG05:
             t0 = time.time()
             self._conn.commit()
             elapsed_ms = (time.time() - t0) * 1000
-            level = logging.WARNING if elapsed_ms >= SLOW_TX_MS else logging.INFO
-            logger.log(
-                level,
-                "COMMIT sqlite conn_id=%s pid=%s elapsed=%.1fms sql=%s caller=%s",
-                self._lease.conn_id, self._lease.pid, elapsed_ms,
-                self._lease.last_sql, self._lease.caller,
+            record_write_event(
+                lease=self._lease,
+                sql=self._lease.last_sql or "COMMIT",
+                duration_ms=elapsed_ms,
+                retry_count=self._lease.last_retry_count,
+                kind="commit",
             )
+            self._lease.last_retry_count = 0
+            if elapsed_ms >= SLOW_TX_MS:
+                logger.warning(
+                    "COMMIT sqlite conn_id=%s pid=%s elapsed=%.1fms sql=%s caller=%s",
+                    self._lease.conn_id, self._lease.pid, elapsed_ms,
+                    self._lease.last_sql, self._lease.caller,
+                )
+            elif _TRACE_COMMITS_INFO:
+                logger.info(
+                    "COMMIT sqlite conn_id=%s pid=%s elapsed=%.1fms sql=%s caller=%s",
+                    self._lease.conn_id, self._lease.pid, elapsed_ms,
+                    self._lease.last_sql, self._lease.caller,
+                )
             self._lease.tx_started_at = None
             self._lease.tx_mode = None
+            self._lease.dirty = False
         except Exception as exc:
-            maybe_log_database_locked(exc, lease=self._lease)
+            maybe_log_database_locked(exc, lease=self._lease, sql=self._lease.last_sql or "COMMIT")
             raise
 
     def rollback(self) -> None:
         self._note_sql("ROLLBACK")
         try:
             self._conn.rollback()
+            self._lease.dirty = False
         except Exception as exc:
-            maybe_log_database_locked(exc, lease=self._lease)
+            maybe_log_database_locked(exc, lease=self._lease, sql="ROLLBACK")
             raise
 
     def close(self) -> None:
@@ -335,7 +555,13 @@ def sqlite_connection(
         conn.close()
 
 
-def maybe_log_database_locked(exc: BaseException, *, lease: ConnectionLeaseG05 | None = None) -> None:
+def maybe_log_database_locked(
+    exc: BaseException,
+    *,
+    lease: ConnectionLeaseG05 | None = None,
+    sql: str | None = None,
+    duration_ms: float = 0.0,
+) -> None:
     global _last_locked_diag
     msg = str(exc).lower()
     if "database is locked" not in msg and "database table is locked" not in msg:
@@ -343,13 +569,15 @@ def maybe_log_database_locked(exc: BaseException, *, lease: ConnectionLeaseG05 |
 
     writers = [l for l in get_active_leases() if not l.readonly]
     owner = lease or (writers[0] if writers else None)
+    sql_preview = sql or (owner.last_sql if owner else None)
     diag = {
+        "ts": time.time(),
         "error": str(exc),
         "pid": os.getpid(),
         "thread": threading.current_thread().name,
         "owner_pid": owner.pid if owner else None,
         "owner_conn_id": owner.conn_id if owner else None,
-        "last_sql": owner.last_sql if owner else None,
+        "last_sql": sql_preview,
         "last_transaction": owner.tx_mode if owner else None,
         "tx_elapsed_ms": (
             round((time.time() - owner.tx_started_at) * 1000, 1)
@@ -373,8 +601,18 @@ def maybe_log_database_locked(exc: BaseException, *, lease: ConnectionLeaseG05 |
         ],
     }
     _last_locked_diag = diag
+    record_write_event(
+        lease=owner,
+        sql=sql_preview or "—",
+        duration_ms=duration_ms,
+        retry_count=owner.last_retry_count if owner else 0,
+        kind="lock",
+        locked=True,
+    )
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
     logger.error(
-        "database is locked diag last_sql=%s last_tx=%s owner_pid=%s caller=%s\n%s",
+        "%s database is locked diag last_sql=%s last_tx=%s owner_pid=%s caller=%s\n%s",
+        stamp,
         diag["last_sql"],
         diag["last_transaction"],
         diag["owner_pid"],

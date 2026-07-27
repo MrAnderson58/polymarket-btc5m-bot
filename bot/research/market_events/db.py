@@ -81,6 +81,15 @@ def retry_on_db_locked(fn: Callable[[], T]) -> T:
             last_exc = exc
             if attempt >= len(schedule):
                 break
+            # Annotate active lease retry count when available
+            try:
+                from bot.research.market_events.sqlite_manager_g05 import get_active_leases
+
+                for lease in get_active_leases():
+                    if lease.pid == __import__("os").getpid() and not lease.readonly:
+                        lease.last_retry_count = attempt + 1
+            except Exception:
+                pass
             time.sleep(schedule[attempt])
     assert last_exc is not None
     raise last_exc

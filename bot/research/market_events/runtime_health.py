@@ -122,10 +122,22 @@ def _heartbeat_age(conn: Any) -> tuple[int | None, str | None]:
 
 
 def _sqlite_lock_recent() -> tuple[bool, str]:
-    """True if no lock errors in recent shock-paper logs."""
+    """True if no lock errors in the lookback window.
+
+    Prefers timestamped instrumentation (write-trace JSONL + ISO-stamped log lines).
+    Ignores legacy unstamped 'database is locked' lines that can linger in a quiet log tail.
+    """
     now = int(time.time())
     cutoff = now - LOCK_LOG_LOOKBACK_SEC
-    patterns = ("database is locked", "cycle error: database is locked")
+    try:
+        from bot.research.market_events.sqlite_manager_g05 import get_recent_lock_events
+
+        traced = get_recent_lock_events(lookback_sec=float(LOCK_LOG_LOOKBACK_SEC))
+        if traced:
+            return False, f"{len(traced)} lock event(s) in {LOCK_LOG_LOOKBACK_SEC}s"
+    except Exception:
+        pass
+
     hits: list[str] = []
     log_dir = _logs_dir()
     for name in ("me-shock-paper-core.log", "me-shock-paper-tradfi.log"):
@@ -137,9 +149,19 @@ def _sqlite_lock_recent() -> tuple[bool, str]:
         except OSError:
             continue
         for line in text.splitlines()[-ERROR_LOG_LINES:]:
-            if not any(p in line for p in patterns):
+            if "database is locked" not in line and "database table is locked" not in line:
                 continue
-            # Heuristic: if line has bracket timestamp, skip old; else count recent tail only
+            # Only ISO-stamped g05 lines count (legacy lines lack timestamps)
+            if len(line) < 19 or line[4] != "-" or line[10] != "T":
+                continue
+            stamp = line[:19]
+            try:
+                import datetime as _dt
+                ts = int(_dt.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S").timestamp())
+            except Exception:
+                continue
+            if ts < cutoff:
+                continue
             hits.append(line.strip()[:120])
     if hits:
         return False, f"{len(hits)} recent lock line(s) in logs"
@@ -148,7 +170,7 @@ def _sqlite_lock_recent() -> tuple[bool, str]:
 
         diag = get_last_locked_diag()
         if diag and diag.get("ts"):
-            age = now - int(diag["ts"])
+            age = now - int(float(diag["ts"]))
             if age < LOCK_LOG_LOOKBACK_SEC:
                 return False, "g05 lock diag recent"
     except Exception:
@@ -244,7 +266,9 @@ def collect_runtime_health(*, skip_network: bool = False) -> RuntimeHealth:
         rh.reasons.append("Polymarket unreachable")
 
     lock_ok, lock_d = _sqlite_lock_recent()
-    rh.lines.append(_line("SQLite", lock_ok, lock_d if lock_ok else lock_d))
+    rh.lines.append(
+        _line("SQLite", lock_ok, "Recent lock warnings: 0" if lock_ok else lock_d),
+    )
     if not lock_ok:
         rh.reasons.append("database is locked (recent)")
 
@@ -361,6 +385,13 @@ def format_runtime_health(rh: RuntimeHealth) -> str:
                 lines.append(_pad("Heartbeat", "OK"))
             else:
                 lines.append(_pad("Heartbeat", item.detail or "stale"))
+        elif label == "SQLite":
+            if item.ok:
+                lines.append(_pad("SQLite", "OK"))
+                if item.detail:
+                    lines.append(f"  {item.detail}")
+            else:
+                lines.append(_pad("SQLite", f"FAIL — {item.detail}" if item.detail else "FAIL"))
         elif item.ok:
             lines.append(_pad(label, "OK"))
         else:
@@ -557,7 +588,7 @@ def run_self_test(*, skip_network: bool = False) -> str:
                 write_system_heartbeat,
             )
 
-            write_system_heartbeat(conn, writer="self-test")
+            write_system_heartbeat(conn, writer="self-test", force=True)
             conn.commit()
             hb = conn.execute(
                 "SELECT value FROM market_events_g3_ops_state WHERE key='system_heartbeat_writer'",

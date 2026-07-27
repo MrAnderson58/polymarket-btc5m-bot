@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Any
 
 from bot.research.market_events.signal_intelligence.health_g3 import get_g3_ops_state, set_g3_ops_state
 
 _STALE_SEC = 180
+# Ops heartbeat does not need 1Hz dual-writer upserts; stale threshold is 180s.
+_HEARTBEAT_MIN_INTERVAL_SEC = float(os.getenv("ME_SYSTEM_HEARTBEAT_MIN_INTERVAL_SEC", "20"))
+_last_heartbeat_write_mono: float = 0.0
 
 
 def write_system_heartbeat(
@@ -17,8 +21,20 @@ def write_system_heartbeat(
     writer: str,
     status: str = "ok",
     latency_ms: int | None = None,
-) -> None:
-    """Record liveness from any running research loop (observe, g3-live, shock-paper)."""
+    force: bool = False,
+) -> bool:
+    """Record liveness from any running research loop (observe, g3-live, shock-paper).
+
+    Debounced to cut SQLite contention: at most one batched write per process per
+    ``ME_SYSTEM_HEARTBEAT_MIN_INTERVAL_SEC`` (default 20s). Returns True if written.
+    """
+    global _last_heartbeat_write_mono
+    now_mono = time.monotonic()
+    if not force and (now_mono - _last_heartbeat_write_mono) < _HEARTBEAT_MIN_INTERVAL_SEC:
+        return False
+
+    from bot.research.market_events.db import retry_on_db_locked
+
     now = int(time.time())
     payload = {
         "writer": writer,
@@ -26,9 +42,27 @@ def write_system_heartbeat(
         "latency_ms": latency_ms,
         "ts": now,
     }
-    set_g3_ops_state(conn, "system_heartbeat", json.dumps(payload))
-    set_g3_ops_state(conn, "system_heartbeat_writer", writer)
-    set_g3_ops_state(conn, "system_heartbeat_ts", str(now))
+    rows = (
+        ("system_heartbeat", json.dumps(payload), now),
+        ("system_heartbeat_writer", writer, now),
+        ("system_heartbeat_ts", str(now), now),
+    )
+    sql = """
+        INSERT INTO market_events_g3_ops_state (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+        """
+
+    def _batch() -> None:
+        if hasattr(conn, "executemany"):
+            conn.executemany(sql, rows)
+        else:
+            for key, value, _ts in rows:
+                set_g3_ops_state(conn, key, value)
+
+    retry_on_db_locked(_batch)
+    _last_heartbeat_write_mono = now_mono
+    return True
 
 
 def touch_heartbeat_reader(conn: Any) -> int:

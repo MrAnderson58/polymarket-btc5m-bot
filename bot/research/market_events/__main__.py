@@ -290,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
             "api-test",
             "provider-status",
             "sqlite-lock-debug",
+            "sqlite-contention-report",
             "sqlite-lock-smoke",
             "threshold-optimizer",
             "db-info",
@@ -2475,6 +2476,15 @@ def main(argv: list[str] | None = None) -> int:
                 print(format_sqlite_lock_debug_g05())
         except Exception:
             print(format_sqlite_lock_debug_g05())
+        return 0
+
+    if args.command == "sqlite-contention-report":
+        import os as _os
+
+        from bot.research.market_events.sqlite_manager_g05 import format_sqlite_contention_report
+
+        window = float(_os.getenv("ME_SQLITE_CONTENTION_WINDOW_SEC", "300"))
+        print(format_sqlite_contention_report(window_sec=window))
         return 0
 
     if args.command == "sqlite-lock-smoke":

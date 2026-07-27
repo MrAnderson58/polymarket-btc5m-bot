@@ -74,7 +74,7 @@ class TestRuntimeHealth(unittest.TestCase):
                     write_system_heartbeat,
                 )
 
-                write_system_heartbeat(conn, writer="test")
+                write_system_heartbeat(conn, writer="test", force=True)
                 conn.commit()
             rh = collect_runtime_health(skip_network=True)
         self.assertIsNotNone(rh.heartbeat_age_sec)

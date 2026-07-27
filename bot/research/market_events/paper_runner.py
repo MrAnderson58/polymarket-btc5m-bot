@@ -774,13 +774,11 @@ class ShockPaperRunner:
             while not self._shutdown:
                 try:
                     self.run_once(conn, symbols)
-                    retry_on_db_locked(conn.commit)
                     try:
                         from bot.research.market_events.signal_intelligence.heartbeat_diagnostics_g352 import (
                             write_system_heartbeat,
                         )
                         write_system_heartbeat(conn, writer="shock-paper")
-                        retry_on_db_locked(conn.commit)
                     except Exception as exc:
                         logger.debug("shock-paper heartbeat write skipped: %s", exc)
                     self._maybe_heartbeat(conn, symbols)
