@@ -7,7 +7,10 @@
 develop-terminal
 
 ## Last Commit
-8d2374a Build Expectancy Intelligence V1 analytics
+(see git log — Research Inventory V1)
+
+## Research Inventory
+See `PROJECT_OS/RESEARCH_INVENTORY_V1.md` for full analytics audit + roadmap.
 
 ## Current Status
 

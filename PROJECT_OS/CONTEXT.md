@@ -22,6 +22,7 @@ Live spine: detect → paper → learn. Primary DB: `data/market_events.db`.
 | Trade Intelligence V1 | **Shipped** — `bot/research/market_events/trade_intelligence/`, schema v66, CLI `trade import\|list\|report\|similar` |
 | Expectancy Intelligence V1 | **Shipped** — `bot/research/market_events/expectancy_intelligence/`, diagnostics only (no trading logic) |
 | Research Pack 01 | **Shipped** — `trade-statistics` → `reports/research/*` (quantile buckets, n≥30 reliability, CI95, EV×log(n) playbook rank) |
+| Research Inventory V1 | **Shipped** — `PROJECT_OS/RESEARCH_INVENTORY_V1.md` (sources, modules, decision vs analytics, roadmap) |
 | Doctor | HEALTHY (core + tradfi + dashboard typical) |
 | Paper book | **0 completed / 0 open** — waiting for first real fills |
 
