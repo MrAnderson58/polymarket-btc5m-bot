@@ -1,34 +1,30 @@
 # PROJECT_OS — Next Task
 
 **Updated:** 2026-07-28  
-**Status:** ACTIVE — run Feature Validation on Mini-synced DB  
+**Status:** ACTIVE — grow Knowledge Engine on Mini-synced corpus  
 **Branch:** `develop-terminal`
 
 ---
 
 ## Context
 
-Feature Validation V1 (`feature-validation`) ranks Funding / Trend / OI / Vol / AI / F&G / Neighbor EV / Regime / Direction into KEEP / WATCH / REMOVE. Research only — no gate changes.
+Knowledge Engine V1 stores validated analytics in `knowledge_features` / `knowledge_rules` / `knowledge_interactions` / `knowledge_history`.  
+`feature-validation` auto-updates Knowledge DB and writes `reports/research/knowledge.md`.  
+LLM (future) should read Knowledge only — not raw SQLite.
 
 ---
 
 ## Single next task
 
-**Sync Mini corpus, then re-run Feature Validation as strategy design input.**
-
-### Goal
-
-1. Research Sync Mini DB (~2162 closes) onto Mac.  
-2. `python -m bot.research.market_events feature-validation`  
-3. Treat `reports/research/feature_validation.md` as the baseline for next strategy version (still no auto-apply).
+**Sync Mini (~2162 closes), run `feature-validation`, review `knowledge-show` KEEP/WATCH/REMOVE.**
 
 ### Acceptance
 
-- [ ] Report has KEEP/WATCH/REMOVE with n≥30 where possible  
-- [ ] Stability section reviewed  
-- [ ] No gate edits without explicit follow-up task
+- [ ] Knowledge tables populated after validation  
+- [ ] `reports/research/knowledge.md` reflects Mini-scale evidence  
+- [ ] No gate / strategy edits
 
 ### Out of scope
 
-- Removing similarity dims in live S55  
-- Changing S57 / S55 thresholds  
+- LLM chat over knowledge  
+- Auto-applying rules to S55  

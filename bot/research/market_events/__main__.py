@@ -280,6 +280,7 @@ def main(argv: list[str] | None = None) -> int:
             "dataset-audit",
             "trade-statistics",
             "feature-validation",
+            "knowledge-show",
             "trade-regression-audit",
             "trade-postmortem",
             "market-regime",
@@ -2277,11 +2278,34 @@ def main(argv: list[str] | None = None) -> int:
         except ResearchSyncError as exc:
             print(f"feature-validation failed: {exc}")
             return 1
-        with market_events_readonly_connection(db_path=db_path) as conn:
+        with market_events_connection(db_path=db_path) as conn:
+            apply_migrations(conn)
             print(
                 run_feature_validation(conn, write_reports=True)
                 + f"\n\n(analytics_db={db_path.resolve()} source={source})"
             )
+        return 0
+
+    if args.command == "knowledge-show":
+        from bot.research.market_events.knowledge_engine.report import (
+            format_knowledge_show,
+            write_knowledge_report,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+
+        try:
+            db_path, source, _ = resolve_research_analytics_sqlite_path()
+        except ResearchSyncError as exc:
+            print(f"knowledge-show failed: {exc}")
+            return 1
+        with market_events_connection(db_path=db_path) as conn:
+            apply_migrations(conn)
+            path = write_knowledge_report(conn)
+            print(format_knowledge_show(conn))
+            print(f"\nWrote {path}\n(analytics_db={db_path.resolve()} source={source})")
         return 0
 
     if args.command == "trade-regression-audit":

@@ -564,9 +564,27 @@ def format_feature_validation_cli(data: dict[str, Any]) -> str:
 def run_feature_validation(conn: Any, *, write_reports: bool = True) -> str:
     data = build_feature_validation(conn)
     path = None
+    knowledge_path = None
+    sync_stats: dict[str, int] = {}
     if write_reports:
         path = write_feature_validation_report(data)
+        try:
+            from bot.research.market_events.knowledge_engine.report import (
+                write_knowledge_report,
+            )
+            from bot.research.market_events.knowledge_engine.store import (
+                upsert_from_feature_validation,
+            )
+
+            sync_stats = upsert_from_feature_validation(conn, data)
+            knowledge_path = write_knowledge_report(conn)
+        except Exception as exc:
+            sync_stats = {"error": str(exc)}  # type: ignore[dict-item]
     text = format_feature_validation_cli(data)
     if path:
         text += f"\n\nWrote {path}"
+    if knowledge_path:
+        text += f"\nUpdated Knowledge DB → {knowledge_path} ({sync_stats})"
+    elif sync_stats.get("error"):
+        text += f"\nKnowledge sync failed: {sync_stats['error']}"
     return text
