@@ -35,6 +35,41 @@ def mean(values: Sequence[float]) -> float:
     return sum(values) / len(values)
 
 
+def median(values: Sequence[float]) -> float | None:
+    if not values:
+        return None
+    s = sorted(values)
+    n = len(s)
+    mid = n // 2
+    if n % 2:
+        return s[mid]
+    return (s[mid - 1] + s[mid]) / 2.0
+
+
+def expectancy_from_pnls(pnls: Sequence[float]) -> float:
+    """Per-trade expectancy = mean PnL %."""
+    return round(mean(pnls), 4) if pnls else 0.0
+
+
+def trade_outcome_stats(trades: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate block for a list of trades with pnl_pct."""
+    pnls = [float(t["pnl_pct"]) for t in trades if t.get("pnl_pct") is not None]
+    n = len(pnls)
+    if n == 0:
+        return {"trades": 0, "win_rate": 0.0, "avg_pnl": 0.0, "profit_factor": None, "expectancy": 0.0}
+    wins = sum(1 for p in pnls if p > 0)
+    pf = profit_factor_from_pnls(pnls)
+    med = median(pnls)
+    return {
+        "trades": n,
+        "win_rate": round(100.0 * wins / n, 1),
+        "avg_pnl": round(mean(pnls), 4),
+        "profit_factor": pf,
+        "expectancy": expectancy_from_pnls(pnls),
+        "median_pnl": round(med, 4) if med is not None else None,
+    }
+
+
 def stdev(values: Sequence[float]) -> float:
     if len(values) < 2:
         return 0.0

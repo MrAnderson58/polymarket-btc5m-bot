@@ -1,41 +1,35 @@
 # PROJECT_OS — Next Task
 
 **Updated:** 2026-07-28  
-**Status:** ACTIVE — use Expectancy Intelligence on live S55 rejections  
+**Status:** ACTIVE — Research Pack 01 on production S55 history  
 **Branch:** `develop-terminal`
 
 ---
 
 ## Context
 
-Expectancy Intelligence V1 shipped (diagnostics only — no gate/threshold changes):
-
-- `expectancy-breakdown`, `feature-importance`, `similar-trades`, `counterfactual`, `daily-intelligence`
-- Auto `ti_paper_knowledge` on every S42 paper close
-
-Use these reports to explain **NEGATIVE_EXPECTANCY** volume and neighbor-pool quality before any filter tuning.
+Research Pack 01 (`trade-statistics`) summarizes **closed S55 paper trades**: aggregate stats, feature buckets, pair combos, winner/loser slice, market playbook. Outputs under `reports/research/`. No gate or strategy changes.
 
 ---
 
 ## Single next task
 
-**Run daily intelligence + breakdown on production DB; document top EV failure modes.**
+**Run `trade-statistics` on live DB and review playbook + bucket CSVs.**
 
 ### Goal
 
-1. `daily-intelligence` → `reports/daily/YYYY-MM-DD.md` each session.  
-2. `expectancy-breakdown --hours 24` after meaningful S55 traffic.  
-3. Spot-check `similar-trades BTC` vs worst rejected candidates.  
-4. Only propose gate changes after written evidence from counterfactual + breakdown (separate task).
+1. `python -m bot.research.market_events trade-statistics` after meaningful close volume.  
+2. Read `reports/research/market_playbook.md` for profitable vs losing condition clusters.  
+3. Cross-check sparse buckets with `dataset-audit` completeness.  
+4. Document findings before any filter discussion (separate task).
 
 ### Acceptance
 
-- [ ] At least one saved daily report on real data
-- [ ] Breakdown summary buckets populated (not all zeros)
-- [ ] Knowledge rows growing on paper closes (`ti_paper_knowledge`)
+- [ ] `reports/research/statistics.md` generated on real data  
+- [ ] Bucket / pair CSVs non-empty where features exist  
+- [ ] Top/bottom playbook conditions reviewed
 
 ### Out of scope
 
-- Changing S55 thresholds or opening logic  
-- ML training / LLM layers  
-- SQLite writer process  
+- S55 threshold / EV / gate edits  
+- ML or LLM layers  

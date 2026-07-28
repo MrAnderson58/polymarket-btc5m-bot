@@ -21,6 +21,7 @@ Live spine: detect → paper → learn. Primary DB: `data/market_events.db`.
 | Performance | CLI `performance` shipped; read-only on `paper_strategy_runs` |
 | Trade Intelligence V1 | **Shipped** — `bot/research/market_events/trade_intelligence/`, schema v66, CLI `trade import\|list\|report\|similar` |
 | Expectancy Intelligence V1 | **Shipped** — `bot/research/market_events/expectancy_intelligence/`, diagnostics only (no trading logic) |
+| Research Pack 01 | **Shipped** — `trade-statistics` → `reports/research/*` (S55 closed paper stats) |
 | Doctor | HEALTHY (core + tradfi + dashboard typical) |
 | Paper book | **0 completed / 0 open** — waiting for first real fills |
 
@@ -67,6 +68,7 @@ python -m bot.research.market_events similar-trades BTC
 python -m bot.research.market_events counterfactual --hours 24
 python -m bot.research.market_events daily-intelligence
 python -m bot.research.market_events dataset-audit
+python -m bot.research.market_events trade-statistics
 ```
 
 Closed S42 paper trades auto-write `ti_paper_knowledge` (structured memory; no gate changes).

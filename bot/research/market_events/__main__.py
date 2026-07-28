@@ -278,6 +278,7 @@ def main(argv: list[str] | None = None) -> int:
             "counterfactual",
             "daily-intelligence",
             "dataset-audit",
+            "trade-statistics",
             "trade-regression-audit",
             "trade-postmortem",
             "market-regime",
@@ -2229,6 +2230,15 @@ def main(argv: list[str] | None = None) -> int:
 
         with market_events_readonly_connection() as conn:
             print(format_dataset_audit(conn))
+        return 0
+
+    if args.command == "trade-statistics":
+        from bot.research.market_events.research_pack_01.analysis import (
+            run_trade_statistics,
+        )
+
+        with market_events_connection() as conn:
+            print(run_trade_statistics(conn, write_reports=True))
         return 0
 
     if args.command == "trade-regression-audit":
