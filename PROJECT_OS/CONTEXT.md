@@ -71,6 +71,17 @@ python -m bot.research.market_events dataset-audit
 python -m bot.research.market_events trade-statistics
 ```
 
+## Research Sync V1 (same DB on every machine)
+
+```bash
+python -m bot.research.market_events research-sync-export
+python -m bot.research.market_events research-sync-import --file data/research_snapshots/research_snapshot_*.tar.gz
+python -m bot.research.market_events research-sync-import --file … --activate
+python -m bot.research.market_events research-sync-status
+```
+
+Bundle: `market_events.db` + `manifest.json` (SHA256, snapshot date, counts). `research-sync-status` → `SYNCED` when analytics DB matches manifest.
+
 Closed S42 paper trades auto-write `ti_paper_knowledge` (structured memory; no gate changes).
 
 ## Local leftovers (not part of TI V1)

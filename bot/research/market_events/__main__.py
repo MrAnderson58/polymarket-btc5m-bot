@@ -330,7 +330,15 @@ def main(argv: list[str] | None = None) -> int:
             "market-db-benchmark",
             "market-db-backup",
             "market-db-restore",
+            "research-sync-export",
+            "research-sync-import",
+            "research-sync-status",
         ),
+    )
+    parser.add_argument(
+        "--activate",
+        action="store_true",
+        help="research-sync-import: copy snapshot into configured SQLite analytics path",
     )
     parser.add_argument(
         "--universe",
@@ -2949,6 +2957,49 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "market-db-benchmark":
         from bot.research.market_events.db_tools import db_benchmark
         print(db_benchmark(n=args.load_events))
+        return 0
+
+    if args.command == "research-sync-export":
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            export_research_snapshot,
+            format_export_result,
+        )
+
+        try:
+            dest = Path(args.file) if args.file else None
+            manifest = export_research_snapshot(dest=dest)
+            print(format_export_result(manifest))
+        except ResearchSyncError as exc:
+            print(f"research-sync-export failed: {exc}")
+            return 1
+        return 0
+
+    if args.command == "research-sync-import":
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            format_import_result,
+            import_research_snapshot,
+        )
+
+        if not args.file:
+            print("research-sync-import requires --file PATH.tar.gz", file=sys.stderr)
+            return 1
+        try:
+            result = import_research_snapshot(
+                Path(args.file),
+                activate=bool(getattr(args, "activate", False)),
+            )
+            print(format_import_result(result))
+        except ResearchSyncError as exc:
+            print(f"research-sync-import failed: {exc}")
+            return 1
+        return 0
+
+    if args.command == "research-sync-status":
+        from bot.research.market_events.research_sync_v1 import format_research_sync_status
+
+        print(format_research_sync_status())
         return 0
 
     if args.command == "market-db-backup":
