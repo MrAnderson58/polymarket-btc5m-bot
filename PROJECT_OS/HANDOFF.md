@@ -1,23 +1,21 @@
 # HANDOFF
 
 ## Date
-2026-07-27
+2026-07-28
 
 ## Branch
 develop-terminal
 
 ## Last Commit
-d829c6459042ad596e890412ea809551d440dfab
-
-(TI foundation: `f4ce39c Add Trade Intelligence V1 foundation and project handoff`)
+(pending — Expectancy Intelligence V1)
 
 ## Current Status
 
 ✅ Live feed restored
 
-⏸ SQLite contention investigated — near-zero locks not achieved; WIP not pushed (see SQLITE_FINAL_REPORT.md)
+✅ SQLite diagnostics + unified gate funnel (prior commits on develop-terminal)
 
-✅ Performance complete
+✅ **Expectancy Intelligence V1** — analytics CLIs + `ti_paper_knowledge` on close (no gate changes)
 
 ✅ Trade Intelligence foundation
 
@@ -83,6 +81,11 @@ python -m bot.research.market_events self-test
 python -m bot.research.market_events watch --once
 python -m bot.research.market_events performance
 python -m bot.research.market_events trade list
+python -m bot.research.market_events expectancy-breakdown --hours 24
+python -m bot.research.market_events feature-importance
+python -m bot.research.market_events similar-trades BTC
+python -m bot.research.market_events counterfactual --hours 24
+python -m bot.research.market_events daily-intelligence
 python -m bot.research.market_events sqlite-contention-report
 ```
 

@@ -1,48 +1,41 @@
 # PROJECT_OS — Next Task
 
-**Updated:** 2026-07-27  
-**Status:** ACTIVE — trade data collection  
-**Branch:** `develop-terminal` (stable tip; SQLite final-elim WIP abandoned)
+**Updated:** 2026-07-28  
+**Status:** ACTIVE — use Expectancy Intelligence on live S55 rejections  
+**Branch:** `develop-terminal`
 
 ---
 
 ## Context
 
-SQLite contention investigation closed — see `PROJECT_OS/SQLITE_FINAL_REPORT.md`.  
-Acceptance (near-zero real locks) **not met**; unfinished write-path opts **not pushed**.  
-Architectural writer-process deferred until **proven data loss or missed trades**.
+Expectancy Intelligence V1 shipped (diagnostics only — no gate/threshold changes):
+
+- `expectancy-breakdown`, `feature-importance`, `similar-trades`, `counterfactual`, `daily-intelligence`
+- Auto `ti_paper_knowledge` on every S42 paper close
+
+Use these reports to explain **NEGATIVE_EXPECTANCY** volume and neighbor-pool quality before any filter tuning.
 
 ---
 
 ## Single next task
 
-**Collect and inventory live trading / paper data on the stable runtime.**
+**Run daily intelligence + breakdown on production DB; document top EV failure modes.**
 
 ### Goal
 
-1. Keep required market_events services running on stable `develop-terminal` (plus local feed proxy scrub if needed).  
-2. Grow / verify **futures_paper** paper trade corpus (S42 opens/closes, features, learning).  
-3. Inventory source of truth (~28k paper trades): paths, counts, signal-type mix — update `CURRENT_STATE.md` / `DECISIONS.md` as findings land.  
-4. **Do not** resume SQLite micro-optimizations unless integrity gate trips.
+1. `daily-intelligence` → `reports/daily/YYYY-MM-DD.md` each session.  
+2. `expectancy-breakdown --hours 24` after meaningful S55 traffic.  
+3. Spot-check `similar-trades BTC` vs worst rejected candidates.  
+4. Only propose gate changes after written evidence from counterfactual + breakdown (separate task).
 
-### Acceptance (this cycle)
+### Acceptance
 
-- [ ] Services healthy enough to collect (doctor may still WARN on SQLite locks — OK for now)
-- [ ] Paper / learning paths writing; spot-check recent `paper_trades_s42` / features
-- [ ] Documented DB paths + counts for futures_paper baseline
-- [ ] No unfinished SQLite WIP pushed
+- [ ] At least one saved daily report on real data
+- [ ] Breakdown summary buckets populated (not all zeros)
+- [ ] Knowledge rows growing on paper closes (`ti_paper_knowledge`)
 
 ### Out of scope
 
-- Dedicated SQLite writer process  
-- Further commit-batching / heartbeat micro-opts  
-- Polymarket hist as futures baseline  
-
-### Commands
-
-```bash
-python -m bot.research.market_events status
-python -m bot.research.market_events doctor
-python -m bot.research.market_events paper-performance
-python -m bot.research.market_events start-all   # if stopped
-```
+- Changing S55 thresholds or opening logic  
+- ML training / LLM layers  
+- SQLite writer process  

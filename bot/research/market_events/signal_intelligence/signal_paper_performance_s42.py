@@ -726,6 +726,26 @@ def _close_trade(
     except Exception as exc:
         logger.warning("s55 finalize on close failed: %s", exc)
 
+    try:
+        from bot.research.market_events.expectancy_intelligence.knowledge_record import (
+            record_paper_trade_knowledge,
+        )
+        record_paper_trade_knowledge(
+            conn,
+            paper_trade_id=int(row["id"]),
+            row=dict(row),
+            pnl_pct=round(price_pnl, 4),
+            pnl_usd=pnl_usd,
+            mfe_pct=round(mfe, 4),
+            mae_pct=round(mae, 4),
+            exit_reason=exit_reason,
+            result=_result_from_pnl(price_pnl),
+            duration_sec=holding,
+            now=now,
+        )
+    except Exception as exc:
+        logger.warning("paper knowledge on close failed: %s", exc)
+
     # S60: S56 snapshot + S58 decision close → research DB (not live SQLite).
     try:
         from bot.research.market_events.signal_intelligence.research_repository_s60 import (

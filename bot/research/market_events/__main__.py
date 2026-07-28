@@ -271,6 +271,12 @@ def main(argv: list[str] | None = None) -> int:
             "learning-worker",
             "paper-performance",
             "paper-gate-funnel",
+            "gate-funnel",
+            "regime-report",
+            "expectancy-breakdown",
+            "similar-trades",
+            "counterfactual",
+            "daily-intelligence",
             "trade-regression-audit",
             "trade-postmortem",
             "market-regime",
@@ -360,7 +366,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--heartbeat-sec", type=int, default=None, help="Heartbeat interval (default 60)")
     parser.add_argument("--seconds", type=int, default=30, help="Duration for collector-path-audit")
     parser.add_argument("--days", type=int, default=7)
-    parser.add_argument("--hours", type=int, default=24, help="Hours lookback (G3.8 / paper-gate-funnel)")
+    parser.add_argument("--hours", type=int, default=24, help="Hours lookback (G3.8 / gate-funnel)")
+    parser.add_argument(
+        "--months",
+        type=float,
+        default=6.0,
+        help="gate-funnel: Fear&Greed research lookback in months (default 6)",
+    )
     parser.add_argument(
         "--limit",
         type=int,
@@ -520,6 +532,11 @@ def main(argv: list[str] | None = None) -> int:
         nargs="?",
         default=None,
         help="simulate-telegram-message: inbound text (positional)",
+    )
+    parser.add_argument(
+        "--g4-validation",
+        action="store_true",
+        help="feature-importance: G4 auto-validation report (legacy; default is S55 expectancy correlations)",
     )
     parser.add_argument(
         "--today",
@@ -1032,15 +1049,22 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "feature-importance":
-        from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
-            format_feature_importance_report_g4,
-            run_validation_cycle_g4,
-        )
-        with market_events_connection() as conn:
-            apply_migrations(conn)
-            run_validation_cycle_g4(conn, days=max(1, args.days))
-            conn.commit()
-            print(format_feature_importance_report_g4(conn))
+        if getattr(args, "g4_validation", False):
+            from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
+                format_feature_importance_report_g4,
+                run_validation_cycle_g4,
+            )
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                run_validation_cycle_g4(conn, days=max(1, args.days))
+                conn.commit()
+                print(format_feature_importance_report_g4(conn))
+        else:
+            from bot.research.market_events.expectancy_intelligence.feature_importance import (
+                format_feature_importance,
+            )
+            with market_events_readonly_connection() as conn:
+                print(format_feature_importance(conn))
         return 0
 
     if args.command == "false-rejects":
@@ -2138,14 +2162,63 @@ def main(argv: list[str] | None = None) -> int:
             raise
         return 0
 
-    if args.command == "paper-gate-funnel":
-        from bot.research.market_events.signal_intelligence.paper_gate_funnel_s55 import (
-            format_paper_gate_funnel,
+    if args.command in ("paper-gate-funnel", "gate-funnel", "regime-report"):
+        from bot.research.market_events.signal_intelligence.gate_funnel_report import (
+            format_unified_gate_funnel,
+        )
+
+        hours = float(getattr(args, "hours", None) or 24)
+        months = float(getattr(args, "months", None) or 6.0)
+        with market_events_readonly_connection() as conn:
+            print(
+                format_unified_gate_funnel(
+                    conn,
+                    since_hours=hours,
+                    fear_greed_months=months,
+                    limit_fail_details=25,
+                )
+            )
+        return 0
+
+    if args.command == "expectancy-breakdown":
+        from bot.research.market_events.expectancy_intelligence.breakdown import (
+            format_expectancy_breakdown,
         )
 
         hours = float(getattr(args, "hours", None) or 24)
         with market_events_readonly_connection() as conn:
-            print(format_paper_gate_funnel(conn, since_hours=hours, limit_details=100))
+            print(format_expectancy_breakdown(conn, since_hours=hours))
+        return 0
+
+    if args.command == "similar-trades":
+        from bot.research.market_events.expectancy_intelligence.similar_explorer import (
+            format_similar_trades,
+        )
+
+        symbol = (args.symbol or "BTC").upper()
+        if getattr(args, "message_text", None) and not args.symbol:
+            symbol = str(args.message_text).upper().replace("USDT", "")
+        with market_events_readonly_connection() as conn:
+            print(format_similar_trades(conn, symbol=symbol))
+        return 0
+
+    if args.command == "counterfactual":
+        from bot.research.market_events.expectancy_intelligence.counterfactual import (
+            format_counterfactual,
+        )
+
+        hours = float(getattr(args, "hours", None) or 24)
+        with market_events_readonly_connection() as conn:
+            print(format_counterfactual(conn, since_hours=hours))
+        return 0
+
+    if args.command == "daily-intelligence":
+        from bot.research.market_events.expectancy_intelligence.daily_report import (
+            format_daily_intelligence_cli,
+        )
+
+        with market_events_connection() as conn:
+            print(format_daily_intelligence_cli(conn))
         return 0
 
     if args.command == "trade-regression-audit":

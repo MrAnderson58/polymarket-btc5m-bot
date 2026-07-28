@@ -1,8 +1,8 @@
 # CONTEXT
 
-**Updated:** 2026-07-27  
+**Updated:** 2026-07-28  
 **Branch:** `develop-terminal`  
-**Tip:** `b346360` (TI V1 foundation: `f4ce39c`)  
+**Tip:** Expectancy Intelligence V1 (analytics only; no gate changes)  
 **Companion:** refresh `PROJECT_OS/HANDOFF.md` every session.
 
 ---
@@ -20,6 +20,7 @@ Live spine: detect → paper → learn. Primary DB: `data/market_events.db`.
 | SQLite | Contention fix shipped (`79986a5`); locks ~0 |
 | Performance | CLI `performance` shipped; read-only on `paper_strategy_runs` |
 | Trade Intelligence V1 | **Shipped** — `bot/research/market_events/trade_intelligence/`, schema v66, CLI `trade import\|list\|report\|similar` |
+| Expectancy Intelligence V1 | **Shipped** — `bot/research/market_events/expectancy_intelligence/`, diagnostics only (no trading logic) |
 | Doctor | HEALTHY (core + tradfi + dashboard typical) |
 | Paper book | **0 completed / 0 open** — waiting for first real fills |
 
@@ -43,6 +44,7 @@ Do **not** change:
 | `PROJECT_OS/HANDOFF.md` | Session bootstrap (status, metrics, commands) |
 | `PROJECT_OS/CONTEXT.md` | This file — short project context |
 | `bot/research/market_events/trade_intelligence/` | TI V1 package |
+| `bot/research/market_events/expectancy_intelligence/` | Expectancy / feature / counterfactual analytics |
 | `bot/research/market_events/performance.py` | Paper analytics (do not alter for TI) |
 | `data/market_events.db` | Live market events + paper + `ti_*` |
 
@@ -54,6 +56,19 @@ python -m bot.research.market_events trade list
 python -m bot.research.market_events trade report
 python -m bot.research.market_events trade similar --trade-id ID
 ```
+
+## Expectancy Intelligence V1 commands (read-only analytics)
+
+```bash
+python -m bot.research.market_events expectancy-breakdown --hours 24
+python -m bot.research.market_events feature-importance
+# Legacy G4 validation report: feature-importance --g4-validation
+python -m bot.research.market_events similar-trades BTC
+python -m bot.research.market_events counterfactual --hours 24
+python -m bot.research.market_events daily-intelligence
+```
+
+Closed S42 paper trades auto-write `ti_paper_knowledge` (structured memory; no gate changes).
 
 ## Local leftovers (not part of TI V1)
 

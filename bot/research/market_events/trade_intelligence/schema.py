@@ -133,6 +133,16 @@ CREATE TABLE IF NOT EXISTS ti_notes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ti_notes_trade ON ti_notes(trade_id, note_ts DESC);
+
+CREATE TABLE IF NOT EXISTS ti_paper_knowledge (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_trade_id INTEGER NOT NULL UNIQUE,
+    knowledge_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ti_paper_knowledge_updated ON ti_paper_knowledge(updated_at DESC);
 """
 
 

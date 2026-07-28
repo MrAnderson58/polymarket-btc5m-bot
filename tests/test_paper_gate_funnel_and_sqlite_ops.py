@@ -12,8 +12,8 @@ from unittest.mock import patch
 from bot.research.market_events.db import market_events_connection
 from bot.research.market_events.db_config import configure_unit_test_db_isolation
 from bot.research.market_events.event_schema import apply_migrations
-from bot.research.market_events.signal_intelligence.paper_gate_funnel_s55 import (
-    build_paper_gate_funnel,
+from bot.research.market_events.signal_intelligence.gate_funnel_report import (
+    build_unified_gate_funnel,
     format_paper_gate_funnel,
 )
 from bot.research.market_events.sqlite_manager_g05 import (
@@ -67,16 +67,14 @@ class PaperGateFunnelTests(unittest.TestCase):
                     ),
                 )
             conn.commit()
-            data = build_paper_gate_funnel(conn, since_ts=now - 10)
-            self.assertEqual(data["funnel"]["candidates"], 3)
-            self.assertEqual(data["funnel"]["rejected_negative_expectancy"], 3)
-            self.assertEqual(data["funnel"]["opened"], 0)
-            self.assertEqual(len(data["rejects"]), 3)
-            self.assertAlmostEqual(float(data["rejects"][0]["ev"]), -0.12)
-            self.assertAlmostEqual(float(data["rejects"][0]["probability"]), 0.41)
+            data = build_unified_gate_funnel(conn, since_ts=now - 10)
+            self.assertEqual(data["n_event"], 3)
+            stages = {s["stage"]: s for s in data["stages"]}
+            self.assertEqual(stages["EXPECTANCY"]["failed"], 3)
+            self.assertEqual(stages["OPEN"]["passed"], 0)
             text = format_paper_gate_funnel(conn, since_ts=now - 10)
             self.assertIn("NEGATIVE_EXPECTANCY", text)
-            self.assertIn("Отсеяно", text)
+            self.assertIn("UNIFIED GATE FUNNEL", text)
 
 
 class LockDiagnosticsTests(unittest.TestCase):
