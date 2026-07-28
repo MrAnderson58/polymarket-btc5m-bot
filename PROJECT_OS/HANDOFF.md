@@ -93,6 +93,7 @@ python -m bot.research.market_events dataset-audit
 python -m bot.research.market_events trade-statistics
 python -m bot.research.market_events feature-validation
 python -m bot.research.market_events knowledge-show
+python -m bot.research.market_events pattern-discovery
 python -m bot.research.market_events research-sync-status
 python -m bot.research.market_events sqlite-contention-report
 ```
