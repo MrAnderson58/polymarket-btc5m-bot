@@ -394,6 +394,7 @@ def write_pattern_exports(
                     "profile": c["profile"],
                     "metrics": c["metrics"],
                     "symbols_sample": c.get("symbols_sample"),
+                    "trade_indices": c.get("trade_indices") or [],
                     "n_trade_indices": len(c.get("trade_indices") or []),
                 },
                 indent=2,

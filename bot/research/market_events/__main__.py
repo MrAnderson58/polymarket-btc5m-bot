@@ -284,6 +284,8 @@ def main(argv: list[str] | None = None) -> int:
             "pattern-discovery",
             "hypothesis-show",
             "hypothesis-validate",
+            "experiment-run",
+            "experiment-show",
             "trade-regression-audit",
             "trade-postmortem",
             "market-regime",
@@ -2392,6 +2394,50 @@ def main(argv: list[str] | None = None) -> int:
             if bundle:
                 print("\n--- Example hypothesis (full evidence) ---\n")
                 print(format_hypothesis_detail(bundle[0]))
+            print(f"\nWrote {path}\n(analytics_db={db_path.resolve()} source={source})")
+        return 0
+
+    if args.command == "experiment-run":
+        from bot.research.market_events.experiment_engine.report import (
+            run_experiment_cli,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+
+        try:
+            db_path, source, _ = resolve_research_analytics_sqlite_path()
+        except ResearchSyncError as exc:
+            print(f"experiment-run failed: {exc}")
+            return 1
+        with market_events_connection(db_path=db_path) as conn:
+            apply_migrations(conn)
+            print(
+                run_experiment_cli(conn, write_reports=True)
+                + f"\n\n(analytics_db={db_path.resolve()} source={source})"
+            )
+        return 0
+
+    if args.command == "experiment-show":
+        from bot.research.market_events.experiment_engine.report import (
+            format_experiment_show,
+            write_experiments_report,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+
+        try:
+            db_path, source, _ = resolve_research_analytics_sqlite_path()
+        except ResearchSyncError as exc:
+            print(f"experiment-show failed: {exc}")
+            return 1
+        with market_events_connection(db_path=db_path) as conn:
+            apply_migrations(conn)
+            path = write_experiments_report(conn)
+            print(format_experiment_show(conn))
             print(f"\nWrote {path}\n(analytics_db={db_path.resolve()} source={source})")
         return 0
 

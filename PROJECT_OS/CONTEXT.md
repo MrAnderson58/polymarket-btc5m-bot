@@ -27,6 +27,7 @@ Live spine: detect → paper → learn. Primary DB: `data/market_events.db`.
 | Knowledge Engine V1 | **Shipped** — `knowledge_*` tables + `knowledge-show` + auto-update from feature-validation |
 | Pattern Discovery V1 | **Shipped** — `pattern-discovery` → `reports/research/patterns.md` + `patterns.json` |
 | Hypothesis Engine V1 | **Shipped** — `hypothesis-validate` / `hypothesis-show` → `reports/research/hypotheses.md` |
+| Experiment Engine V1 | **Shipped** — `experiment-run` / `experiment-show` → `reports/research/experiments.md` |
 | Doctor | HEALTHY (core + tradfi + dashboard typical) |
 | Paper book | **0 completed / 0 open** — waiting for first real fills |
 
@@ -79,6 +80,8 @@ python -m bot.research.market_events knowledge-show
 python -m bot.research.market_events pattern-discovery
 python -m bot.research.market_events hypothesis-validate
 python -m bot.research.market_events hypothesis-show
+python -m bot.research.market_events experiment-run
+python -m bot.research.market_events experiment-show
 ```
 
 ## Research Sync V1 (same DB on every machine)

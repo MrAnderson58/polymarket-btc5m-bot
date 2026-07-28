@@ -96,6 +96,8 @@ python -m bot.research.market_events knowledge-show
 python -m bot.research.market_events pattern-discovery
 python -m bot.research.market_events hypothesis-validate
 python -m bot.research.market_events hypothesis-show
+python -m bot.research.market_events experiment-run
+python -m bot.research.market_events experiment-show
 python -m bot.research.market_events research-sync-status
 python -m bot.research.market_events sqlite-contention-report
 ```
