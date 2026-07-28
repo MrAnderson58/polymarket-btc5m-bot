@@ -333,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
             "research-sync-export",
             "research-sync-import",
             "research-sync-status",
+            "research-sync-doctor",
         ),
     )
     parser.add_argument(
@@ -2244,9 +2245,21 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.research_pack_01.analysis import (
             run_trade_statistics,
         )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
 
-        with market_events_connection() as conn:
-            print(run_trade_statistics(conn, write_reports=True))
+        try:
+            db_path, source, _ = resolve_research_analytics_sqlite_path()
+        except ResearchSyncError as exc:
+            print(f"trade-statistics failed: {exc}")
+            return 1
+        with market_events_readonly_connection(db_path=db_path) as conn:
+            print(
+                run_trade_statistics(conn, write_reports=True)
+                + f"\n\n(analytics_db={db_path.resolve()} source={source})"
+            )
         return 0
 
     if args.command == "trade-regression-audit":
@@ -2997,6 +3010,12 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.research_sync_v1 import format_research_sync_status
 
         print(format_research_sync_status())
+        return 0
+
+    if args.command == "research-sync-doctor":
+        from bot.research.market_events.research_sync_v1 import format_research_sync_doctor
+
+        print(format_research_sync_doctor())
         return 0
 
     if args.command == "market-db-backup":

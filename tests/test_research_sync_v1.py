@@ -102,7 +102,17 @@ class ResearchSyncV1Tests(unittest.TestCase):
         text = format_research_sync_status()
         self.assertIn("RESEARCH SYNC STATUS", text)
 
-    def test_import_rejects_bad_sha(self) -> None:
+    def test_doctor_lists_export_db(self) -> None:
+        from bot.research.market_events.research_sync_v1 import (
+            build_research_sync_doctor,
+            format_research_sync_doctor,
+        )
+
+        doc = build_research_sync_doctor()
+        self.assertTrue(doc.get("export_db_path"))
+        text = format_research_sync_doctor()
+        self.assertIn("RESEARCH SYNC DOCTOR", text)
+        self.assertIn("EXPORT", text)
         manifest = export_research_snapshot()
         archive = Path(manifest["archive_path"])
         import_research_snapshot(archive)

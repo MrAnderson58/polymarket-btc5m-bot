@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
 import tarfile
@@ -13,8 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from bot.research.market_events.config import BASE_DIR
-from bot.research.market_events.db_config import resolve_market_events_db_config
+from bot.research.market_events.config import BASE_DIR, DEFAULT_DB_PATH
+from bot.research.market_events.db_config import MarketEventsDbConfig, resolve_market_events_db_config
 from bot.research.market_events.event_schema import SCHEMA_VERSION
 
 MANIFEST_VERSION = 1
@@ -22,6 +23,55 @@ RESEARCH_SYNC_DIR = BASE_DIR / "data" / "research_sync"
 SNAPSHOTS_DIR = BASE_DIR / "data" / "research_snapshots"
 ACTIVE_MANIFEST = RESEARCH_SYNC_DIR / "active_manifest.json"
 INSTALLED_DB = RESEARCH_SYNC_DIR / "market_events.db"
+
+RESEARCH_ANALYTICS_DB_ENV = "MARKET_EVENTS_RESEARCH_ANALYTICS_DB"
+
+
+def resolve_research_analytics_sqlite_path() -> tuple[Path, str, MarketEventsDbConfig]:
+    """Canonical SQLite for research export, trade-statistics, and sync doctor."""
+    override = os.getenv(RESEARCH_ANALYTICS_DB_ENV, "").strip()
+    cfg = resolve_market_events_db_config()
+    if cfg.backend != "sqlite":
+        raise ResearchSyncError(
+            "Research analytics requires SQLite (or set MARKET_EVENTS_DB_BACKEND=sqlite). "
+            "PostgreSQL export is not supported in Research Sync V1.",
+        )
+    if override:
+        path = Path(override).expanduser().resolve()
+        return path, f"env:{RESEARCH_ANALYTICS_DB_ENV}", cfg
+    return cfg.sqlite_path.expanduser().resolve(), cfg.config_source, cfg
+
+
+def research_db_candidate_paths() -> list[tuple[str, Path]]:
+    """Known locations to compare in doctor (deduped)."""
+    paths: list[tuple[str, Path]] = []
+    try:
+        analytics, src, _ = resolve_research_analytics_sqlite_path()
+        paths.append((f"analytics ({src})", analytics))
+    except ResearchSyncError:
+        pass
+    cfg = resolve_market_events_db_config()
+    if cfg.backend == "sqlite":
+        paths.append(("live_config", cfg.sqlite_path.expanduser().resolve()))
+    paths.extend(
+        [
+            ("default_repo", DEFAULT_DB_PATH.resolve()),
+            ("research_sync_install", INSTALLED_DB.resolve()),
+        ]
+    )
+    data_dir = BASE_DIR / "data"
+    if data_dir.is_dir():
+        for p in sorted(data_dir.glob("*.db")):
+            paths.append((f"data/{p.name}", p.resolve()))
+    seen: set[str] = set()
+    out: list[tuple[str, Path]] = []
+    for label, p in paths:
+        key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((label, p))
+    return out
 
 
 class ResearchSyncError(Exception):
@@ -61,11 +111,21 @@ def _snapshot_counts(db_path: Path) -> dict[str, int]:
     conn = sqlite3.connect(str(db_path), timeout=30)
     conn.row_factory = sqlite3.Row
     try:
-        for table, sql in (
+        queries = (
             ("s55_closed", "SELECT COUNT(*) AS n FROM market_events_trade_features_s55 WHERE closed_at IS NOT NULL"),
+            (
+                "s55_closed_pnl",
+                "SELECT COUNT(*) AS n FROM market_events_trade_features_s55 "
+                "WHERE closed_at IS NOT NULL AND pnl_pct IS NOT NULL",
+            ),
             ("s55_all", "SELECT COUNT(*) AS n FROM market_events_trade_features_s55"),
-            ("paper_trades_s42", "SELECT COUNT(*) AS n FROM paper_trades_s42"),
-        ):
+            (
+                "paper_trades_s42_closed",
+                "SELECT COUNT(*) AS n FROM market_events_paper_trades_s42 WHERE status = 'CLOSED'",
+            ),
+            ("paper_trades_s42_all", "SELECT COUNT(*) AS n FROM market_events_paper_trades_s42"),
+        )
+        for table, sql in queries:
             try:
                 row = conn.execute(sql).fetchone()
                 counts[table] = int(row["n"] if row else 0)
@@ -79,6 +139,19 @@ def _snapshot_counts(db_path: Path) -> dict[str, int]:
     finally:
         conn.close()
     return counts
+
+
+def _file_meta(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"exists": False, "path": str(path)}
+    return {
+        "exists": True,
+        "path": str(path.resolve()),
+        "size_bytes": path.stat().st_size,
+        "size_mb": round(path.stat().st_size / (1024 * 1024), 2),
+        "sha256": sha256_file(path),
+        "counts": _snapshot_counts(path),
+    }
 
 
 def build_manifest(db_path: Path, *, snapshot_id: str, created_at: str) -> dict[str, Any]:
@@ -108,12 +181,7 @@ def verify_manifest(manifest: dict[str, Any], db_path: Path) -> None:
 
 
 def export_research_snapshot(*, dest: Path | None = None) -> dict[str, Any]:
-    cfg = resolve_market_events_db_config()
-    if cfg.backend != "sqlite":
-        raise ResearchSyncError(
-            "research-sync-export supports SQLite only in V1 (set MARKET_EVENTS_DB_BACKEND=sqlite)",
-        )
-    src = cfg.sqlite_path
+    src, src_label, cfg = resolve_research_analytics_sqlite_path()
     if not src.exists():
         raise ResearchSyncError(f"source database not found: {src}")
 
@@ -137,6 +205,8 @@ def export_research_snapshot(*, dest: Path | None = None) -> dict[str, Any]:
 
     manifest["archive_path"] = str(archive)
     manifest["source_path"] = str(src)
+    manifest["source_label"] = src_label
+    manifest["export_db_absolute_path"] = str(src.resolve())
     return manifest
 
 
@@ -169,48 +239,73 @@ def import_research_snapshot(
         ACTIVE_MANIFEST.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     result = dict(manifest)
-    cfg = resolve_market_events_db_config()
-    result["analytics_db_path"] = str(cfg.sqlite_path)
+    analytics_path, _, _ = resolve_research_analytics_sqlite_path()
+    result["analytics_db_path"] = str(analytics_path)
     result["sync_db_path"] = str(INSTALLED_DB)
-    result["synced"] = sha256_file(cfg.sqlite_path) == manifest["db_sha256"] if cfg.sqlite_path.exists() else False
+    result["synced"] = (
+        sha256_file(analytics_path) == manifest["db_sha256"] if analytics_path.exists() else False
+    )
 
     if activate:
+        cfg = resolve_market_events_db_config()
         if cfg.backend != "sqlite":
             raise ResearchSyncError("--activate requires SQLite backend")
-        _checkpoint_sqlite(cfg.sqlite_path)
-        if cfg.sqlite_path.exists() and cfg.sqlite_path.resolve() != INSTALLED_DB.resolve():
-            bak = cfg.sqlite_path.with_suffix(f".db.pre_sync_{int(time.time())}")
-            shutil.copy2(cfg.sqlite_path, bak)
+        target = analytics_path
+        _checkpoint_sqlite(target)
+        if target.exists() and target.resolve() != INSTALLED_DB.resolve():
+            bak = target.with_suffix(f".db.pre_sync_{int(time.time())}")
+            shutil.copy2(target, bak)
             result["replaced_backup"] = str(bak)
-        shutil.copy2(INSTALLED_DB, cfg.sqlite_path)
-        result["activated_path"] = str(cfg.sqlite_path)
+        shutil.copy2(INSTALLED_DB, target)
+        result["activated_path"] = str(target)
         result["synced"] = True
 
     return result
 
 
 def research_sync_status() -> dict[str, Any]:
-    cfg = resolve_market_events_db_config()
+    try:
+        analytics_path, analytics_source, cfg = resolve_research_analytics_sqlite_path()
+    except ResearchSyncError as exc:
+        analytics_path = None
+        analytics_source = str(exc)
+        cfg = resolve_market_events_db_config()
+
+    manifest_exists = ACTIVE_MANIFEST.exists()
+    sync_db_exists = INSTALLED_DB.exists()
+
     out: dict[str, Any] = {
         "backend": cfg.backend,
-        "analytics_db_path": str(cfg.sqlite_path) if cfg.backend == "sqlite" else cfg.url,
-        "sync_db_path": str(INSTALLED_DB),
-        "active_manifest_path": str(ACTIVE_MANIFEST),
+        "analytics_db_path": str(analytics_path) if analytics_path else None,
+        "analytics_db_source": analytics_source,
+        "export_db_path": str(analytics_path) if analytics_path else None,
+        "import_db_path": str(INSTALLED_DB.resolve()),
+        "sync_db_path": str(INSTALLED_DB.resolve()),
+        "active_manifest_path": str(ACTIVE_MANIFEST.resolve()),
+        "active_manifest_exists": manifest_exists,
+        "sync_db_exists": sync_db_exists,
         "snapshot_id": None,
         "snapshot_created_at": None,
         "expected_sha256": None,
         "analytics_sha256": None,
         "sync_install_sha256": None,
+        "analytics_counts": None,
         "sha_match": False,
         "state": "NO_ACTIVE_SNAPSHOT",
+        "state_reason": None,
     }
 
     manifest: dict[str, Any] | None = None
-    if ACTIVE_MANIFEST.exists():
+    if manifest_exists:
         try:
             manifest = json.loads(ACTIVE_MANIFEST.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             out["state"] = "MANIFEST_CORRUPT"
+            out["state_reason"] = f"Could not parse {ACTIVE_MANIFEST}"
+    else:
+        out["state_reason"] = (
+            f"Missing {ACTIVE_MANIFEST}. Import a snapshot to activate research sync."
+        )
 
     if manifest:
         out["snapshot_id"] = manifest.get("snapshot_id")
@@ -218,9 +313,10 @@ def research_sync_status() -> dict[str, Any]:
         out["expected_sha256"] = manifest.get("db_sha256")
         out["counts"] = manifest.get("counts")
 
-    if cfg.backend == "sqlite" and cfg.sqlite_path.exists():
-        out["analytics_sha256"] = sha256_file(cfg.sqlite_path)
-    if INSTALLED_DB.exists():
+    if analytics_path and analytics_path.exists():
+        out["analytics_sha256"] = sha256_file(analytics_path)
+        out["analytics_counts"] = _snapshot_counts(analytics_path)
+    if sync_db_exists:
         out["sync_install_sha256"] = sha256_file(INSTALLED_DB)
 
     expected = out.get("expected_sha256")
@@ -230,17 +326,35 @@ def research_sync_status() -> dict[str, Any]:
     if expected and analytics and analytics == expected:
         out["sha_match"] = True
         out["state"] = "SYNCED"
+        out["state_reason"] = "Analytics DB SHA256 matches active manifest."
     elif expected and installed and installed == expected and analytics != expected:
         out["state"] = "DRIFT"
-        out["hint"] = (
-            f"Point analytics at sync DB: export MARKET_EVENTS_DATABASE_PATH={INSTALLED_DB}"
+        out["state_reason"] = (
+            "Installed sync DB matches manifest but analytics DB differs "
+            f"({analytics_path})."
         )
+        out["hint"] = (
+            f"python -m bot.research.market_events research-sync-import "
+            f"--file <snapshot.tar.gz> --activate"
+        )
+        out["hint_env"] = f"export MARKET_EVENTS_DATABASE_PATH={INSTALLED_DB}"
     elif expected and installed and installed != expected:
         out["state"] = "INSTALL_DRIFT"
+        out["state_reason"] = "research_sync/market_events.db differs from manifest."
     elif manifest and not expected:
         out["state"] = "MANIFEST_INCOMPLETE"
+        out["state_reason"] = "active_manifest.json missing db_sha256."
     elif not manifest:
         out["state"] = "NO_ACTIVE_SNAPSHOT"
+        if not sync_db_exists:
+            out["state_reason"] = (
+                f"No active manifest and no {INSTALLED_DB}. "
+                "Run research-sync-import to install a snapshot."
+            )
+        out["activate_command"] = (
+            "python -m bot.research.market_events research-sync-import "
+            "--file <snapshot.tar.gz> --activate"
+        )
 
     return out
 
@@ -250,20 +364,105 @@ def format_research_sync_status() -> str:
     lines = [
         "RESEARCH SYNC STATUS",
         f"  state={s['state']}",
+        f"  state_reason={s.get('state_reason')}",
         f"  backend={s['backend']}",
+        f"  active_manifest_exists={s.get('active_manifest_exists')}  path={s.get('active_manifest_path')}",
+        f"  sync_db_exists={s.get('sync_db_exists')}  path={s.get('sync_db_path')}",
+        f"  analytics_db_source={s.get('analytics_db_source')}",
+        f"  analytics_db={s.get('analytics_db_path')}",
+        f"  export_db={s.get('export_db_path')}",
+        f"  import_db={s.get('import_db_path')}",
         f"  snapshot_id={s.get('snapshot_id')}",
         f"  snapshot_date={s.get('snapshot_created_at')}",
         f"  expected_sha256={s.get('expected_sha256')}",
-        f"  analytics_db={s.get('analytics_db_path')}",
         f"  analytics_sha256={s.get('analytics_sha256')}",
-        f"  sync_install={s.get('sync_db_path')}",
         f"  sync_sha256={s.get('sync_install_sha256')}",
         f"  sha_match={s.get('sha_match')}",
     ]
+    if s.get("analytics_counts"):
+        lines.append(f"  analytics_counts={s['analytics_counts']}")
     if s.get("counts"):
-        lines.append(f"  counts={s['counts']}")
+        lines.append(f"  manifest_counts={s['counts']}")
     if s.get("hint"):
         lines.append(f"  hint={s['hint']}")
+    if s.get("hint_env"):
+        lines.append(f"  hint_env={s['hint_env']}")
+    if s.get("activate_command"):
+        lines.append(f"  activate={s['activate_command']}")
+    return "\n".join(lines)
+
+
+def build_research_sync_doctor() -> dict[str, Any]:
+    try:
+        export_path, export_source, _ = resolve_research_analytics_sqlite_path()
+    except ResearchSyncError as exc:
+        export_path = None
+        export_source = str(exc)
+    candidates = []
+    for label, path in research_db_candidate_paths():
+        meta = _file_meta(path)
+        meta["label"] = label
+        meta["is_export_db"] = export_path is not None and path.resolve() == export_path.resolve()
+        candidates.append(meta)
+    return {
+        "export_db_path": str(export_path.resolve()) if export_path else None,
+        "export_db_source": export_source,
+        "import_db_path": str(INSTALLED_DB.resolve()),
+        "analytics_db_path": str(export_path.resolve()) if export_path else None,
+        "active_manifest": {
+            "exists": ACTIVE_MANIFEST.exists(),
+            "path": str(ACTIVE_MANIFEST.resolve()),
+        },
+        "candidates": candidates,
+        "env_hint": (
+            f"Set {RESEARCH_ANALYTICS_DB_ENV}=/absolute/path/to/market_events.db "
+            "if export uses the wrong file."
+        ),
+    }
+
+
+def format_research_sync_doctor() -> str:
+    doc = build_research_sync_doctor()
+    lines = [
+        "RESEARCH SYNC DOCTOR",
+        f"  export_db_path={doc.get('export_db_path')}",
+        f"  export_db_source={doc.get('export_db_source')}",
+        f"  analytics_db_path={doc.get('analytics_db_path')}",
+        f"  import_db_path={doc.get('import_db_path')}",
+        f"  env_hint={doc.get('env_hint')}",
+        "",
+        "  DB candidates (compare s55_closed / paper_trades_s42_closed):",
+    ]
+    for c in doc.get("candidates") or []:
+        flag = " [EXPORT]" if c.get("is_export_db") else ""
+        if not c.get("exists"):
+            lines.append(f"    - {c.get('label')}{flag}: missing {c.get('path')}")
+            continue
+        counts = c.get("counts") or {}
+        lines.append(
+            f"    - {c.get('label')}{flag}: {c.get('path')}  "
+            f"size_mb={c.get('size_mb')}  sha={str(c.get('sha256', ''))[:16]}…  "
+            f"s55_closed={counts.get('s55_closed')}  "
+            f"s55_closed_pnl={counts.get('s55_closed_pnl')}  "
+            f"s42_closed={counts.get('paper_trades_s42_closed')}"
+        )
+    best_n = -1
+    best_label = None
+    export_n = -1
+    for c in doc.get("candidates") or []:
+        if not c.get("exists"):
+            continue
+        n = int((c.get("counts") or {}).get("s55_closed") or 0)
+        if c.get("is_export_db"):
+            export_n = n
+        if n > best_n:
+            best_n = n
+            best_label = c.get("label")
+    if best_label and best_n > export_n:
+        lines.append(
+            f"  warning=Candidate '{best_label}' has more s55_closed ({best_n}) than export DB ({export_n}). "
+            f"Set {RESEARCH_ANALYTICS_DB_ENV} to that path before export."
+        )
     return "\n".join(lines)
 
 
@@ -274,8 +473,10 @@ def format_export_result(manifest: dict[str, Any]) -> str:
             f"  snapshot_id={manifest.get('snapshot_id')}",
             f"  created_at={manifest.get('created_at')}",
             f"  db_sha256={manifest.get('db_sha256')}",
+            f"  export_db_absolute_path={manifest.get('export_db_absolute_path') or manifest.get('source_path')}",
             f"  archive={manifest.get('archive_path')}",
             f"  source={manifest.get('source_path')}",
+            f"  source_label={manifest.get('source_label')}",
             f"  counts={manifest.get('counts')}",
         ]
     )

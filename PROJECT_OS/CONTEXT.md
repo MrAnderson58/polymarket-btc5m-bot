@@ -78,6 +78,7 @@ python -m bot.research.market_events research-sync-export
 python -m bot.research.market_events research-sync-import --file data/research_snapshots/research_snapshot_*.tar.gz
 python -m bot.research.market_events research-sync-import --file … --activate
 python -m bot.research.market_events research-sync-status
+python -m bot.research.market_events research-sync-doctor
 ```
 
 Bundle: `market_events.db` + `manifest.json` (SHA256, snapshot date, counts). `research-sync-status` → `SYNCED` when analytics DB matches manifest.
