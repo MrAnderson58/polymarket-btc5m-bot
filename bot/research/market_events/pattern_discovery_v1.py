@@ -27,6 +27,7 @@ _CLUSTER_KEYS: tuple[str, ...] = (
 )
 
 _MIN_CLUSTER_N = 5
+KMEANS_SEED = 42  # fixed — Pattern Discovery must be reproducible
 
 
 def _finite(v: Any) -> float | None:
@@ -87,7 +88,7 @@ def _kmeans(
     *,
     k: int,
     max_iter: int = 40,
-    seed: int = 42,
+    seed: int = KMEANS_SEED,
 ) -> list[int]:
     n = len(matrix)
     if n == 0:

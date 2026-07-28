@@ -286,6 +286,7 @@ def main(argv: list[str] | None = None) -> int:
             "hypothesis-validate",
             "experiment-run",
             "experiment-show",
+            "research-selftest",
             "trade-regression-audit",
             "trade-postmortem",
             "market-regime",
@@ -576,6 +577,17 @@ def main(argv: list[str] | None = None) -> int:
         "--skip-network",
         action="store_true",
         help="doctor/self-test/watch: skip live HTTP API probes",
+    )
+    parser.add_argument(
+        "--regenerate-golden",
+        action="store_true",
+        dest="regenerate",
+        help="research-selftest: rebuild golden expectations_v1.json",
+    )
+    parser.add_argument(
+        "--full-perf",
+        action="store_true",
+        help="research-selftest: run 100/1000/5000/10000 performance suite",
     )
     parser.add_argument(
         "--platform",
@@ -2440,6 +2452,22 @@ def main(argv: list[str] | None = None) -> int:
             print(format_experiment_show(conn))
             print(f"\nWrote {path}\n(analytics_db={db_path.resolve()} source={source})")
         return 0
+
+    if args.command == "research-selftest":
+        from bot.research.market_events.research_qa.selftest import (
+            format_selftest_report,
+            run_research_selftest,
+        )
+
+        regenerate = bool(getattr(args, "regenerate", False))
+        full_perf = bool(getattr(args, "full_perf", False))
+        report = run_research_selftest(
+            light_perf=not full_perf,
+            include_unit_tests=True,
+            regenerate=regenerate,
+        )
+        print(format_selftest_report(report))
+        return 0 if report.total_failed == 0 else 1
 
     if args.command == "trade-regression-audit":
         if _audit_s42_db_path(command="trade-regression-audit") != 0:
