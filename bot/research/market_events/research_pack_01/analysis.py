@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from bot.research.market_events.expectancy_intelligence.stats import (
+    classify_pnl,
     mean,
     median,
     profit_factor_from_pnls,
@@ -14,6 +15,8 @@ from bot.research.market_events.expectancy_intelligence.stats import (
     trade_outcome_stats,
 )
 from bot.research.market_events.research_pack_01.historical import load_closed_s55_trades
+
+MIN_RELIABLE_N = 30
 
 BUCKET_FEATURES: tuple[tuple[str, str], ...] = (
     ("funding", "Funding"),
@@ -55,8 +58,9 @@ def _feature_value(trade: dict[str, Any], key: str) -> Any:
 def build_trade_statistics(trades: list[dict[str, Any]]) -> dict[str, Any]:
     pnls = [float(t["pnl_pct"]) for t in trades]
     n = len(pnls)
-    wins = [p for p in pnls if p > 0]
-    losses = [p for p in pnls if p < 0]
+    wins = sum(1 for p in pnls if classify_pnl(p) == "win")
+    losses = sum(1 for p in pnls if classify_pnl(p) == "loss")
+    breakeven = sum(1 for p in pnls if classify_pnl(p) == "breakeven")
     mfes = [float(t["mfe_pct"]) for t in trades if t.get("mfe_pct") is not None]
     maes = [float(t["mae_pct"]) for t in trades if t.get("mae_pct") is not None]
     holds = [float(t["duration_sec"]) for t in trades if t.get("duration_sec") is not None]
@@ -64,16 +68,24 @@ def build_trade_statistics(trades: list[dict[str, Any]]) -> dict[str, Any]:
     stop_hits = [t for t in trades if int(t.get("stopped") or 0) == 1]
     med = median(pnls)
     pf = profit_factor_from_pnls(pnls)
-    agg = trade_outcome_stats(trades)
+    agg = trade_outcome_stats(trades, min_reliable_n=MIN_RELIABLE_N)
     return {
         "total_trades": n,
-        "winning_trades": len(wins),
-        "losing_trades": len(losses),
+        "winning_trades": wins,
+        "losing_trades": losses,
+        "breakeven_trades": breakeven,
         "win_rate": agg["win_rate"],
+        "win_rate_ci95_low": agg["win_rate_ci95_low"],
+        "win_rate_ci95_high": agg["win_rate_ci95_high"],
         "average_pnl": agg["avg_pnl"],
+        "average_pnl_se": agg["avg_pnl_se"],
+        "average_pnl_ci95_low": agg["avg_pnl_ci95_low"],
+        "average_pnl_ci95_high": agg["avg_pnl_ci95_high"],
         "median_pnl": round(med, 4) if med is not None else None,
         "profit_factor": pf,
         "expectancy": agg["expectancy"],
+        "expectancy_ci95_low": agg["expectancy_ci95_low"],
+        "expectancy_ci95_high": agg["expectancy_ci95_high"],
         "average_mfe": round(mean(mfes), 4) if mfes else None,
         "average_mae": round(mean(maes), 4) if maes else None,
         "largest_win": round(max(pnls), 4) if pnls else None,
@@ -84,37 +96,36 @@ def build_trade_statistics(trades: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _equal_width_edges(values: list[float], n_buckets: int = 5) -> list[tuple[float, float]]:
-    if not values:
+def _quantile_bucket_groups(
+    trades: list[dict[str, Any]],
+    key: str,
+    *,
+    n_buckets: int = 5,
+) -> list[tuple[str, list[dict[str, Any]]]]:
+    """Equal-count quantile buckets (~100/n_buckets % of sample each)."""
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for t in trades:
+        v = _feature_value(t, key)
+        if isinstance(v, float):
+            scored.append((v, t))
+    if not scored:
         return []
-    lo, hi = min(values), max(values)
-    if lo == hi:
-        return [(lo, hi)]
-    step = (hi - lo) / n_buckets
-    edges: list[tuple[float, float]] = []
-    for i in range(n_buckets):
-        a = lo + i * step
-        b = lo + (i + 1) * step if i < n_buckets - 1 else hi
-        edges.append((round(a, 4), round(b, 4)))
-    return edges
-
-
-def _bucket_label(lo: float, hi: float, *, scale_100: bool) -> str:
-    if scale_100 and 0 <= lo and hi <= 100:
-        return f"{lo:.0f}-{hi:.0f}"
-    return f"{lo:.2f}-{hi:.2f}"
-
-
-def _assign_bucket(val: float, edges: list[tuple[float, float]], *, key: str = "") -> str | None:
-    scale_100 = key == "fear_greed"
-    for i, (lo, hi) in enumerate(edges):
-        is_last = i == len(edges) - 1
-        if is_last:
-            if lo <= val <= hi:
-                return _bucket_label(lo, hi, scale_100=scale_100)
-        elif lo <= val < hi:
-            return _bucket_label(lo, hi, scale_100=scale_100)
-    return None
+    scored.sort(key=lambda x: x[0])
+    n = len(scored)
+    groups: list[list[dict[str, Any]]] = [[] for _ in range(n_buckets)]
+    for rank, (_v, t) in enumerate(scored):
+        b = min(n_buckets - 1, int(rank * n_buckets / n))
+        groups[b].append(t)
+    pct = int(100 / n_buckets)
+    out: list[tuple[str, list[dict[str, Any]]]] = []
+    for i, subset in enumerate(groups):
+        if not subset:
+            continue
+        vals = [float(_feature_value(t, key)) for t in subset if isinstance(_feature_value(t, key), float)]
+        lo, hi = min(vals), max(vals)
+        q_label = f"Q{i + 1} (~{pct}%ile) {lo:.4g}-{hi:.4g}"
+        out.append((q_label, subset))
+    return out
 
 
 def build_bucket_analysis(
@@ -124,61 +135,42 @@ def build_bucket_analysis(
 ) -> list[dict[str, Any]]:
     sections: list[dict[str, Any]] = []
     for key, label in BUCKET_FEATURES:
-        vals: list[float] = []
-        for t in trades:
-            v = _feature_value(t, key)
-            if v is not None and isinstance(v, float):
-                vals.append(v)
-        edges = _equal_width_edges(vals, n_buckets=n_buckets)
         buckets: list[dict[str, Any]] = []
-        for lo, hi in edges:
-            blabel = _bucket_label(lo, hi, scale_100=key == "fear_greed")
-            subset = []
-            for t in trades:
-                v = _feature_value(t, key)
-                if v is None or not isinstance(v, float):
-                    continue
-                if _assign_bucket(v, edges, key=key) == blabel:
-                    subset.append(t)
-            stats = trade_outcome_stats(subset)
-            buckets.append(
-                {
-                    "bucket": blabel,
-                    "lo": lo,
-                    "hi": hi,
-                    **stats,
-                }
-            )
+        for blabel, subset in _quantile_bucket_groups(trades, key, n_buckets=n_buckets):
+            stats = trade_outcome_stats(subset, min_reliable_n=MIN_RELIABLE_N)
+            buckets.append({"bucket": blabel, **stats})
         sections.append({"feature": label, "key": key, "buckets": buckets})
     return sections
+
+
+def _trade_quantile_label(
+    trades: list[dict[str, Any]], key: str, trade: dict[str, Any], *, n_buckets: int
+) -> str | None:
+    groups = _quantile_bucket_groups(trades, key, n_buckets=n_buckets)
+    for blabel, subset in groups:
+        if trade in subset:
+            return blabel
+    return None
 
 
 def build_pair_analysis(
     trades: list[dict[str, Any]],
     *,
-    n_bins: int = 3,
+    n_bins: int = 5,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     combo_rows: list[dict[str, Any]] = []
     for k1, k2, title in PAIR_FEATURES:
-        v1 = [float(_feature_value(t, k1)) for t in trades if isinstance(_feature_value(t, k1), float)]
-        v2 = [float(_feature_value(t, k2)) for t in trades if isinstance(_feature_value(t, k2), float)]
-        if not v1 or not v2:
-            continue
-        e1 = _equal_width_edges(v1, n_buckets=n_bins)
-        e2 = _equal_width_edges(v2, n_buckets=n_bins)
         grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
         for t in trades:
-            a = _feature_value(t, k1)
-            b = _feature_value(t, k2)
-            if not isinstance(a, float) or not isinstance(b, float):
+            if not isinstance(_feature_value(t, k1), float) or not isinstance(_feature_value(t, k2), float):
                 continue
-            la = _assign_bucket(a, e1, key=k1)
-            lb = _assign_bucket(b, e2, key=k2)
+            la = _trade_quantile_label(trades, k1, t, n_buckets=n_bins)
+            lb = _trade_quantile_label(trades, k2, t, n_buckets=n_bins)
             if la is None or lb is None:
                 continue
             grouped.setdefault((la, lb), []).append(t)
         for (b1, b2), subset in grouped.items():
-            stats = trade_outcome_stats(subset)
+            stats = trade_outcome_stats(subset, min_reliable_n=MIN_RELIABLE_N)
             combo_rows.append(
                 {
                     "pair": title,
@@ -188,8 +180,10 @@ def build_pair_analysis(
                     **stats,
                 }
             )
-    combo_rows.sort(key=lambda x: (-x["expectancy"], -x["trades"]))
-    return combo_rows, combo_rows[:20]
+    combo_rows.sort(key=lambda x: (-x["rank_score"], -x["trades"]))
+    reliable = [r for r in combo_rows if r["reliable"]]
+    top20 = reliable[:20] if reliable else combo_rows[:20]
+    return combo_rows, top20
 
 
 def build_winner_loser_comparison(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -256,23 +250,16 @@ def _oi_label(trade: dict[str, Any]) -> str:
 
 
 def build_market_playbook(trades: list[dict[str, Any]]) -> dict[str, Any]:
-    """Multi-feature condition strings ranked by performance."""
-    trend_vals = [float(t["trend"]) for t in trades if t.get("trend") is not None]
-    fund_vals = [float(t["funding"]) for t in trades if t.get("funding") is not None]
-    t_edges = _equal_width_edges(trend_vals, 5) if trend_vals else []
-    f_edges = _equal_width_edges(fund_vals, 5) if fund_vals else []
-
+    """Multi-feature condition strings ranked by EV×log(n)."""
     grouped: dict[str, list[dict[str, Any]]] = {}
     for t in trades:
         parts: list[str] = []
-        if t.get("trend") is not None and t_edges:
-            lb = _assign_bucket(float(t["trend"]), t_edges, key="trend")
-            if lb:
-                parts.append(f"Trend {lb}")
-        if t.get("funding") is not None and f_edges:
-            lb = _assign_bucket(float(t["funding"]), f_edges, key="funding")
-            if lb:
-                parts.append(f"Funding {lb}")
+        tl = _trade_quantile_label(trades, "trend", t, n_buckets=5)
+        if tl:
+            parts.append(f"Trend {tl}")
+        fl = _trade_quantile_label(trades, "funding", t, n_buckets=5)
+        if fl:
+            parts.append(f"Funding {fl}")
         parts.append(_oi_label(t))
         reg = t.get("market_regime")
         if reg:
@@ -282,14 +269,24 @@ def build_market_playbook(trades: list[dict[str, Any]]) -> dict[str, Any]:
 
     conditions: list[dict[str, Any]] = []
     for label, subset in grouped.items():
-        stats = trade_outcome_stats(subset)
+        stats = trade_outcome_stats(subset, min_reliable_n=MIN_RELIABLE_N)
         if stats["trades"] < 1:
             continue
         conditions.append({"condition": label, **stats})
 
-    profitable = sorted(conditions, key=lambda x: (-x["expectancy"], -x["trades"]))[:20]
-    losing = sorted(conditions, key=lambda x: (x["expectancy"], -x["trades"]))[:20]
-    return {"profitable": profitable, "losing": losing, "all": conditions}
+    reliable = [c for c in conditions if c["reliable"]]
+    profitable = sorted(reliable, key=lambda x: -x["rank_score"])[:20]
+    losing = sorted(reliable, key=lambda x: x["rank_score"])[:20]
+    low_n = sorted(
+        [c for c in conditions if not c["reliable"]],
+        key=lambda x: -abs(x["rank_score"]),
+    )
+    return {
+        "profitable": profitable,
+        "losing": losing,
+        "low_confidence": low_n,
+        "all": conditions,
+    }
 
 
 def build_research_pack_01(conn: Any, *, limit: int = 50000) -> dict[str, Any]:
@@ -306,6 +303,24 @@ def build_research_pack_01(conn: Any, *, limit: int = 50000) -> dict[str, Any]:
     }
 
 
+def _fmt_ci(low: Any, high: Any) -> str:
+    if low is None or high is None:
+        return "CI95: n/a"
+    return f"CI95 [{low}, {high}]"
+
+
+def _bucket_line(b: dict[str, Any]) -> str:
+    pf = b["profit_factor"]
+    pf_s = "n/a" if pf is None else (f"{pf:.2f}" if pf != float("inf") else "inf")
+    flag = "" if b.get("reliable") else " [LOW-N]"
+    return (
+        f"    {b['bucket']}{flag}: n={b['trades']} WR={b['win_rate']}% "
+        f"({_fmt_ci(b.get('win_rate_ci95_low'), b.get('win_rate_ci95_high'))}) "
+        f"avg={b['avg_pnl']}% SE={b.get('avg_pnl_se')} {_fmt_ci(b.get('avg_pnl_ci95_low'), b.get('avg_pnl_ci95_high'))} "
+        f"PF={pf_s} EV={b['expectancy']}% rank={b.get('rank_score')}"
+    )
+
+
 def write_research_pack_files(data: dict[str, Any], root: Path | None = None) -> dict[str, Path]:
     out_dir = root or Path("reports/research")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -317,12 +332,15 @@ def write_research_pack_files(data: dict[str, Any], root: Path | None = None) ->
         "# Trade Statistics (S55 closed paper)",
         "",
         f"- Total trades: {stats['total_trades']}",
-        f"- Winning: {stats['winning_trades']}  Losing: {stats['losing_trades']}",
-        f"- Win rate: {stats['win_rate']}%",
-        f"- Average PnL: {stats['average_pnl']}%",
+        f"- Winning: {stats['winning_trades']}  Losing: {stats['losing_trades']}  "
+        f"Breakeven: {stats['breakeven_trades']}",
+        f"- Win rate: {stats['win_rate']}% {_fmt_ci(stats.get('win_rate_ci95_low'), stats.get('win_rate_ci95_high'))}",
+        f"- Average PnL: {stats['average_pnl']}% SE={stats.get('average_pnl_se')} "
+        f"{_fmt_ci(stats.get('average_pnl_ci95_low'), stats.get('average_pnl_ci95_high'))}",
         f"- Median PnL: {stats['median_pnl']}%",
         f"- Profit factor: {stats['profit_factor']}",
-        f"- Expectancy: {stats['expectancy']}%",
+        f"- Expectancy: {stats['expectancy']}% "
+        f"{_fmt_ci(stats.get('expectancy_ci95_low'), stats.get('expectancy_ci95_high'))}",
         f"- Average MFE: {stats['average_mfe']}%",
         f"- Average MAE: {stats['average_mae']}%",
         f"- Largest win: {stats['largest_win']}%",
@@ -337,7 +355,24 @@ def write_research_pack_files(data: dict[str, Any], root: Path | None = None) ->
     bucket_csv = out_dir / "bucket_analysis.csv"
     with bucket_csv.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["feature", "bucket", "trades", "win_rate", "avg_pnl", "profit_factor", "expectancy"])
+        w.writerow(
+            [
+                "feature",
+                "bucket",
+                "trades",
+                "reliable",
+                "win_rate",
+                "win_rate_ci95_low",
+                "win_rate_ci95_high",
+                "avg_pnl",
+                "avg_pnl_se",
+                "avg_pnl_ci95_low",
+                "avg_pnl_ci95_high",
+                "profit_factor",
+                "expectancy",
+                "rank_score",
+            ]
+        )
         for sec in data["bucket_analysis"]:
             for b in sec["buckets"]:
                 w.writerow(
@@ -345,10 +380,17 @@ def write_research_pack_files(data: dict[str, Any], root: Path | None = None) ->
                         sec["feature"],
                         b["bucket"],
                         b["trades"],
+                        b.get("reliable"),
                         b["win_rate"],
+                        b.get("win_rate_ci95_low"),
+                        b.get("win_rate_ci95_high"),
                         b["avg_pnl"],
+                        b.get("avg_pnl_se"),
+                        b.get("avg_pnl_ci95_low"),
+                        b.get("avg_pnl_ci95_high"),
                         b["profit_factor"],
                         b["expectancy"],
+                        b.get("rank_score"),
                     ]
                 )
     paths["bucket_csv"] = bucket_csv
@@ -356,32 +398,68 @@ def write_research_pack_files(data: dict[str, Any], root: Path | None = None) ->
     pair_csv = out_dir / "pair_analysis.csv"
     with pair_csv.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["pair", "combination", "trades", "win_rate", "avg_pnl", "expectancy"])
+        w.writerow(
+            [
+                "pair",
+                "combination",
+                "trades",
+                "reliable",
+                "win_rate",
+                "avg_pnl",
+                "avg_pnl_se",
+                "expectancy",
+                "expectancy_ci95_low",
+                "expectancy_ci95_high",
+                "rank_score",
+            ]
+        )
         for row in data["pair_analysis"]:
             w.writerow(
                 [
                     row["pair"],
                     row["combination"],
                     row["trades"],
+                    row.get("reliable"),
                     row["win_rate"],
                     row["avg_pnl"],
+                    row.get("avg_pnl_se"),
                     row["expectancy"],
+                    row.get("expectancy_ci95_low"),
+                    row.get("expectancy_ci95_high"),
+                    row.get("rank_score"),
                 ]
             )
     paths["pair_csv"] = pair_csv
 
     playbook_md = out_dir / "market_playbook.md"
-    plines = ["# Market Playbook", "", "## Top 20 profitable conditions", ""]
+    plines = [
+        "# Market Playbook",
+        "",
+        f"Ranked by EV×log(n). Reliable rows require n≥{MIN_RELIABLE_N}.",
+        "",
+        "## Top 20 profitable conditions (reliable only)",
+        "",
+    ]
+    if not data["playbook"]["profitable"]:
+        plines.append("_No combinations with n≥30 — see low-confidence section._")
     for c in data["playbook"]["profitable"]:
         plines.append(
             f"- {c['condition']} — WR {c['win_rate']}%  avg PnL {c['avg_pnl']}%  "
-            f"expectancy {c['expectancy']}%  n={c['trades']}"
+            f"EV {c['expectancy']}% {_fmt_ci(c.get('expectancy_ci95_low'), c.get('expectancy_ci95_high'))}  "
+            f"n={c['trades']}  rank={c['rank_score']}"
         )
-    plines.extend(["", "## Top 20 losing conditions", ""])
+    plines.extend(["", "## Top 20 losing conditions (reliable only)", ""])
+    if not data["playbook"]["losing"]:
+        plines.append("_No combinations with n≥30 — see low-confidence section._")
     for c in data["playbook"]["losing"]:
         plines.append(
             f"- {c['condition']} — WR {c['win_rate']}%  avg PnL {c['avg_pnl']}%  "
-            f"expectancy {c['expectancy']}%  n={c['trades']}"
+            f"EV {c['expectancy']}%  n={c['trades']}  rank={c['rank_score']}"
+        )
+    plines.extend(["", "## Low-confidence conditions (n<30)", ""])
+    for c in (data["playbook"].get("low_confidence") or [])[:30]:
+        plines.append(
+            f"- [LOW-N n={c['trades']}] {c['condition']} — EV {c['expectancy']}%  rank={c['rank_score']}"
         )
     playbook_md.write_text("\n".join(plines) + "\n", encoding="utf-8")
     paths["playbook"] = playbook_md
@@ -392,29 +470,34 @@ def format_trade_statistics_cli(data: dict[str, Any]) -> str:
     s = data["trade_statistics"]
     lines = [
         "TRADE STATISTICS (S55 closed paper)",
-        f"  Total trades={s['total_trades']}  Wins={s['winning_trades']}  Losses={s['losing_trades']}",
-        f"  Win rate={s['win_rate']}%  Avg PnL={s['average_pnl']}%  Median={s['median_pnl']}%",
-        f"  Profit factor={s['profit_factor']}  Expectancy={s['expectancy']}%",
+        f"  Total={s['total_trades']}  Wins={s['winning_trades']}  Losses={s['losing_trades']}  "
+        f"Breakeven={s['breakeven_trades']}",
+        f"  Win rate={s['win_rate']}% {_fmt_ci(s.get('win_rate_ci95_low'), s.get('win_rate_ci95_high'))}",
+        f"  Avg PnL={s['average_pnl']}% SE={s.get('average_pnl_se')} "
+        f"{_fmt_ci(s.get('average_pnl_ci95_low'), s.get('average_pnl_ci95_high'))}  Median={s['median_pnl']}%",
+        f"  Profit factor={s['profit_factor']}  Expectancy={s['expectancy']}% "
+        f"{_fmt_ci(s.get('expectancy_ci95_low'), s.get('expectancy_ci95_high'))}",
         f"  Avg MFE={s['average_mfe']}%  Avg MAE={s['average_mae']}%",
         f"  Largest win={s['largest_win']}%  Largest loss={s['largest_loss']}%",
         f"  Avg holding={s['average_holding_sec']}s  TP reached={s['tp_reached_pct']}%  Stop={s['stop_reached_pct']}%",
         "",
-        "BUCKET ANALYSIS",
+        f"BUCKET ANALYSIS (quantile ~20% each; n≥{MIN_RELIABLE_N} shown first)",
     ]
     for sec in data["bucket_analysis"]:
         lines.append(f"  [{sec['feature']}]")
-        for b in sec["buckets"]:
-            pf = b["profit_factor"]
-            pf_s = "n/a" if pf is None else (f"{pf:.2f}" if pf != float("inf") else "inf")
-            lines.append(
-                f"    {b['bucket']}: n={b['trades']} WR={b['win_rate']}% "
-                f"avg={b['avg_pnl']}% PF={pf_s} EV={b['expectancy']}%"
-            )
-    lines.extend(["", "PAIR ANALYSIS — Top 20 combinations"])
+        reliable = [b for b in sec["buckets"] if b.get("reliable")]
+        low = [b for b in sec["buckets"] if not b.get("reliable")]
+        for b in reliable:
+            lines.append(_bucket_line(b))
+        for b in low:
+            lines.append(_bucket_line(b))
+    lines.extend(["", f"PAIR ANALYSIS — Top 20 (reliable n≥{MIN_RELIABLE_N}, rank=EV×log(n))"])
     for row in data["pair_top20"]:
+        flag = "" if row.get("reliable") else " [LOW-N]"
         lines.append(
-            f"  {row['pair']} {row['combination']}: n={row['trades']} "
-            f"WR={row['win_rate']}% avg={row['avg_pnl']}% EV={row['expectancy']}%"
+            f"  {row['pair']} {row['combination']}{flag}: n={row['trades']} "
+            f"WR={row['win_rate']}% avg={row['avg_pnl']}% SE={row.get('avg_pnl_se')} "
+            f"EV={row['expectancy']}% rank={row.get('rank_score')}"
         )
     lines.extend(["", "WINNER vs LOSER (top/bottom 20% by PnL)"])
     lines.append(f"  {'Feature':<16} {'Winner':>12} {'Loser':>12} {'Diff':>12}")
@@ -422,9 +505,14 @@ def format_trade_statistics_cli(data: dict[str, Any]) -> str:
         lines.append(
             f"  {r['feature']:<16} {str(r['winner_avg']):>12} {str(r['loser_avg']):>12} {str(r['difference']):>12}"
         )
-    lines.extend(["", "MARKET PLAYBOOK — Top profitable"])
+    lines.extend(["", "MARKET PLAYBOOK — Top profitable (reliable)"])
+    if not data["playbook"]["profitable"]:
+        lines.append(f"  (none with n≥{MIN_RELIABLE_N}; see market_playbook.md low-confidence)")
     for c in data["playbook"]["profitable"][:5]:
-        lines.append(f"  + {c['condition']} WR={c['win_rate']}% avg={c['avg_pnl']}% n={c['trades']}")
+        lines.append(
+            f"  + {c['condition']} WR={c['win_rate']}% EV={c['expectancy']}% "
+            f"n={c['trades']} rank={c['rank_score']}"
+        )
     lines.append("  ... see reports/research/market_playbook.md")
     return "\n".join(lines)
 

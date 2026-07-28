@@ -66,7 +66,7 @@ class ResearchPack01Tests(unittest.TestCase):
     def test_trade_statistics_and_reports(self) -> None:
         with market_events_connection() as conn:
             apply_migrations(conn)
-            for i, pnl in enumerate([2.0, 1.0, -1.5, -2.0, 0.5]):
+            for i, pnl in enumerate([2.0, 1.0, 0.0, -1.5, -2.0]):
                 self._insert_closed(
                     conn,
                     sid=i + 1,
@@ -79,11 +79,17 @@ class ResearchPack01Tests(unittest.TestCase):
 
             data = build_research_pack_01(conn)
             self.assertEqual(data["trade_statistics"]["total_trades"], 5)
-            self.assertGreater(data["trade_statistics"]["winning_trades"], 0)
+            st = data["trade_statistics"]
+            self.assertEqual(
+                st["winning_trades"] + st["losing_trades"] + st["breakeven_trades"],
+                st["total_trades"],
+            )
+            self.assertEqual(st["breakeven_trades"], 1)
+            self.assertGreater(st["winning_trades"], 0)
             self.assertTrue(data["bucket_analysis"])
-            self.assertTrue(data["pair_top20"] or data["pair_analysis"])
+            self.assertTrue(data["pair_analysis"])
             self.assertTrue(data["winner_loser"])
-            self.assertTrue(data["playbook"]["profitable"])
+            self.assertTrue(data["playbook"]["low_confidence"] or data["playbook"]["profitable"])
 
             reports = Path(self._tmpdir.name) / "research"
             paths = write_research_pack_files(data, root=reports)
