@@ -86,6 +86,7 @@ python -m bot.research.market_events feature-importance
 python -m bot.research.market_events similar-trades BTC
 python -m bot.research.market_events counterfactual --hours 24
 python -m bot.research.market_events daily-intelligence
+python -m bot.research.market_events dataset-audit
 python -m bot.research.market_events sqlite-contention-report
 ```
 
