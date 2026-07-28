@@ -284,12 +284,12 @@ def run_all_experiments(
                 "duration_ms": duration_ms,
             }
         )
+        # Commit per experiment so locks are not held across the whole batch.
+        if commit:
+            conn.commit()
 
     if commit:
-        try:
-            conn.commit()
-        except Exception:
-            pass
+        conn.commit()
     return summary
 
 

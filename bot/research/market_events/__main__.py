@@ -2285,6 +2285,9 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.feature_validation_v1 import (
             run_feature_validation,
         )
+        from bot.research.market_events.research_db_session import (
+            research_write_connection,
+        )
         from bot.research.market_events.research_sync_v1 import (
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
@@ -2295,7 +2298,7 @@ def main(argv: list[str] | None = None) -> int:
         except ResearchSyncError as exc:
             print(f"feature-validation failed: {exc}")
             return 1
-        with market_events_connection(db_path=db_path) as conn:
+        with research_write_connection(db_path) as conn:
             apply_migrations(conn)
             print(
                 run_feature_validation(conn, write_reports=True)
@@ -2308,6 +2311,9 @@ def main(argv: list[str] | None = None) -> int:
             format_knowledge_show,
             write_knowledge_report,
         )
+        from bot.research.market_events.research_db_session import (
+            research_write_connection,
+        )
         from bot.research.market_events.research_sync_v1 import (
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
@@ -2318,7 +2324,7 @@ def main(argv: list[str] | None = None) -> int:
         except ResearchSyncError as exc:
             print(f"knowledge-show failed: {exc}")
             return 1
-        with market_events_connection(db_path=db_path) as conn:
+        with research_write_connection(db_path) as conn:
             apply_migrations(conn)
             path = write_knowledge_report(conn)
             print(format_knowledge_show(conn))
@@ -2328,6 +2334,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "pattern-discovery":
         from bot.research.market_events.pattern_discovery_v1 import (
             run_pattern_discovery,
+        )
+        from bot.research.market_events.research_db_session import (
+            research_readonly_connection,
         )
         from bot.research.market_events.research_sync_v1 import (
             ResearchSyncError,
@@ -2339,7 +2348,7 @@ def main(argv: list[str] | None = None) -> int:
         except ResearchSyncError as exc:
             print(f"pattern-discovery failed: {exc}")
             return 1
-        with market_events_readonly_connection(db_path=db_path) as conn:
+        with research_readonly_connection(db_path) as conn:
             print(
                 run_pattern_discovery(conn, write_reports=True)
                 + f"\n\n(analytics_db={db_path.resolve()} source={source})"
@@ -2354,6 +2363,9 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.hypothesis_engine.validate import (
             run_hypothesis_validate,
         )
+        from bot.research.market_events.research_db_session import (
+            research_write_connection,
+        )
         from bot.research.market_events.research_sync_v1 import (
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
@@ -2364,7 +2376,7 @@ def main(argv: list[str] | None = None) -> int:
         except ResearchSyncError as exc:
             print(f"hypothesis-validate failed: {exc}")
             return 1
-        with market_events_connection(db_path=db_path) as conn:
+        with research_write_connection(db_path) as conn:
             apply_migrations(conn)
             stats = run_hypothesis_validate(conn)
             path = write_hypotheses_report(conn)
@@ -2388,6 +2400,9 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.hypothesis_engine.store import (
             load_hypothesis_bundle,
         )
+        from bot.research.market_events.research_db_session import (
+            research_write_connection,
+        )
         from bot.research.market_events.research_sync_v1 import (
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
@@ -2398,7 +2413,7 @@ def main(argv: list[str] | None = None) -> int:
         except ResearchSyncError as exc:
             print(f"hypothesis-show failed: {exc}")
             return 1
-        with market_events_connection(db_path=db_path) as conn:
+        with research_write_connection(db_path) as conn:
             apply_migrations(conn)
             path = write_hypotheses_report(conn)
             print(format_hypothesis_show(conn))
@@ -2413,6 +2428,9 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.experiment_engine.report import (
             run_experiment_cli,
         )
+        from bot.research.market_events.research_db_session import (
+            research_write_connection,
+        )
         from bot.research.market_events.research_sync_v1 import (
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
@@ -2423,7 +2441,7 @@ def main(argv: list[str] | None = None) -> int:
         except ResearchSyncError as exc:
             print(f"experiment-run failed: {exc}")
             return 1
-        with market_events_connection(db_path=db_path) as conn:
+        with research_write_connection(db_path) as conn:
             apply_migrations(conn)
             print(
                 run_experiment_cli(conn, write_reports=True)
@@ -2436,6 +2454,9 @@ def main(argv: list[str] | None = None) -> int:
             format_experiment_show,
             write_experiments_report,
         )
+        from bot.research.market_events.research_db_session import (
+            research_write_connection,
+        )
         from bot.research.market_events.research_sync_v1 import (
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
@@ -2446,7 +2467,7 @@ def main(argv: list[str] | None = None) -> int:
         except ResearchSyncError as exc:
             print(f"experiment-show failed: {exc}")
             return 1
-        with market_events_connection(db_path=db_path) as conn:
+        with research_write_connection(db_path) as conn:
             apply_migrations(conn)
             path = write_experiments_report(conn)
             print(format_experiment_show(conn))

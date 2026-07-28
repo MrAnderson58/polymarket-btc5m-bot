@@ -19,12 +19,15 @@ from typing import Any, Iterator
 
 logger = logging.getLogger(__name__)
 
-BUSY_TIMEOUT_MS = 10_000
+BUSY_TIMEOUT_MS = 30_000  # wait up to 30s inside SQLite for writers
 SLOW_TX_MS = 100.0
 WRITE_TRACE_MAX = 8_000
 WRITE_TRACE_FILE = Path(__file__).resolve().parents[3] / "logs" / "me-sqlite-write-trace.jsonl"
 _TRACE_WRITES = os.getenv("ME_SQLITE_TRACE_WRITES", "1").lower() in ("1", "true", "yes")
 _TRACE_COMMITS_INFO = os.getenv("ME_SQLITE_TRACE_COMMITS", "0").lower() in ("1", "true", "yes")
+
+_LOCK_RETRY_INITIAL_MS = 50
+_LOCK_RETRY_MAX_TOTAL_MS = 15_000
 
 _registry_lock = threading.Lock()
 _active: dict[int, "ConnectionLeaseG05"] = {}
@@ -82,13 +85,63 @@ def _is_wal(conn: sqlite3.Connection) -> bool:
 
 
 def apply_sqlite_pragmas(conn: sqlite3.Connection, *, readonly: bool = False) -> None:
+    """Always set busy_timeout; enable WAL on writable connections."""
     if not readonly:
-        journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
-        if str(journal).lower() == "wal":
-            conn.execute("PRAGMA synchronous=NORMAL")
+        try:
+            mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+            if str(mode).lower() == "wal":
+                conn.execute("PRAGMA synchronous=NORMAL")
+        except Exception:
+            # Another connection may be mid-transaction; busy_timeout still applies.
+            pass
     conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     if not readonly:
         conn.execute("PRAGMA foreign_keys=ON")
+
+
+def _is_locked_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    if isinstance(exc, sqlite3.OperationalError):
+        return "database is locked" in msg or "database table is locked" in msg
+    return "database is locked" in msg or "database table is locked" in msg
+
+
+def _busy_retry_sleep_schedule() -> list[float]:
+    schedule: list[float] = []
+    ms = _LOCK_RETRY_INITIAL_MS
+    total_ms = 0
+    while total_ms < _LOCK_RETRY_MAX_TOTAL_MS:
+        step = min(ms, _LOCK_RETRY_MAX_TOTAL_MS - total_ms)
+        if step <= 0:
+            break
+        schedule.append(step / 1000.0)
+        total_ms += step
+        ms = min(ms * 2, 6400)
+    return schedule
+
+
+def call_with_busy_retry(fn, *, lease: "ConnectionLeaseG05 | None" = None, sql: str | None = None):
+    """Retry SQLITE_BUSY beyond PRAGMA busy_timeout (application-level backoff)."""
+    schedule = _busy_retry_sleep_schedule()
+    last_exc: BaseException | None = None
+    for attempt in range(len(schedule) + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            if not _is_locked_error(exc):
+                raise
+            maybe_log_database_locked(exc, lease=lease, sql=sql)
+            last_exc = exc
+            if lease is not None:
+                lease.last_retry_count = attempt + 1
+                lease.waiting = True
+            if attempt >= len(schedule):
+                break
+            time.sleep(schedule[attempt])
+    if lease is not None:
+        lease.waiting = False
+    assert last_exc is not None
+    raise last_exc
 
 
 def _register(lease: ConnectionLeaseG05) -> None:
@@ -466,15 +519,21 @@ class TracedConnectionG05:
     def executemany(self, sql: str, params_seq: Any) -> TracedCursorG05:
         self._note_sql(sql)
         t0 = time.time()
-        try:
+
+        def _run() -> TracedCursorG05:
             cur = self._conn.executemany(sql, params_seq)
+            return TracedCursorG05(cur, self._lease)
+
+        try:
+            out = call_with_busy_retry(_run, lease=self._lease, sql=sql)
             record_write_event(
                 lease=self._lease, sql=sql,
                 duration_ms=(time.time() - t0) * 1000,
                 retry_count=self._lease.last_retry_count, kind="executemany",
             )
             self._lease.last_retry_count = 0
-            return TracedCursorG05(cur, self._lease)
+            self._lease.waiting = False
+            return out
         except Exception as exc:
             maybe_log_database_locked(exc, lease=self._lease, sql=sql, duration_ms=(time.time() - t0) * 1000)
             raise
@@ -482,8 +541,13 @@ class TracedConnectionG05:
     def execute(self, sql: str, params: Any = ()) -> TracedCursorG05:
         self._note_sql(sql)
         t0 = time.time()
-        try:
+
+        def _run() -> TracedCursorG05:
             cur = self._conn.execute(sql, params)
+            return TracedCursorG05(cur, self._lease)
+
+        try:
+            out = call_with_busy_retry(_run, lease=self._lease, sql=sql)
             if _is_dml_write(sql):
                 record_write_event(
                     lease=self._lease, sql=sql,
@@ -491,15 +555,20 @@ class TracedConnectionG05:
                     retry_count=self._lease.last_retry_count, kind="execute",
                 )
                 self._lease.last_retry_count = 0
-            return TracedCursorG05(cur, self._lease)
+            self._lease.waiting = False
+            return out
         except Exception as exc:
             maybe_log_database_locked(exc, lease=self._lease, sql=sql, duration_ms=(time.time() - t0) * 1000)
             raise
 
     def executescript(self, sql: str) -> sqlite3.Cursor:
         self._note_sql(sql[:240])
-        try:
+
+        def _run() -> sqlite3.Cursor:
             return self._conn.executescript(sql)
+
+        try:
+            return call_with_busy_retry(_run, lease=self._lease, sql=sql[:240])
         except Exception as exc:
             maybe_log_database_locked(exc, lease=self._lease, sql=sql[:240])
             raise
@@ -519,7 +588,11 @@ class TracedConnectionG05:
             self._lease.tx_mode = "implicit"
         try:
             t0 = time.time()
-            self._conn.commit()
+
+            def _run() -> None:
+                self._conn.commit()
+
+            call_with_busy_retry(_run, lease=self._lease, sql=self._lease.last_sql or "COMMIT")
             elapsed_ms = (time.time() - t0) * 1000
             record_write_event(
                 lease=self._lease,
@@ -529,6 +602,7 @@ class TracedConnectionG05:
                 kind="commit",
             )
             self._lease.last_retry_count = 0
+            self._lease.waiting = False
             if elapsed_ms >= SLOW_TX_MS:
                 logger.warning(
                     "COMMIT sqlite conn_id=%s pid=%s elapsed=%.1fms sql=%s caller=%s",

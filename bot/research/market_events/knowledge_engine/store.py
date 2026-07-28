@@ -266,10 +266,7 @@ def upsert_from_feature_validation(conn: Any, data: dict[str, Any]) -> dict[str,
             )
         n_ix += 1
 
-    try:
-        conn.commit()
-    except Exception:
-        pass
+    conn.commit()
     n_hist_after = n_hist_before
     try:
         n_hist_after = int(

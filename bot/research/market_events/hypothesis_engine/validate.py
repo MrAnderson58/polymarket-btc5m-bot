@@ -142,12 +142,12 @@ def run_hypothesis_validate(
         upserted += 1
         st = str(validated["status"])
         counts[st] = counts.get(st, 0) + 1
+        # Release write lock periodically so concurrent readers/writers can proceed.
+        if commit and upserted % 10 == 0:
+            conn.commit()
 
     if commit:
-        try:
-            conn.commit()
-        except Exception:
-            pass
+        conn.commit()
 
     return {
         "generated": len(candidates),

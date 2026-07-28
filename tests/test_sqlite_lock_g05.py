@@ -22,6 +22,7 @@ from bot.research.market_events.signal_intelligence.telegram_command_router_g351
 )
 from bot.research.market_events.sqlite_manager_g05 import (
     PURE_READONLY_COMMANDS,
+    call_with_busy_retry,
     connect_sqlite,
     format_sqlite_lock_debug_g05,
     get_active_leases,
@@ -43,6 +44,32 @@ class SqliteLockG05Tests(unittest.TestCase):
             leases = get_active_leases()
             self.assertTrue(any(not l.readonly for l in leases))
         self.assertEqual(len(get_active_leases()), 0)
+
+    def test_call_with_busy_retry_recovers(self) -> None:
+        import sqlite3
+
+        calls = {"n": 0}
+
+        def flaky() -> str:
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise sqlite3.OperationalError("database is locked")
+            return "ok"
+
+        with patch("bot.research.market_events.sqlite_manager_g05.time.sleep"):
+            self.assertEqual(call_with_busy_retry(flaky), "ok")
+        self.assertGreaterEqual(calls["n"], 3)
+
+    def test_write_connect_enables_wal_and_busy_timeout(self) -> None:
+        conn = connect_sqlite(self.db_path, readonly=False)
+        try:
+            mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+            self.assertEqual(mode, "wal")
+            # busy_timeout pragma returns ms
+            bt = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+            self.assertGreaterEqual(int(bt), 10000)
+        finally:
+            conn.close()
 
     def test_readonly_forbids_commit(self) -> None:
         with market_events_connection() as conn:
