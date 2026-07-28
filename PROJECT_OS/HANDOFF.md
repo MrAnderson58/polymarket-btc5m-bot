@@ -7,7 +7,7 @@
 develop-terminal
 
 ## Last Commit
-(see git log — Research Inventory V1)
+476277d Research Inventory V1
 
 ## Research Inventory
 See `PROJECT_OS/RESEARCH_INVENTORY_V1.md` for full analytics audit + roadmap.
