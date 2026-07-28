@@ -279,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
             "daily-intelligence",
             "dataset-audit",
             "trade-statistics",
+            "feature-validation",
             "trade-regression-audit",
             "trade-postmortem",
             "market-regime",
@@ -2258,6 +2259,27 @@ def main(argv: list[str] | None = None) -> int:
         with market_events_readonly_connection(db_path=db_path) as conn:
             print(
                 run_trade_statistics(conn, write_reports=True)
+                + f"\n\n(analytics_db={db_path.resolve()} source={source})"
+            )
+        return 0
+
+    if args.command == "feature-validation":
+        from bot.research.market_events.feature_validation_v1 import (
+            run_feature_validation,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+
+        try:
+            db_path, source, _ = resolve_research_analytics_sqlite_path()
+        except ResearchSyncError as exc:
+            print(f"feature-validation failed: {exc}")
+            return 1
+        with market_events_readonly_connection(db_path=db_path) as conn:
+            print(
+                run_feature_validation(conn, write_reports=True)
                 + f"\n\n(analytics_db={db_path.resolve()} source={source})"
             )
         return 0

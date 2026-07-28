@@ -32,6 +32,20 @@ def load_closed_s55_trades(conn: Any, *, limit: int = 50000) -> list[dict[str, A
         if pnl is None:
             continue
         conf = feats.get("confidence") or feats.get("decision_confidence")
+        closed_at = None
+        try:
+            if "closed_at" in row.keys() and row["closed_at"] is not None:
+                closed_at = int(row["closed_at"])
+        except (TypeError, ValueError):
+            closed_at = None
+        neighbor_ev = None
+        try:
+            if "gate_expected_pnl_pct" in row.keys():
+                neighbor_ev = safe_float(row["gate_expected_pnl_pct"])
+        except Exception:
+            neighbor_ev = None
+        if neighbor_ev is None:
+            neighbor_ev = safe_float(feats.get("gate_expected_pnl_pct"))
         trades.append(
             {
                 "pnl_pct": pnl,
@@ -49,6 +63,8 @@ def load_closed_s55_trades(conn: Any, *, limit: int = 50000) -> list[dict[str, A
                 "fear_greed": safe_float(feats.get("fear_greed")),
                 "ai_score": safe_float(feats.get("ai_score")),
                 "confidence": safe_float(conf),
+                "neighbor_ev": neighbor_ev,
+                "closed_at": closed_at,
                 "symbol": feats.get("symbol"),
                 "direction": feats.get("direction"),
             }

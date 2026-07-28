@@ -23,6 +23,7 @@ Live spine: detect → paper → learn. Primary DB: `data/market_events.db`.
 | Expectancy Intelligence V1 | **Shipped** — `bot/research/market_events/expectancy_intelligence/`, diagnostics only (no trading logic) |
 | Research Pack 01 | **Shipped** — `trade-statistics` → `reports/research/*` (quantile buckets, n≥30 reliability, CI95, EV×log(n) playbook rank) |
 | Research Inventory V1 | **Shipped** — `PROJECT_OS/RESEARCH_INVENTORY_V1.md` (sources, modules, decision vs analytics, roadmap) |
+| Feature Validation V1 | **Shipped** — `feature-validation` → `reports/research/feature_validation.md` (KEEP/WATCH/REMOVE) |
 | Doctor | HEALTHY (core + tradfi + dashboard typical) |
 | Paper book | **0 completed / 0 open** — waiting for first real fills |
 
@@ -70,6 +71,7 @@ python -m bot.research.market_events counterfactual --hours 24
 python -m bot.research.market_events daily-intelligence
 python -m bot.research.market_events dataset-audit
 python -m bot.research.market_events trade-statistics
+python -m bot.research.market_events feature-validation
 ```
 
 ## Research Sync V1 (same DB on every machine)

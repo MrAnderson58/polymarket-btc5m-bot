@@ -1,39 +1,34 @@
 # PROJECT_OS — Next Task
 
 **Updated:** 2026-07-28  
-**Status:** ACTIVE — execute Research Inventory roadmap step 1 (Mini sync)  
+**Status:** ACTIVE — run Feature Validation on Mini-synced DB  
 **Branch:** `develop-terminal`
 
 ---
 
 ## Context
 
-Research Inventory V1 is documented in `PROJECT_OS/RESEARCH_INVENTORY_V1.md`.  
-On this Mac analytics DB: **42** closed S55 trades; overall EV negative (Pack01).  
-Decision surface remains S57 regime + S55 neighbor EV only; most research is human-only.
+Feature Validation V1 (`feature-validation`) ranks Funding / Trend / OI / Vol / AI / F&G / Neighbor EV / Regime / Direction into KEEP / WATCH / REMOVE. Research only — no gate changes.
 
 ---
 
 ## Single next task
 
-**Bring Mini (~2162 closes) onto Research Sync and re-run Pack01.**
+**Sync Mini corpus, then re-run Feature Validation as strategy design input.**
 
 ### Goal
 
-1. Mini: `research-sync-doctor` → confirm which DB has ~2162 `s55_closed`.  
-2. Set `MARKET_EVENTS_RESEARCH_ANALYTICS_DB` if needed; `research-sync-export`.  
-3. Mac: `research-sync-import --file … --activate` → `SYNCED`.  
-4. Both machines: matching `trade-statistics` totals.  
-5. Update inventory §6 with Mini-scale evidence (no gate changes).
+1. Research Sync Mini DB (~2162 closes) onto Mac.  
+2. `python -m bot.research.market_events feature-validation`  
+3. Treat `reports/research/feature_validation.md` as the baseline for next strategy version (still no auto-apply).
 
 ### Acceptance
 
-- [ ] Snapshot manifest `s55_closed` ≈ production Mini count  
-- [ ] `research-sync-status` = SYNCED on Mac after import  
-- [ ] Pack01 n≥30 buckets appear where features vary  
+- [ ] Report has KEEP/WATCH/REMOVE with n≥30 where possible  
+- [ ] Stability section reviewed  
+- [ ] No gate edits without explicit follow-up task
 
 ### Out of scope
 
-- Changing S55 / S57 thresholds  
-- Removing orphan feature columns  
-- ML / LLM training  
+- Removing similarity dims in live S55  
+- Changing S57 / S55 thresholds  
