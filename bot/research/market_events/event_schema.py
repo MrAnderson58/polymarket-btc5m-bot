@@ -1059,6 +1059,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_market_events_shadow(conn)
     _ensure_trade_intelligence_v1(conn)
     _ensure_knowledge_engine_v1(conn)
+    _ensure_hypothesis_engine_v1(conn)
 
     if not applied:
         conn.commit()
@@ -3559,6 +3560,15 @@ def _ensure_knowledge_engine_v1(conn: Any) -> None:
     )
 
     ensure_knowledge_engine_schema(conn)
+
+
+def _ensure_hypothesis_engine_v1(conn: Any) -> None:
+    """Create Research Hypothesis Engine V1 tables if missing."""
+    from bot.research.market_events.hypothesis_engine.schema import (
+        ensure_hypothesis_engine_schema,
+    )
+
+    ensure_hypothesis_engine_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """

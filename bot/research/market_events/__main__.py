@@ -282,6 +282,8 @@ def main(argv: list[str] | None = None) -> int:
             "feature-validation",
             "knowledge-show",
             "pattern-discovery",
+            "hypothesis-show",
+            "hypothesis-validate",
             "trade-regression-audit",
             "trade-postmortem",
             "market-regime",
@@ -2328,6 +2330,69 @@ def main(argv: list[str] | None = None) -> int:
                 run_pattern_discovery(conn, write_reports=True)
                 + f"\n\n(analytics_db={db_path.resolve()} source={source})"
             )
+        return 0
+
+    if args.command == "hypothesis-validate":
+        from bot.research.market_events.hypothesis_engine.report import (
+            format_hypothesis_show,
+            write_hypotheses_report,
+        )
+        from bot.research.market_events.hypothesis_engine.validate import (
+            run_hypothesis_validate,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+
+        try:
+            db_path, source, _ = resolve_research_analytics_sqlite_path()
+        except ResearchSyncError as exc:
+            print(f"hypothesis-validate failed: {exc}")
+            return 1
+        with market_events_connection(db_path=db_path) as conn:
+            apply_migrations(conn)
+            stats = run_hypothesis_validate(conn)
+            path = write_hypotheses_report(conn)
+            print("HYPOTHESIS VALIDATE")
+            print(
+                f"  generated={stats['generated']} upserted={stats['upserted']} "
+                f"archived={stats['archived']} low_sample={stats['low_sample']}"
+            )
+            print(f"  counts={stats['counts']}")
+            print()
+            print(format_hypothesis_show(conn))
+            print(f"\nWrote {path}\n(analytics_db={db_path.resolve()} source={source})")
+        return 0
+
+    if args.command == "hypothesis-show":
+        from bot.research.market_events.hypothesis_engine.report import (
+            format_hypothesis_detail,
+            format_hypothesis_show,
+            write_hypotheses_report,
+        )
+        from bot.research.market_events.hypothesis_engine.store import (
+            load_hypothesis_bundle,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+
+        try:
+            db_path, source, _ = resolve_research_analytics_sqlite_path()
+        except ResearchSyncError as exc:
+            print(f"hypothesis-show failed: {exc}")
+            return 1
+        with market_events_connection(db_path=db_path) as conn:
+            apply_migrations(conn)
+            path = write_hypotheses_report(conn)
+            print(format_hypothesis_show(conn))
+            bundle = load_hypothesis_bundle(conn)
+            if bundle:
+                print("\n--- Example hypothesis (full evidence) ---\n")
+                print(format_hypothesis_detail(bundle[0]))
+            print(f"\nWrote {path}\n(analytics_db={db_path.resolve()} source={source})")
         return 0
 
     if args.command == "trade-regression-audit":
