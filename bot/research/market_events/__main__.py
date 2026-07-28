@@ -2854,8 +2854,6 @@ def main(argv: list[str] | None = None) -> int:
             run_cli_architecture_audit,
             write_audit_markdown,
         )
-        from pathlib import Path
-
         audit = run_cli_architecture_audit()
         if args.json:
             print(json.dumps(audit.to_dict(), indent=2, default=str))
@@ -2878,7 +2876,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "e2-audit":
-        from pathlib import Path
         doc = Path(__file__).resolve().parent.parent.parent.parent / "docs" / "research" / "PHASE_E2_ARCHITECTURE.md"
         print(doc.read_text() if doc.exists() else "See PHASE_E2_ARCHITECTURE.md")
         return 0
