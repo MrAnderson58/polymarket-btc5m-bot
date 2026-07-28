@@ -87,12 +87,49 @@ class ResearchQAV1Tests(unittest.TestCase):
                 fails = compare_fingerprints(fp, exp_core)
                 self.assertEqual(fails, [], msg="\n".join(fails))
 
-                # Snapshot headings
+                # Snapshot headings (# / ## architecture only)
                 for name, heads in (expected.get("report_shapes") or {}).items():
                     got = report_structure_fingerprint(
                         (reports / name).read_text(encoding="utf-8")
                     )
                     self.assertEqual(got, heads, msg=name)
+                    self.assertTrue(
+                        all(h.startswith("# ") or h.startswith("## ") for h in got),
+                        msg=f"{name} must not include ### content headings",
+                    )
+
+    def test_report_structure_ignores_content_headings(self) -> None:
+        md = """# Experiment Engine V1
+
+## Validated Experiments
+
+### #74 [VALIDATED] Pattern hyp=#74 Cluster 4 EV=-0.3
+
+## Rejected Experiments
+
+### #1 [REJECTED] something
+
+## Strongest Evidence
+
+## Weak Evidence
+
+## Recent Runs
+"""
+        got = report_structure_fingerprint(md)
+        self.assertEqual(
+            got,
+            [
+                "# Experiment Engine V1",
+                "## Validated Experiments",
+                "## Rejected Experiments",
+                "## Strongest Evidence",
+                "## Weak Evidence",
+                "## Recent Runs",
+            ],
+        )
+        from bot.research.market_events.research_qa.pipeline import assert_report_architecture
+
+        self.assertEqual(assert_report_architecture("experiments.md", md), [])
 
     def test_regression_and_determinism_helpers(self) -> None:
         self.assertEqual(check_regression(), [])

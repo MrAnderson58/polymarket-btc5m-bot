@@ -267,13 +267,97 @@ def save_golden_expectations(fp: dict[str, Any]) -> Path:
 
 
 def report_structure_fingerprint(md_text: str) -> list[str]:
-    """Extract markdown ## / # headings for structural snapshot (ignore timestamps)."""
+    """
+    Architectural snapshot of a research markdown report.
+
+    Keeps only top-level `#` and section `##` headings (order preserved).
+    Ignores `###` content rows (hypothesis IDs, cluster names, EV, dates, etc.).
+    """
     heads: list[str] = []
     for line in md_text.splitlines():
         s = line.strip()
-        if s.startswith("#"):
-            # drop generated timestamps / dates in heading content
-            if "Generated:" in s or s.startswith("# ") and "T" in s and "Z" in s:
-                continue
-            heads.append(s)
+        if not s.startswith("#"):
+            continue
+        # Count leading hashes only
+        level = 0
+        for ch in s:
+            if ch == "#":
+                level += 1
+            else:
+                break
+        if level not in (1, 2):
+            continue
+        # Require a space after hashes (standard ATX heading)
+        if len(s) <= level or s[level] != " ":
+            continue
+        title = s[level:].strip()
+        if not title:
+            continue
+        if title.startswith("Generated:"):
+            continue
+        heads.append("#" * level + " " + title)
     return heads
+
+
+# Required architecture per research report (subset must appear in order).
+REQUIRED_REPORT_SECTIONS: dict[str, list[str]] = {
+    "experiments.md": [
+        "# Experiment Engine V1",
+        "## Validated Experiments",
+        "## Rejected Experiments",
+        "## Strongest Evidence",
+        "## Weak Evidence",
+        "## Recent Runs",
+    ],
+    "hypotheses.md": [
+        "# Research Hypothesis Engine V1",
+        "## Validated Hypotheses",
+        "## Testing",
+        "## Rejected",
+        "## Low Sample",
+        "## Top Opportunities",
+        "## Recent Changes",
+    ],
+    "knowledge.md": [
+        "# Knowledge Engine V1",
+        "## Validated Features / Rules",
+        "## New Candidates",
+        "## Rejected Features / Rules",
+        "## Interactions",
+        "## Recent Changes",
+    ],
+    "patterns.md": [
+        "# Pattern Discovery V1",
+        "## TOP 10 clusters",
+        "## WORST 10 clusters",
+        "## All clusters (summary)",
+    ],
+    "feature_validation.md": [
+        "# Feature Validation V1",
+        "## KEEP",
+        "## WATCH",
+        "## REMOVE",
+    ],
+}
+
+
+def assert_report_architecture(name: str, md_text: str) -> list[str]:
+    """Check required sections exist in order; ignore extra ## if any."""
+    fails: list[str] = []
+    got = report_structure_fingerprint(md_text)
+    required = REQUIRED_REPORT_SECTIONS.get(name)
+    if not required:
+        return fails
+    # Full structural equality for known reports: exactly the #/## skeleton
+    # (no ### leaked in). Allow only the required list as the fingerprint.
+    # If report has extra ## sections (e.g. feature_validation numbered parts),
+    # require that `required` is an ordered subsequence of `got`.
+    gi = 0
+    for req in required:
+        while gi < len(got) and got[gi] != req:
+            gi += 1
+        if gi >= len(got):
+            fails.append(f"{name}: missing section {req!r} (got={got})")
+            return fails
+        gi += 1
+    return fails

@@ -102,7 +102,7 @@ def regenerate_golden_expectations() -> Path:
             seed_golden_s55(conn, generate_golden_trades(GOLDEN_N_DEFAULT))
             result = run_full_research_pipeline(conn, reports_root=reports, patterns_root=reports)
             fp = pipeline_fingerprint(result)
-            # Also freeze report heading structures
+            # Also freeze report heading structures (# / ## architecture only)
             shapes = {}
             for name in (
                 "knowledge.md",
@@ -113,7 +113,9 @@ def regenerate_golden_expectations() -> Path:
             ):
                 p = reports / name
                 if p.exists():
-                    shapes[name] = report_structure_fingerprint(p.read_text(encoding="utf-8"))
+                    shapes[name] = report_structure_fingerprint(
+                        p.read_text(encoding="utf-8")
+                    )
             fp["report_shapes"] = shapes
             return save_golden_expectations(fp)
 
@@ -214,21 +216,31 @@ def check_integrity() -> list[str]:
 
 
 def check_snapshots() -> list[str]:
+    """Architectural snapshot: # / ## sections only (not IDs, EV, dates, cluster text)."""
     expected = load_golden_expectations()
     shapes_exp = expected.get("report_shapes") or {}
 
     def _inner(conn: Any, reports: Path, result: dict[str, Any]) -> list[str]:
+        from bot.research.market_events.research_qa.pipeline import assert_report_architecture
+
         fails: list[str] = []
         for name, exp_heads in shapes_exp.items():
             p = reports / name
             if not p.exists():
                 fails.append(f"snapshot missing {name}")
                 continue
-            got = report_structure_fingerprint(p.read_text(encoding="utf-8"))
+            text = p.read_text(encoding="utf-8")
+            got = report_structure_fingerprint(text)
+            # Must match frozen #/## architecture (no ### content)
             if got != exp_heads:
                 fails.append(
-                    f"{name} heading structure changed: got {got[:8]}... expected {exp_heads[:8]}..."
+                    f"{name} section architecture changed:\n"
+                    f"  got={got}\n  expected={exp_heads}"
                 )
+            fails.extend(assert_report_architecture(name, text))
+            # Guard: ### content must never enter the fingerprint
+            if any(h.startswith("###") for h in got):
+                fails.append(f"{name}: fingerprint leaked ### content headings")
         return fails
 
     return _with_golden_pipeline(_inner)
