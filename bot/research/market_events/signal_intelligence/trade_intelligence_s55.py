@@ -389,6 +389,7 @@ GATE_NEGATIVE_EXPECTANCY = "NEGATIVE_EXPECTANCY"
 GATE_DISABLED = "DISABLED"
 GATE_OPEN = "ALLOWED"  # synonym
 GATE_REGIME_BLOCK = "REGIME_BLOCK"  # S57
+GATE_REGIME_EXPLORE = "REGIME_EXPLORE"  # S57 ε-greedy — must persist & open
 
 
 def should_open_trade(
@@ -403,7 +404,11 @@ def should_open_trade(
     Returns (allow, gate_decision, estimate).
 
     Reason codes: ALLOWED | INSUFFICIENT_HISTORY | MAX_OPEN | NEGATIVE_EXPECTANCY |
-    DISABLED | REGIME_BLOCK.
+    DISABLED | REGIME_BLOCK | REGIME_EXPLORE.
+
+    REGIME_EXPLORE bypasses NEGATIVE_EXPECTANCY: exploration exists to refresh
+    regime stats when historical EV is negative; killing it at the neighbor
+    expectancy gate recreates the S42 deadlock.
     """
     refresh_s55_config_from_env()
     estimate = estimate_from_neighbors([])
@@ -412,6 +417,7 @@ def should_open_trade(
     # S57: regime first — classify (if missing) then optional stats filter.
     regime_meta: dict[str, Any] = {}
     regime_gate = None
+    exploration = False
     try:
         from bot.research.market_events.signal_intelligence import market_regime_s57 as s57
         ok_reg, reg_reason, reg_meta = s57.apply_regime_gate(conn, features)
@@ -419,6 +425,10 @@ def should_open_trade(
         regime_gate = reg_reason
         estimate["regime"] = reg_meta
         estimate["regime_gate"] = reg_reason
+        exploration = (
+            reg_reason == getattr(s57, "GATE_REGIME_EXPLORE", GATE_REGIME_EXPLORE)
+            or bool(reg_meta.get("exploration"))
+        )
         if not ok_reg:
             return False, GATE_REGIME_BLOCK, estimate
     except Exception as exc:
@@ -427,6 +437,8 @@ def should_open_trade(
     if not S55_ENABLED:
         estimate["regime"] = regime_meta
         estimate["regime_gate"] = regime_gate
+        if exploration:
+            return True, GATE_REGIME_EXPLORE, estimate
         return True, GATE_DISABLED, estimate
 
     if not skip_max_open_check and open_count >= S55_MAX_OPEN_TRADES:
@@ -439,6 +451,7 @@ def should_open_trade(
     estimate["similar_count"] = len(neighbors)
     estimate["regime"] = regime_meta
     estimate["regime_gate"] = regime_gate
+    estimate["exploration"] = exploration
     estimate["nearest_neighbours"] = [
         {
             "symbol": n.get("symbol"),
@@ -451,11 +464,23 @@ def should_open_trade(
     ]
 
     if len(neighbors) < S55_MIN_SIMILAR:
+        if exploration:
+            return True, GATE_REGIME_EXPLORE, estimate
         return True, GATE_COLD_START, estimate
 
     if float(estimate["expected_pnl_pct"]) < float(S55_MIN_EXPECTED_PNL_PCT):
+        if exploration:
+            # Live bug a19e0db: explore passed S57 then died here → zero S42 growth.
+            logger.info(
+                "s55 explore bypass NEGATIVE_EXPECTANCY expected_pnl=%s similar=%s",
+                estimate.get("expected_pnl_pct"),
+                estimate.get("similar_count"),
+            )
+            return True, GATE_REGIME_EXPLORE, estimate
         return False, GATE_NEGATIVE_EXPECTANCY, estimate
 
+    if exploration:
+        return True, GATE_REGIME_EXPLORE, estimate
     return True, GATE_ALLOWED, estimate
 
 
@@ -693,7 +718,8 @@ def gate_stats_today(conn: Any, *, day_start: int | None = None) -> dict[str, An
         # Accepted (new + legacy codes)
         if d in (
             "open", "cold_start", "disabled",
-            GATE_ALLOWED, GATE_COLD_START, GATE_DISABLED, "ALLOWED", "INSUFFICIENT_HISTORY", "DISABLED",
+            GATE_ALLOWED, GATE_COLD_START, GATE_DISABLED, GATE_REGIME_EXPLORE,
+            "ALLOWED", "INSUFFICIENT_HISTORY", "DISABLED", "REGIME_EXPLORE",
         ):
             out["accepted"] += 1
             if d in ("cold_start", GATE_COLD_START, "INSUFFICIENT_HISTORY"):
@@ -702,7 +728,10 @@ def gate_stats_today(conn: Any, *, day_start: int | None = None) -> dict[str, An
                 accepted_pnls.append(float(r["gate_expected_pnl_pct"]))
         elif (
             d.startswith("reject")
-            or d in ("max_open", GATE_MAX_OPEN, GATE_NEGATIVE_EXPECTANCY, "MAX_OPEN", "NEGATIVE_EXPECTANCY")
+            or d in (
+                "max_open", GATE_MAX_OPEN, GATE_NEGATIVE_EXPECTANCY, GATE_REGIME_BLOCK,
+                "MAX_OPEN", "NEGATIVE_EXPECTANCY", "REGIME_BLOCK",
+            )
         ):
             out["rejected"] += 1
     out["reasons"] = reason_counts
@@ -740,6 +769,8 @@ __all__ = [
     "GATE_DISABLED",
     "GATE_MAX_OPEN",
     "GATE_NEGATIVE_EXPECTANCY",
+    "GATE_REGIME_BLOCK",
+    "GATE_REGIME_EXPLORE",
     "S55_ENABLED",
     "S55_MAX_OPEN_TRADES",
     "S55_MIN_EXPECTED_PNL_PCT",
