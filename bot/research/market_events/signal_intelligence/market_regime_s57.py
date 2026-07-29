@@ -57,6 +57,7 @@ GATE_REGIME_BLOCK = "REGIME_BLOCK"
 GATE_REGIME_PASS = "REGIME_PASS"
 GATE_REGIME_COLD = "REGIME_COLD"
 GATE_REGIME_DISABLED = "REGIME_DISABLED"
+GATE_REGIME_EXPLORE = "REGIME_EXPLORE"  # ε-greedy pass despite negative stats
 
 STATUS_WAITING = "WAITING_APPROVAL"
 
@@ -64,6 +65,7 @@ S57_ENABLED = True
 S57_FILTER_ENABLED = True
 S57_MIN_EVIDENCE = 30
 S57_MIN_EXPECTANCY = 0.0
+S57_EXPLORATION_RATE = 0.10  # ε-greedy: 10% of blocked candidates pass for stats refresh
 S57_LLM_ENABLED = False
 S57_SUGGESTIONS_ENABLED = False
 S57_SYMBOL_TOP_N = 5
@@ -82,6 +84,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 def refresh_s57_config_from_env() -> None:
     global S57_ENABLED, S57_FILTER_ENABLED, S57_MIN_EVIDENCE, S57_MIN_EXPECTANCY
+    global S57_EXPLORATION_RATE
     global S57_LLM_ENABLED, S57_SUGGESTIONS_ENABLED, S57_SYMBOL_TOP_N
     if "S57_ENABLED" in os.environ:
         S57_ENABLED = _env_bool("S57_ENABLED", True)
@@ -97,6 +100,11 @@ def refresh_s57_config_from_env() -> None:
             S57_MIN_EXPECTANCY = float(os.environ["S57_MIN_EXPECTANCY"])
         except (TypeError, ValueError):
             pass
+    if "S57_EXPLORATION_RATE" in os.environ:
+        try:
+            S57_EXPLORATION_RATE = max(0.0, min(1.0, float(os.environ["S57_EXPLORATION_RATE"])))
+        except (TypeError, ValueError):
+            pass
     if "S57_LLM_ENABLED" in os.environ:
         S57_LLM_ENABLED = _env_bool("S57_LLM_ENABLED", False)
     if "S57_SUGGESTIONS_ENABLED" in os.environ:
@@ -110,6 +118,7 @@ def refresh_s57_config_from_env() -> None:
 
 def _apply_defaults() -> None:
     global S57_ENABLED, S57_FILTER_ENABLED, S57_MIN_EVIDENCE, S57_MIN_EXPECTANCY
+    global S57_EXPLORATION_RATE
     global S57_LLM_ENABLED, S57_SUGGESTIONS_ENABLED, S57_SYMBOL_TOP_N
     S57_ENABLED = _env_bool("S57_ENABLED", True)
     S57_FILTER_ENABLED = _env_bool("S57_FILTER_ENABLED", True)
@@ -121,6 +130,10 @@ def _apply_defaults() -> None:
         S57_MIN_EXPECTANCY = float(os.environ.get("S57_MIN_EXPECTANCY", "0"))
     except (TypeError, ValueError):
         S57_MIN_EXPECTANCY = 0.0
+    try:
+        S57_EXPLORATION_RATE = max(0.0, min(1.0, float(os.environ.get("S57_EXPLORATION_RATE", "0.1"))))
+    except (TypeError, ValueError):
+        S57_EXPLORATION_RATE = 0.10
     S57_LLM_ENABLED = _env_bool("S57_LLM_ENABLED", False)
     S57_SUGGESTIONS_ENABLED = _env_bool("S57_SUGGESTIONS_ENABLED", False)
     try:
@@ -679,6 +692,14 @@ def apply_regime_gate(
     bad_exp = exp is not None and float(exp) < float(S57_MIN_EXPECTANCY)
     bad_pf = (not pf_inf) and pf is not None and float(pf) < 1.0
     if bad_exp and bad_pf:
+        # ε-greedy exploration: allow a fraction of trades through to refresh stats
+        import random
+        if S57_EXPLORATION_RATE > 0 and random.random() < S57_EXPLORATION_RATE:
+            meta["exploration"] = True
+            logger.info("s57 regime explore pass (ε=%.2f): regime=%s dir=%s n=%d exp=%.4f pf=%.4f",
+                        S57_EXPLORATION_RATE, features.get("market_regime"),
+                        features.get("direction"), n, float(exp or 0), float(pf or 0))
+            return True, GATE_REGIME_EXPLORE, meta
         return False, GATE_REGIME_BLOCK, meta
     return True, GATE_REGIME_PASS, meta
 
