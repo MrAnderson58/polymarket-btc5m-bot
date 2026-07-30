@@ -1,10 +1,10 @@
 # OPTIMIZER_REPORT — Adaptive Strategy Optimizer V1
 
-**Generated:** 1785433809
+**Generated:** 1785434362
 **Sample size:** 50
 **Confidence:** 0.6
 **Auto-apply eligible:** False
-**Actions:** RECOMMEND_ONLY
+**Actions:** RECOMMEND_ONLY — run validate-optimizer before any auto-apply
 
 ## Current parameters
 
