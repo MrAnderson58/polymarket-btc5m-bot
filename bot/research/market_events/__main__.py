@@ -231,6 +231,8 @@ def main(argv: list[str] | None = None) -> int:
             "false-rejects",
             "false-accepts",
             "optimizer-report",
+            "optimize-strategy",
+            "g42-optimizer-report",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1126,7 +1128,44 @@ def main(argv: list[str] | None = None) -> int:
             print(format_false_accepts_report_g4(conn))
         return 0
 
+    if args.command == "optimize-strategy":
+        from bot.research.market_events.signal_intelligence.strategy_optimizer import (
+            run_strategy_optimizer,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_strategy_optimizer(conn, write_report=True)
+            print(out.get("report_markdown") or "")
+            if out.get("report_path"):
+                print(f"\nWrote {out['report_path']}", file=sys.stderr)
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"optimize-strategy failed: {exc}", file=sys.stderr)
+            return 1
+
     if args.command == "optimizer-report":
+        from bot.research.market_events.signal_intelligence.strategy_optimizer import (
+            read_optimizer_report,
+            run_strategy_optimizer,
+        )
+
+        text = read_optimizer_report()
+        if text.startswith("No OPTIMIZER_REPORT"):
+            try:
+                with market_events_connection() as conn:
+                    apply_migrations(conn)
+                    out = run_strategy_optimizer(conn, write_report=True)
+                print(out.get("report_markdown") or text)
+                return 0 if out.get("ok") else 1
+            except Exception as exc:
+                print(f"optimizer-report failed: {exc}", file=sys.stderr)
+                return 1
+        print(text)
+        return 0
+
+    if args.command == "g42-optimizer-report":
         from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
             run_validation_cycle_g4,
         )

@@ -390,6 +390,8 @@ GATE_DISABLED = "DISABLED"
 GATE_OPEN = "ALLOWED"  # synonym
 GATE_REGIME_BLOCK = "REGIME_BLOCK"  # S57
 GATE_REGIME_EXPLORE = "REGIME_EXPLORE"  # S57 ε-greedy — must persist & open
+GATE_SYMBOL_DISABLED = "SYMBOL_DISABLED"  # Adaptive Strategy Optimizer V1
+GATE_CONFIDENCE_BLOCK = "CONFIDENCE_BLOCK"  # Adaptive Strategy Optimizer V1
 
 
 def should_open_trade(
@@ -404,7 +406,7 @@ def should_open_trade(
     Returns (allow, gate_decision, estimate).
 
     Reason codes: ALLOWED | INSUFFICIENT_HISTORY | MAX_OPEN | NEGATIVE_EXPECTANCY |
-    DISABLED | REGIME_BLOCK | REGIME_EXPLORE.
+    DISABLED | REGIME_BLOCK | REGIME_EXPLORE | SYMBOL_DISABLED | CONFIDENCE_BLOCK.
 
     REGIME_EXPLORE bypasses NEGATIVE_EXPECTANCY: exploration exists to refresh
     regime stats when historical EV is negative; killing it at the neighbor
@@ -413,6 +415,20 @@ def should_open_trade(
     refresh_s55_config_from_env()
     estimate = estimate_from_neighbors([])
     estimate["nearest_neighbours"] = []
+
+    # Adaptive Strategy Optimizer V1 — applied symbol / confidence filters.
+    try:
+        from bot.research.market_events.signal_intelligence import strategy_optimizer as opt
+        sym = features.get("symbol")
+        if opt.is_symbol_disabled(str(sym) if sym is not None else None):
+            estimate["optimizer"] = {"symbol_disabled": True, "symbol": sym}
+            return False, GATE_SYMBOL_DISABLED, estimate
+        ok_conf, conf_reason = opt.passes_confidence_gate(features)
+        estimate["optimizer_confidence"] = conf_reason
+        if not ok_conf:
+            return False, GATE_CONFIDENCE_BLOCK, estimate
+    except Exception as exc:
+        logger.warning("strategy optimizer gate failed: %s", exc)
 
     # S57: regime first — classify (if missing) then optional stats filter.
     regime_meta: dict[str, Any] = {}

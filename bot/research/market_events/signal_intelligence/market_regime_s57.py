@@ -692,12 +692,22 @@ def apply_regime_gate(
     bad_exp = exp is not None and float(exp) < float(S57_MIN_EXPECTANCY)
     bad_pf = (not pf_inf) and pf is not None and float(pf) < 1.0
     if bad_exp and bad_pf:
-        # ε-greedy exploration: allow a fraction of trades through to refresh stats
+        # ε-greedy exploration: allow a fraction of trades through to refresh stats.
+        # Adaptive Strategy Optimizer V1 may override ε via applied state.
         import random
-        if S57_EXPLORATION_RATE > 0 and random.random() < S57_EXPLORATION_RATE:
+        explore_rate = float(S57_EXPLORATION_RATE)
+        try:
+            from bot.research.market_events.signal_intelligence.strategy_optimizer import (
+                get_effective_exploration_rate,
+            )
+            explore_rate = float(get_effective_exploration_rate(default=explore_rate))
+        except Exception:
+            pass
+        meta["exploration_rate"] = explore_rate
+        if explore_rate > 0 and random.random() < explore_rate:
             meta["exploration"] = True
             logger.info("s57 regime explore pass (ε=%.2f): regime=%s dir=%s n=%d exp=%.4f pf=%.4f",
-                        S57_EXPLORATION_RATE, features.get("market_regime"),
+                        explore_rate, features.get("market_regime"),
                         features.get("direction"), n, float(exp or 0), float(pf or 0))
             return True, GATE_REGIME_EXPLORE, meta
         return False, GATE_REGIME_BLOCK, meta
