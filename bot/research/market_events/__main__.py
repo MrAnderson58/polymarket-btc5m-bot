@@ -238,6 +238,8 @@ def main(argv: list[str] | None = None) -> int:
             "build-dataset",
             "train-ml",
             "ml-report",
+            "run-experiments",
+            "experiment-leaderboard",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1280,6 +1282,43 @@ def main(argv: list[str] | None = None) -> int:
                 return 0 if out.get("ok") else 1
             except Exception as exc:
                 print(f"ml-report failed: {exc}", file=sys.stderr)
+                return 1
+        print(text)
+        return 0
+
+    if args.command == "run-experiments":
+        from bot.research.market_events.signal_intelligence.experiment_runner import (
+            run_experiments,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_experiments(conn, write_leaderboard=True)
+            print(out.get("leaderboard_markdown") or "")
+            if out.get("leaderboard_path"):
+                print(f"\nWrote {out['leaderboard_path']}", file=sys.stderr)
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"run-experiments failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "experiment-leaderboard":
+        from bot.research.market_events.signal_intelligence.experiment_runner import (
+            read_leaderboard,
+            run_experiments,
+        )
+
+        text = read_leaderboard()
+        if text.startswith("No EXPERIMENT_LEADERBOARD"):
+            try:
+                with market_events_connection() as conn:
+                    apply_migrations(conn)
+                    out = run_experiments(conn, write_leaderboard=True)
+                print(out.get("leaderboard_markdown") or text)
+                return 0 if out.get("ok") else 1
+            except Exception as exc:
+                print(f"experiment-leaderboard failed: {exc}", file=sys.stderr)
                 return 1
         print(text)
         return 0
