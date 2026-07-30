@@ -46,6 +46,7 @@ def _audit_s42_db_path(*, command: str) -> int:
     Does not change learning / Decision / G3 logic.
     """
     from bot.research.market_events.db_config import resolve_market_events_db_config
+    from bot.research.market_events.db_identity import fingerprint_live_config, format_identity
     from bot.research.market_events.event_schema import SCHEMA_VERSION
 
     cfg = resolve_market_events_db_config()
@@ -99,6 +100,9 @@ def _audit_s42_db_path(*, command: str) -> int:
     print(f"PRAGMA user_version: {user_version}", file=sys.stderr)
     print(f"MAX(version): {max_version}", file=sys.stderr)
     print(f"Backend: {cfg.backend}", file=sys.stderr)
+    if cfg.backend == "sqlite":
+        ident = fingerprint_live_config(cfg)
+        print(format_identity(ident), file=sys.stderr)
 
     if cfg.backend == "sqlite" and (not has_review_status or not has_review_type):
         print(
@@ -270,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
             "learning-health",
             "learning-worker",
             "paper-performance",
+            "db-identity",
             "paper-gate-funnel",
             "gate-funnel",
             "regime-report",
@@ -2160,6 +2165,33 @@ def main(argv: list[str] | None = None) -> int:
             "errors={errors}".format(**stats),
         )
         return 1 if stats["errors"] and not stats["ingested"] and not stats["reviews_written"] else 0
+
+    if args.command == "db-identity":
+        from bot.research.market_events.db_identity import (
+            assert_s42_cli_and_report_same_db,
+            collect_s42_analytics_identities,
+            format_identity,
+        )
+
+        identities = collect_s42_analytics_identities()
+        for key, ident in identities.items():
+            print(f"===== {key} =====")
+            print(format_identity(ident))
+            print()
+        try:
+            assert_s42_cli_and_report_same_db(identities)
+            print("OK: paper-performance CLI and S42 research report share the same DB identity.")
+            research = identities.get("research_sibling")
+            live = identities.get("live_config")
+            if research and live and research.absolute_path != live.absolute_path:
+                print(
+                    "NOTE: research_sibling is intentionally separate (S60). "
+                    "audit-trade-data / S56 counts are NOT S42 paper counts.",
+                )
+            return 0
+        except AssertionError as exc:
+            print(f"FAIL: {exc}", file=sys.stderr)
+            return 1
 
     if args.command == "paper-performance":
         if _audit_s42_db_path(command="paper-performance") != 0:
