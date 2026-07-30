@@ -34,6 +34,8 @@ CAPITAL_PER_TRADE_USD = 100.0
 LEVERAGE = 20
 POSITION_NOTIONAL_USD = CAPITAL_PER_TRADE_USD * LEVERAGE
 TIMEOUT_SECONDS = 86400
+# Ignore candle marks older than this — frozen history must not keep trades "alive".
+MAX_MARK_CANDLE_AGE_SECONDS = 30 * 60
 DAILY_REPORT_HOUR = 22
 
 STATUS_OPEN = "OPEN"
@@ -50,6 +52,13 @@ _MFE_QUEUE_PATH = Path(
     os.environ.get(
         "ME_PAPER_MFE_QUEUE",
         str(Path(__file__).resolve().parents[4] / "logs" / "me-paper-mfe-queue.jsonl"),
+    )
+)
+# Deferred TIMEOUT/STALE closes when SQLite lock aborts _close_trade mid-tick.
+_CLOSE_QUEUE_PATH = Path(
+    os.environ.get(
+        "ME_PAPER_CLOSE_QUEUE",
+        str(Path(__file__).resolve().parents[4] / "logs" / "me-paper-close-queue.jsonl"),
     )
 )
 
@@ -130,10 +139,29 @@ def _max_drawdown_pct_from_pnl_usd(
 
 
 def _current_price(conn: Any, symbol: str) -> float | None:
+    """Latest 5m close for mark-to-market.
+
+    Returns None when no bars exist OR the newest bar is too old. Frozen
+    historical candles (e.g. MATIC last bar from 2024) previously returned a
+    constant mark forever, so STOP/TP never fired and only lock-deferred
+    TIMEOUT/STALE could eventually close — trades looked OPEN for days while
+    updated_at kept moving from MFE ticks.
+    """
     bars = load_recent_candles(conn, symbol=symbol, venue="binance_futures", timeframe="5m", limit=2)
     if not bars:
         return None
-    return float(bars[-1].close)
+    last = bars[-1]
+    now = int(time.time())
+    age = now - int(last.open_ts)
+    if age > MAX_MARK_CANDLE_AGE_SECONDS:
+        logger.info(
+            "s42 stale mark candle symbol=%s age_sec=%s open_ts=%s — treating as no price",
+            symbol,
+            age,
+            last.open_ts,
+        )
+        return None
+    return float(last.close)
 
 
 def _tp_hit(is_long: bool, price: float, level: float) -> bool:
@@ -576,7 +604,10 @@ def open_paper_trades_from_s40(conn: Any, *, limit: int = 100) -> int:
                 _safe_float(r["stop"]),
                 _safe_float(r["tp1"]),
                 _safe_float(r["tp2"]),
-                int(r["timestamp"] or now),
+                # Wall-clock open time — NOT s40 signal timestamp.
+                # Using signal ts made trades look days-old, broke holding_seconds,
+                # and confused TIMEOUT/STALE age (zombie OPEN appearance).
+                now,
                 STATUS_OPEN,
                 _safe_float(r["snapshot_decision_confidence"]),
                 r["snapshot_pattern_json"],
@@ -920,6 +951,128 @@ def _flush_mfe_mae_queue(conn: Any) -> int:
     return applied
 
 
+def _enqueue_close(
+    *,
+    trade_id: int,
+    exit_price: float,
+    exit_reason: str,
+    now: int,
+    trailing_exit_reason: str | None = None,
+) -> None:
+    """Persist a deferred close so SQLite lock cannot leave a zombie OPEN."""
+    _CLOSE_QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    row = {
+        "ts": time.time(),
+        "trade_id": int(trade_id),
+        "exit_price": float(exit_price),
+        "exit_reason": str(exit_reason),
+        "now": int(now),
+        "trailing_exit_reason": trailing_exit_reason,
+    }
+    with open(_CLOSE_QUEUE_PATH, "a", encoding="utf-8") as fp:
+        fp.write(json.dumps(row, separators=(",", ":")) + "\n")
+    logger.warning(
+        "s42 close queued after lock trade_id=%s reason=%s",
+        trade_id,
+        exit_reason,
+    )
+
+
+def _flush_close_queue(conn: Any) -> int:
+    """Apply queued closes (latest wins per trade_id). Returns closed count."""
+    if not _CLOSE_QUEUE_PATH.is_file():
+        return 0
+    try:
+        lines = _CLOSE_QUEUE_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+    if not lines:
+        return 0
+
+    latest: dict[int, dict[str, Any]] = {}
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+            latest[int(row["trade_id"])] = row
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            continue
+
+    closed = 0
+    remaining: list[dict[str, Any]] = []
+    for tid, item in latest.items():
+        try:
+            row = conn.execute(
+                f"SELECT * FROM {_TRADES} WHERE id = ? AND status = ?",
+                (tid, STATUS_OPEN),
+            ).fetchone()
+            if not row:
+                closed += 1  # already closed / gone
+                continue
+            _close_trade(
+                conn,
+                row=row,
+                exit_price=float(item["exit_price"]),
+                exit_reason=str(item["exit_reason"]),
+                now=int(item.get("now") or time.time()),
+                trailing_exit_reason=item.get("trailing_exit_reason"),
+            )
+            closed += 1
+        except Exception as exc:
+            if is_database_locked(exc):
+                remaining.append(item)
+                logger.warning("close queue flush deferred trade_id=%s (locked)", tid)
+            else:
+                logger.warning("close queue flush failed trade_id=%s: %s", tid, exc)
+                remaining.append(item)
+
+    try:
+        if remaining:
+            with open(_CLOSE_QUEUE_PATH, "w", encoding="utf-8") as fp:
+                for row in remaining:
+                    fp.write(json.dumps(row, separators=(",", ":")) + "\n")
+        else:
+            _CLOSE_QUEUE_PATH.write_text("", encoding="utf-8")
+    except OSError as exc:
+        logger.warning("close queue rewrite failed: %s", exc)
+    return closed
+
+
+def _close_trade_resilient(
+    conn: Any,
+    *,
+    row: Any,
+    exit_price: float,
+    exit_reason: str,
+    now: int,
+    trailing_exit_reason: str | None = None,
+) -> bool:
+    """Close trade; on SQLITE_BUSY enqueue for next cycle instead of staying OPEN forever."""
+    try:
+        _close_trade(
+            conn,
+            row=row,
+            exit_price=exit_price,
+            exit_reason=exit_reason,
+            now=now,
+            trailing_exit_reason=trailing_exit_reason,
+        )
+        return True
+    except Exception as exc:
+        if is_database_locked(exc):
+            _enqueue_close(
+                trade_id=int(row["id"]),
+                exit_price=exit_price,
+                exit_reason=exit_reason,
+                now=now,
+                trailing_exit_reason=trailing_exit_reason,
+            )
+            return False
+        raise
+
+
 def _apply_mfe_mae_update(
     conn: Any,
     *,
@@ -963,6 +1116,10 @@ def tick_open_paper_trades_s42(conn: Any) -> int:
         _flush_mfe_mae_queue(conn)
     except Exception as exc:
         logger.warning("mfe queue flush skipped: %s", exc)
+    try:
+        _flush_close_queue(conn)
+    except Exception as exc:
+        logger.warning("close queue flush skipped: %s", exc)
 
     rows = conn.execute(
         f"SELECT * FROM {_TRADES} WHERE status = ? ORDER BY created_at ASC",
@@ -981,7 +1138,7 @@ def tick_open_paper_trades_s42(conn: Any) -> int:
             if price is None:
                 # Zombie fix: still honour hard timeout using entry as mark.
                 if age >= TIMEOUT_SECONDS:
-                    _close_trade(
+                    _close_trade_resilient(
                         conn,
                         row=row,
                         exit_price=float(row["entry"]),
@@ -1056,7 +1213,7 @@ def tick_open_paper_trades_s42(conn: Any) -> int:
                     trail_stop = new_stop
 
                 if tp2 is not None and tp2 > 0 and _tp_hit(is_long, price, tp2):
-                    _close_trade(
+                    _close_trade_resilient(
                         conn, row=row, exit_price=price, exit_reason=EXIT_TP2, now=now,
                         trailing_exit_reason="tp2",
                     )
@@ -1076,19 +1233,19 @@ def tick_open_paper_trades_s42(conn: Any) -> int:
                         trade_id=int(row["id"]),
                         additional_pnl_usd=round(captured, 4),
                     )
-                    _close_trade(
+                    _close_trade_resilient(
                         conn, row=row, exit_price=price, exit_reason=EXIT_TRAILING, now=now,
                         trailing_exit_reason="trailing_stop",
                     )
                     continue
                 if sl is not None and _sl_hit(is_long, price, sl):
-                    _close_trade(
+                    _close_trade_resilient(
                         conn, row=row, exit_price=price, exit_reason=EXIT_STOP, now=now,
                         trailing_exit_reason="emergency_stop",
                     )
                     continue
                 if age >= TIMEOUT_SECONDS:
-                    _close_trade(
+                    _close_trade_resilient(
                         conn, row=row, exit_price=price, exit_reason=EXIT_TIMEOUT, now=now,
                         trailing_exit_reason="emergency_timeout",
                     )
@@ -1096,10 +1253,10 @@ def tick_open_paper_trades_s42(conn: Any) -> int:
 
             # --- Classic path (and TP1 → optional trail arm) ---
             if sl is not None and _sl_hit(is_long, price, sl):
-                _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_STOP, now=now)
+                _close_trade_resilient(conn, row=row, exit_price=price, exit_reason=EXIT_STOP, now=now)
                 continue
             if tp2 is not None and tp2 > 0 and _tp_hit(is_long, price, tp2):
-                _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TP2, now=now)
+                _close_trade_resilient(conn, row=row, exit_price=price, exit_reason=EXIT_TP2, now=now)
                 continue
             if tp1 is not None and tp1 > 0 and _tp_hit(is_long, price, tp1):
                 if TRAIL_AFTER_TP1:
@@ -1108,20 +1265,20 @@ def tick_open_paper_trades_s42(conn: Any) -> int:
                     )
                     # Same tick: exit if already through TP2 or trailing stop
                     if tp2 is not None and tp2 > 0 and _tp_hit(is_long, price, tp2):
-                        _close_trade(
+                        _close_trade_resilient(
                             conn, row=row, exit_price=price, exit_reason=EXIT_TP2, now=now,
                             trailing_exit_reason="tp2",
                         )
                     elif _sl_hit(is_long, price, float(state["trailing_stop"])):
-                        _close_trade(
+                        _close_trade_resilient(
                             conn, row=row, exit_price=price, exit_reason=EXIT_TRAILING, now=now,
                             trailing_exit_reason="trailing_stop",
                         )
                     continue
-                _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TP1, now=now)
+                _close_trade_resilient(conn, row=row, exit_price=price, exit_reason=EXIT_TP1, now=now)
                 continue
             if age >= TIMEOUT_SECONDS:
-                _close_trade(conn, row=row, exit_price=price, exit_reason=EXIT_TIMEOUT, now=now)
+                _close_trade_resilient(conn, row=row, exit_price=price, exit_reason=EXIT_TIMEOUT, now=now)
         except Exception as exc:
             if is_database_locked(exc):
                 logger.warning(

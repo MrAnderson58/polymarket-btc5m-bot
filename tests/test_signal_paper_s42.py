@@ -97,7 +97,14 @@ class TestPaperPerformanceS42(unittest.TestCase):
             (now, now, now),
         )
         conn.commit()
-        opened = open_paper_trades_from_s40(conn)
+        with patch(
+            "bot.research.market_events.signal_intelligence.trade_intelligence_s55.S55_ENABLED",
+            False,
+        ), patch(
+            "bot.research.market_events.signal_intelligence.market_regime_s57.S57_FILTER_ENABLED",
+            False,
+        ):
+            opened = open_paper_trades_from_s40(conn)
         conn.commit()
         self.assertEqual(opened, 1)
         row = conn.execute(
@@ -107,6 +114,86 @@ class TestPaperPerformanceS42(unittest.TestCase):
         self.assertEqual(row["status"], "OPEN")
         self.assertEqual(row["capital_usd"], CAPITAL_PER_TRADE_USD)
         self.assertEqual(row["leverage"], LEVERAGE)
+
+    def test_created_at_is_wall_clock_not_signal_timestamp(self) -> None:
+        """Regression: signal ts days ago must not become trade created_at.
+
+        That bug made OPEN trades look days old while updated_at kept moving.
+        """
+        conn = _mem_conn()
+        now = int(time.time())
+        old_signal_ts = now - 4 * 86400  # four days ago
+        conn.execute(
+            """
+            INSERT INTO market_events_signal_learning_s40_signals (
+              signal_type, signal_id, symbol, direction, entry, stop, tp1, tp2,
+              timestamp, snapshot_decision_confidence, created_at, updated_at
+            ) VALUES ('g3', 501, 'BTC', 'LONG', 100.0, 95.0, 105.0, 110.0, ?, 6.5, ?, ?)
+            """,
+            (old_signal_ts, now, now),
+        )
+        conn.commit()
+        before = now
+        with patch(
+            "bot.research.market_events.signal_intelligence.trade_intelligence_s55.S55_ENABLED",
+            False,
+        ), patch(
+            "bot.research.market_events.signal_intelligence.market_regime_s57.S57_FILTER_ENABLED",
+            False,
+        ):
+            opened = open_paper_trades_from_s40(conn)
+        after = int(time.time())
+        self.assertEqual(opened, 1)
+        row = conn.execute(
+            "SELECT created_at, updated_at FROM market_events_paper_trades_s42 WHERE s40_signal_id=501",
+        ).fetchone()
+        self.assertNotEqual(row["created_at"], old_signal_ts)
+        self.assertGreaterEqual(row["created_at"], before)
+        self.assertLessEqual(row["created_at"], after)
+
+    def test_stale_candle_mark_times_out_zombie_open(self) -> None:
+        """Frozen historical candles must not keep trades OPEN forever.
+
+        MATIC-style: last bar years old at entry → STOP/TP never fire, but
+        updated_at used to keep changing from MFE ticks. Stale marks now
+        return no price; aged opens close via TIMEOUT.
+        """
+        from bot.research.market_events.signal_intelligence import signal_paper_performance_s42 as s42
+
+        conn = _mem_conn()
+        now = int(time.time())
+        opened_at = now - s42.TIMEOUT_SECONDS - 10
+        conn.execute(
+            """
+            INSERT INTO market_events_paper_trades_s42 (
+              s40_signal_type, s40_signal_id, symbol, direction,
+              entry, stop, tp1, tp2, created_at, status,
+              mfe_pct, mae_pct, capital_usd, leverage, updated_at
+            ) VALUES ('g3', 777, 'MATIC', 'LONG', 0.3846, 0.38, 0.39, NULL, ?, 'OPEN',
+              0, 0, 100, 20, ?)
+            """,
+            (opened_at, now),
+        )
+        # Ancient candle at entry price — previously treated as live mark.
+        conn.execute(
+            """
+            INSERT INTO market_events_historical_candles (
+              venue, symbol, timeframe, open_ts, open, high, low, close, volume, source, fetched_at
+            ) VALUES ('binance_futures', 'MATIC', '5m', ?, 0.3846, 0.3846, 0.3846, 0.3846, 1, 'test', ?)
+            """,
+            (now - 365 * 86400, now),
+        )
+        conn.commit()
+
+        self.assertIsNone(s42._current_price(conn, "MATIC"))
+        ticked = s42.tick_open_paper_trades_s42(conn)
+        conn.commit()
+        self.assertGreaterEqual(ticked, 1)
+        row = conn.execute(
+            "SELECT status, exit_reason FROM market_events_paper_trades_s42 WHERE s40_signal_id=777",
+        ).fetchone()
+        self.assertEqual(row["status"], STATUS_CLOSED)
+        self.assertEqual(row["exit_reason"], "TIMEOUT")
 
     def test_close_trade_updates_account(self) -> None:
         conn = _mem_conn()

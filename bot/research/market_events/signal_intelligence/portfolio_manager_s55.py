@@ -113,7 +113,7 @@ def force_close_open(
 ) -> None:
     """Close an open paper trade (entry as mark if no price)."""
     from bot.research.market_events.signal_intelligence.signal_paper_performance_s42 import (
-        _close_trade,
+        _close_trade_resilient,
         _current_price,
     )
 
@@ -123,7 +123,7 @@ def force_close_open(
         price = _current_price(conn, str(row["symbol"]))
     if price is None:
         price = float(row["entry"])
-    _close_trade(
+    _close_trade_resilient(
         conn,
         row=row,
         exit_price=float(price),
