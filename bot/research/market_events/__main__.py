@@ -235,6 +235,9 @@ def main(argv: list[str] | None = None) -> int:
             "g42-optimizer-report",
             "validate-optimizer",
             "validation-report",
+            "build-dataset",
+            "train-ml",
+            "ml-report",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1213,6 +1216,70 @@ def main(argv: list[str] | None = None) -> int:
                 return 0 if out.get("ok") else 1
             except Exception as exc:
                 print(f"validation-report failed: {exc}", file=sys.stderr)
+                return 1
+        print(text)
+        return 0
+
+    if args.command == "build-dataset":
+        from bot.research.market_events.signal_intelligence.training_dataset import (
+            run_build_dataset,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_build_dataset(conn)
+            print(json.dumps({
+                "ok": out.get("ok"),
+                "feature_store_n": (out.get("feature_store") or {}).get("n_samples"),
+                "dataset_n": ((out.get("dataset") or {}).get("n_rows")),
+                "csv": ((out.get("dataset") or {}).get("csv_path")),
+                "parquet": ((out.get("dataset") or {}).get("parquet_path")),
+                "shadow_mode": True,
+                "ml_may_execute": False,
+            }, indent=2))
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"build-dataset failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "train-ml":
+        from bot.research.market_events.signal_intelligence.training_dataset import (
+            run_train_ml,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_train_ml(conn)
+            if out.get("report_markdown"):
+                print(out["report_markdown"])
+            if out.get("report_path"):
+                print(f"\nWrote {out['report_path']}", file=sys.stderr)
+            if not out.get("ok"):
+                print(json.dumps(out, indent=2, default=str), file=sys.stderr)
+                return 1
+            return 0
+        except Exception as exc:
+            print(f"train-ml failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "ml-report":
+        from bot.research.market_events.signal_intelligence.training_dataset import (
+            read_ml_report,
+            run_train_ml,
+        )
+
+        text = read_ml_report()
+        if text.startswith("No ML_REPORT"):
+            try:
+                with market_events_connection() as conn:
+                    apply_migrations(conn)
+                    out = run_train_ml(conn)
+                print(out.get("report_markdown") or text)
+                return 0 if out.get("ok") else 1
+            except Exception as exc:
+                print(f"ml-report failed: {exc}", file=sys.stderr)
                 return 1
         print(text)
         return 0

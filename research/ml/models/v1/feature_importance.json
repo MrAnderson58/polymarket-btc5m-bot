@@ -1,0 +1,361 @@
+{
+  "native_importance": [
+    {
+      "feature": "cat__symbol",
+      "importance": 0.858932
+    },
+    {
+      "feature": "oi_delta",
+      "importance": 0.141068
+    },
+    {
+      "feature": "cat__direction",
+      "importance": 0.0
+    },
+    {
+      "feature": "cat__pattern",
+      "importance": 0.0
+    },
+    {
+      "feature": "cat__gate_decision",
+      "importance": 0.0
+    },
+    {
+      "feature": "cat__news_category",
+      "importance": 0.0
+    },
+    {
+      "feature": "cat__market_regime",
+      "importance": 0.0
+    },
+    {
+      "feature": "confidence",
+      "importance": 0.0
+    },
+    {
+      "feature": "ai_score",
+      "importance": 0.0
+    },
+    {
+      "feature": "macro_score",
+      "importance": 0.0
+    },
+    {
+      "feature": "news_score",
+      "importance": 0.0
+    },
+    {
+      "feature": "volatility",
+      "importance": 0.0
+    },
+    {
+      "feature": "atr",
+      "importance": 0.0
+    },
+    {
+      "feature": "vwap_distance",
+      "importance": 0.0
+    },
+    {
+      "feature": "ema20_distance",
+      "importance": 0.0
+    },
+    {
+      "feature": "ema50_distance",
+      "importance": 0.0
+    },
+    {
+      "feature": "ema200_distance",
+      "importance": 0.0
+    },
+    {
+      "feature": "rsi",
+      "importance": 0.0
+    },
+    {
+      "feature": "macd",
+      "importance": 0.0
+    },
+    {
+      "feature": "funding",
+      "importance": 0.0
+    },
+    {
+      "feature": "liquidation_metric",
+      "importance": 0.0
+    },
+    {
+      "feature": "spread",
+      "importance": 0.0
+    },
+    {
+      "feature": "book_imbalance",
+      "importance": 0.0
+    },
+    {
+      "feature": "time_to_expiry",
+      "importance": 0.0
+    },
+    {
+      "feature": "btc_move",
+      "importance": 0.0
+    },
+    {
+      "feature": "volume",
+      "importance": 0.0
+    },
+    {
+      "feature": "fear_greed",
+      "importance": 0.0
+    },
+    {
+      "feature": "trend",
+      "importance": 0.0
+    },
+    {
+      "feature": "hour",
+      "importance": 0.0
+    },
+    {
+      "feature": "weekday",
+      "importance": 0.0
+    }
+  ],
+  "shap_summary": [
+    {
+      "feature": "cat__symbol",
+      "mean_abs_shap": 0.434286,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "oi_delta",
+      "mean_abs_shap": 0.085714,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "cat__direction",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "cat__pattern",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "cat__gate_decision",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "cat__news_category",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "cat__market_regime",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "confidence",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "ai_score",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "macro_score",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "news_score",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "volatility",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "atr",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "vwap_distance",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "ema20_distance",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "ema50_distance",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "ema200_distance",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "rsi",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "macd",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "funding",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "liquidation_metric",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "spread",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "book_imbalance",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "time_to_expiry",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "btc_move",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "volume",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "fear_greed",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "trend",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "hour",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    },
+    {
+      "feature": "weekday",
+      "mean_abs_shap": 0.0,
+      "method": "permutation_importance"
+    }
+  ],
+  "shap_available": false,
+  "top_positive": [
+    {
+      "feature": "cat__symbol",
+      "importance": 0.858932
+    },
+    {
+      "feature": "oi_delta",
+      "importance": 0.141068
+    },
+    {
+      "feature": "cat__direction",
+      "importance": 0.0
+    },
+    {
+      "feature": "cat__pattern",
+      "importance": 0.0
+    },
+    {
+      "feature": "cat__gate_decision",
+      "importance": 0.0
+    },
+    {
+      "feature": "cat__news_category",
+      "importance": 0.0
+    },
+    {
+      "feature": "cat__market_regime",
+      "importance": 0.0
+    },
+    {
+      "feature": "confidence",
+      "importance": 0.0
+    },
+    {
+      "feature": "ai_score",
+      "importance": 0.0
+    },
+    {
+      "feature": "macro_score",
+      "importance": 0.0
+    }
+  ],
+  "top_negative": [
+    {
+      "feature": "weekday",
+      "importance": 0.0
+    },
+    {
+      "feature": "hour",
+      "importance": 0.0
+    },
+    {
+      "feature": "trend",
+      "importance": 0.0
+    },
+    {
+      "feature": "fear_greed",
+      "importance": 0.0
+    },
+    {
+      "feature": "volume",
+      "importance": 0.0
+    },
+    {
+      "feature": "btc_move",
+      "importance": 0.0
+    },
+    {
+      "feature": "time_to_expiry",
+      "importance": 0.0
+    },
+    {
+      "feature": "book_imbalance",
+      "importance": 0.0
+    },
+    {
+      "feature": "spread",
+      "importance": 0.0
+    },
+    {
+      "feature": "liquidation_metric",
+      "importance": 0.0
+    }
+  ]
+}

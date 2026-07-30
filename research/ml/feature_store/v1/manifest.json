@@ -1,0 +1,196 @@
+{
+  "feature_version": "v1",
+  "feature_spec": {
+    "symbol": {
+      "type": "categorical",
+      "version": "v1"
+    },
+    "direction": {
+      "type": "categorical",
+      "version": "v1"
+    },
+    "pattern": {
+      "type": "categorical",
+      "version": "v1"
+    },
+    "gate_decision": {
+      "type": "categorical",
+      "version": "v1"
+    },
+    "news_category": {
+      "type": "categorical",
+      "version": "v1"
+    },
+    "market_regime": {
+      "type": "categorical",
+      "version": "v1"
+    },
+    "confidence": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "ai_score": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "macro_score": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "news_score": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "volatility": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "atr": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "vwap_distance": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "ema20_distance": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "ema50_distance": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "ema200_distance": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "rsi": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "macd": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "funding": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "oi_delta": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "liquidation_metric": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "spread": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "book_imbalance": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "time_to_expiry": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "btc_move": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "volume": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "fear_greed": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "trend": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "hour": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "weekday": {
+      "type": "numeric",
+      "version": "v1"
+    },
+    "holding_time": {
+      "type": "label_aux",
+      "version": "v1"
+    },
+    "mfe": {
+      "type": "label_aux",
+      "version": "v1"
+    },
+    "mae": {
+      "type": "label_aux",
+      "version": "v1"
+    },
+    "pnl": {
+      "type": "label",
+      "version": "v1"
+    },
+    "pnl_pct": {
+      "type": "label",
+      "version": "v1"
+    },
+    "result": {
+      "type": "label",
+      "version": "v1"
+    },
+    "profitable": {
+      "type": "label",
+      "version": "v1"
+    }
+  },
+  "n_samples": 50,
+  "n_profitable": 18,
+  "n_unprofitable": 32,
+  "prediction_features": [
+    "symbol",
+    "direction",
+    "pattern",
+    "gate_decision",
+    "news_category",
+    "market_regime",
+    "confidence",
+    "ai_score",
+    "macro_score",
+    "news_score",
+    "volatility",
+    "atr",
+    "vwap_distance",
+    "ema20_distance",
+    "ema50_distance",
+    "ema200_distance",
+    "rsi",
+    "macd",
+    "funding",
+    "oi_delta",
+    "liquidation_metric",
+    "spread",
+    "book_imbalance",
+    "time_to_expiry",
+    "btc_move",
+    "volume",
+    "fear_greed",
+    "trend",
+    "hour",
+    "weekday"
+  ],
+  "label": "profitable",
+  "shadow_mode": true,
+  "ml_may_execute": false,
+  "updated_at": 1785435028,
+  "paths": {
+    "jsonl": "/Users/andrey/polymarket-bot/polymarket-btc5m-bot/research/ml/feature_store/v1/samples.jsonl",
+    "parquet": "/Users/andrey/polymarket-bot/polymarket-btc5m-bot/research/ml/feature_store/v1/samples.parquet"
+  }
+}

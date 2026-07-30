@@ -1,0 +1,79 @@
+{
+  "ok": true,
+  "shadow_mode": true,
+  "ml_may_execute": false,
+  "backend": "sklearn",
+  "feature_version": "v1",
+  "dataset_size": 50,
+  "train_size": 35,
+  "test_size": 15,
+  "feature_count": 30,
+  "class_balance": {
+    "profitable": 18,
+    "unprofitable": 32,
+    "positive_rate": 0.36
+  },
+  "train_metrics": {
+    "roc_auc": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "brier": 0.0138,
+    "calibration_curve": [
+      {
+        "bin": "0.00-0.20",
+        "mean_predicted": 0.0606,
+        "frac_positive": 0.0,
+        "n": 23
+      },
+      {
+        "bin": "0.20-0.40",
+        "mean_predicted": 0.2816,
+        "frac_positive": 0.0,
+        "n": 1
+      },
+      {
+        "bin": "0.60-0.80",
+        "mean_predicted": 0.7642,
+        "frac_positive": 1.0,
+        "n": 4
+      },
+      {
+        "bin": "0.80-1.00",
+        "mean_predicted": 0.896,
+        "frac_positive": 1.0,
+        "n": 7
+      }
+    ]
+  },
+  "test_metrics": {
+    "roc_auc": 0.8929,
+    "precision": 1.0,
+    "recall": 0.1429,
+    "brier": 0.3356,
+    "calibration_curve": [
+      {
+        "bin": "0.00-0.20",
+        "mean_predicted": 0.0725,
+        "frac_positive": 0.4286,
+        "n": 14
+      },
+      {
+        "bin": "0.80-1.00",
+        "mean_predicted": 0.8375,
+        "frac_positive": 1.0,
+        "n": 1
+      }
+    ]
+  },
+  "model_path": "/Users/andrey/polymarket-bot/polymarket-btc5m-bot/research/ml/models/v1/shadow_model.pkl",
+  "scores_path": "/Users/andrey/polymarket-bot/polymarket-btc5m-bot/research/ml/models/v1/shadow_scores.jsonl",
+  "recommended_future_features": [
+    "realized_volatility_regime_interaction",
+    "orderbook_depth_imbalance_at_entry",
+    "funding_cross_exchange_dispersion",
+    "news_embedding_similarity_to_past_winners",
+    "time_of_day_session_flags",
+    "btc_lead_lag_vs_alt_beta"
+  ],
+  "generated_at": 1785435030
+}

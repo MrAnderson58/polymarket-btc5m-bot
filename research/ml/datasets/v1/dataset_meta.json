@@ -1,0 +1,16 @@
+{
+  "feature_version": "v1",
+  "n_rows": 50,
+  "n_features_prediction": 30,
+  "label": "profitable",
+  "start_ts": null,
+  "end_ts": null,
+  "symbols": null,
+  "shadow_mode": true,
+  "ml_may_execute": false,
+  "paths": {
+    "csv": "/Users/andrey/polymarket-bot/polymarket-btc5m-bot/research/ml/datasets/v1/training_dataset.csv",
+    "parquet": "/Users/andrey/polymarket-bot/polymarket-btc5m-bot/research/ml/datasets/v1/training_dataset.parquet"
+  },
+  "updated_at": 1785435028
+}
