@@ -699,13 +699,9 @@ def run_strategy_optimizer(
 
     sample_n = int(segments["overall"].get("n") or 0)
     conf_score = _confidence_score(sample_n, pf_lift if pf_lift is not None else exp_lift)
-    apply_ok = should_auto_apply(
-        sample_n=sample_n,
-        confidence=conf_score,
-        pf_improvement=pf_lift if pf_lift is not None else (
-            abs(exp_lift) if exp_lift is not None else None
-        ),
-    )
+    # V1 only recommends. Auto-apply requires Adaptive Validation V2
+    # (validate-optimizer) so every change is A/B + CV + walk-forward tested.
+    apply_ok = False
 
     current_params = {
         "disabled_symbols": sorted(prev_disabled),
@@ -723,24 +719,9 @@ def run_strategy_optimizer(
     }
 
     applied: dict[str, Any] = dict(prev_state.get("applied") or {})
-    apply_actions: list[str] = []
-    if apply_ok:
-        applied["disabled_symbols"] = symbol_filter["disabled_symbols"]
-        if confidence.get("recommended_threshold") is not None:
-            applied["confidence_threshold"] = confidence["recommended_threshold"]
-        applied["exploration_rate"] = explore["exploration_rate"]
-        applied["applied_at"] = int(time.time())
-        apply_actions.append("AUTO_APPLIED")
-        # Push exploration into S57 env for this process
-        os.environ["S57_EXPLORATION_RATE"] = str(explore["exploration_rate"])
-        try:
-            from bot.research.market_events.signal_intelligence import market_regime_s57 as s57
-            s57.refresh_s57_config_from_env()
-        except Exception as exc:
-            logger.warning("optimizer: could not refresh S57 explore rate: %s", exc)
-    else:
-        apply_actions.append("RECOMMEND_ONLY")
-
+    apply_actions: list[str] = [
+        "RECOMMEND_ONLY — run validate-optimizer before any auto-apply",
+    ]
     result = {
         "ok": True,
         "generated_at": int(time.time()),

@@ -226,13 +226,15 @@ def main(argv: list[str] | None = None) -> int:
             "score-recommendations",
             "market-heatmap",
             "heartbeat-trace",
-            "validation-report",
+            "g4-validation-report",
             "feature-importance",
             "false-rejects",
             "false-accepts",
             "optimizer-report",
             "optimize-strategy",
             "g42-optimizer-report",
+            "validate-optimizer",
+            "validation-report",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -252,7 +254,6 @@ def main(argv: list[str] | None = None) -> int:
             "shadow-trace",
             "shadow-self-test",
             "validation-open",
-            "validation-report",
             "validation-force",
             "decision",
             "explain",
@@ -1073,7 +1074,7 @@ def main(argv: list[str] | None = None) -> int:
             print(format_heartbeat_trace(conn))
         return 0
 
-    if args.command == "validation-report":
+    if args.command == "g4-validation-report":
         from bot.research.market_events.signal_intelligence.auto_validation_g4 import (
             format_validation_report_g4,
             run_validation_cycle_g4,
@@ -1177,6 +1178,43 @@ def main(argv: list[str] | None = None) -> int:
             run_validation_cycle_g4(conn, days=max(1, args.days))
             conn.commit()
             print(format_optimizer_report_g42(conn, days=max(1, args.days)))
+        return 0
+
+    if args.command == "validate-optimizer":
+        from bot.research.market_events.signal_intelligence.strategy_validation import (
+            run_optimizer_validation,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_optimizer_validation(conn, write_report=True)
+            print(out.get("report_markdown") or "")
+            if out.get("report_path"):
+                print(f"\nWrote {out['report_path']}", file=sys.stderr)
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"validate-optimizer failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "validation-report":
+        from bot.research.market_events.signal_intelligence.strategy_validation import (
+            read_validation_report,
+            run_optimizer_validation,
+        )
+
+        text = read_validation_report()
+        if text.startswith("No VALIDATION_REPORT"):
+            try:
+                with market_events_connection() as conn:
+                    apply_migrations(conn)
+                    out = run_optimizer_validation(conn, write_report=True)
+                print(out.get("report_markdown") or text)
+                return 0 if out.get("ok") else 1
+            except Exception as exc:
+                print(f"validation-report failed: {exc}", file=sys.stderr)
+                return 1
+        print(text)
         return 0
 
     if args.command == "quant-research":
