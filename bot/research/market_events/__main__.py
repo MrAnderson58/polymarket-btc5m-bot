@@ -327,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
             "backfill-history",
             "market-research-migrate",
             "research-stress-test",
+            "research-concurrency-stress",
             "trade-suggestions",
             "approve-suggestion",
             "reject-suggestion",
@@ -1376,14 +1377,44 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     if args.command == "alpha-engine":
+        from bot.research.market_events.db import is_database_locked, retry_on_db_locked
+        from bot.research.market_events.research_db_session import (
+            research_migrate_then_readonly,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
         from bot.research.market_events.signal_intelligence.alpha_discovery_engine_v1 import (
             run_alpha_engine_v1,
         )
 
         try:
-            with market_events_connection() as conn:
-                apply_migrations(conn)
-                out = run_alpha_engine_v1(conn, write_reports=True)
+            try:
+                db_path, _src, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError:
+                db_path = None
+
+            def _run_alpha_engine() -> dict:
+                if db_path is not None:
+                    with research_migrate_then_readonly(db_path) as conn:
+                        return run_alpha_engine_v1(conn, write_reports=True)
+                # Fallback: short migrate under default path, then readonly
+                from bot.research.market_events.db import (
+                    market_events_connection,
+                    market_events_readonly_connection,
+                )
+                from bot.research.market_events.research_db_session import (
+                    research_write_lock,
+                )
+
+                with research_write_lock():
+                    with market_events_connection() as wconn:
+                        apply_migrations(wconn)
+                with market_events_readonly_connection() as conn:
+                    return run_alpha_engine_v1(conn, write_reports=True)
+
+            out = retry_on_db_locked(_run_alpha_engine)
             print(out.get("report_markdown") or "")
             print(
                 json.dumps({
@@ -1415,18 +1446,40 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Wrote {label}: {path}", file=sys.stderr)
             return 0 if out.get("ok") else 1
         except Exception as exc:
-            print(f"alpha-engine failed: {exc}", file=sys.stderr)
+            if is_database_locked(exc):
+                print(f"alpha-engine failed (database locked): {exc}", file=sys.stderr)
+            else:
+                print(f"alpha-engine failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-validate":
+        from bot.research.market_events.db import is_database_locked, retry_on_db_locked
+        from bot.research.market_events.research_db_session import (
+            research_write_connection,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
         from bot.research.market_events.signal_intelligence.alpha_validation_v2 import (
             run_alpha_validation_v2,
         )
 
         try:
-            with market_events_connection() as conn:
-                apply_migrations(conn)
-                out = run_alpha_validation_v2(conn, write_reports=True, persist=True)
+            try:
+                db_path, _src, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"alpha-validate failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_alpha_validate() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    return run_alpha_validation_v2(
+                        conn, write_reports=True, persist=True,
+                    )
+
+            out = retry_on_db_locked(_run_alpha_validate)
             print(out.get("report_markdown") or "")
             print(
                 json.dumps({
@@ -1456,18 +1509,38 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Wrote {label}: {path}", file=sys.stderr)
             return 0 if out.get("ok") else 1
         except Exception as exc:
-            print(f"alpha-validate failed: {exc}", file=sys.stderr)
+            if is_database_locked(exc):
+                print(f"alpha-validate failed (database locked): {exc}", file=sys.stderr)
+            else:
+                print(f"alpha-validate failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-validation-report":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import (
+            research_write_connection,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
         from bot.research.market_events.signal_intelligence.alpha_validation_v2 import (
             run_alpha_validation_report,
         )
 
         try:
-            with market_events_connection() as conn:
-                apply_migrations(conn)
-                out = run_alpha_validation_report(conn, write_reports=True)
+            try:
+                db_path, _src, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"alpha-validation-report failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_avr() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    return run_alpha_validation_report(conn, write_reports=True)
+
+            out = retry_on_db_locked(_run_avr)
             print(out.get("report_markdown") or "")
             print(
                 json.dumps({
@@ -2739,6 +2812,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "feature-validation":
+        from bot.research.market_events.db import retry_on_db_locked
         from bot.research.market_events.feature_validation_v1 import (
             run_feature_validation,
         )
@@ -2755,15 +2829,20 @@ def main(argv: list[str] | None = None) -> int:
         except ResearchSyncError as exc:
             print(f"feature-validation failed: {exc}")
             return 1
-        with research_write_connection(db_path) as conn:
-            apply_migrations(conn)
-            print(
-                run_feature_validation(conn, write_reports=True)
-                + f"\n\n(analytics_db={db_path.resolve()} source={source})"
-            )
+
+        def _run_fv() -> str:
+            with research_write_connection(db_path) as conn:
+                apply_migrations(conn)
+                return (
+                    run_feature_validation(conn, write_reports=True)
+                    + f"\n\n(analytics_db={db_path.resolve()} source={source})"
+                )
+
+        print(retry_on_db_locked(_run_fv))
         return 0
 
     if args.command == "knowledge-show":
+        from bot.research.market_events.db import retry_on_db_locked
         from bot.research.market_events.knowledge_engine.report import (
             format_knowledge_show,
             write_knowledge_report,
@@ -2781,11 +2860,17 @@ def main(argv: list[str] | None = None) -> int:
         except ResearchSyncError as exc:
             print(f"knowledge-show failed: {exc}")
             return 1
-        with research_write_connection(db_path) as conn:
-            apply_migrations(conn)
-            path = write_knowledge_report(conn)
-            print(format_knowledge_show(conn))
-            print(f"\nWrote {path}\n(analytics_db={db_path.resolve()} source={source})")
+
+        def _run_ks() -> str:
+            with research_write_connection(db_path) as conn:
+                apply_migrations(conn)
+                path = write_knowledge_report(conn)
+                return (
+                    format_knowledge_show(conn)
+                    + f"\n\nWrote {path}\n(analytics_db={db_path.resolve()} source={source})"
+                )
+
+        print(retry_on_db_locked(_run_ks))
         return 0
 
     if args.command == "pattern-discovery":
@@ -2813,6 +2898,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "hypothesis-validate":
+        from bot.research.market_events.db import retry_on_db_locked
         from bot.research.market_events.hypothesis_engine.report import (
             format_hypothesis_show,
             write_hypotheses_report,
@@ -2833,19 +2919,22 @@ def main(argv: list[str] | None = None) -> int:
         except ResearchSyncError as exc:
             print(f"hypothesis-validate failed: {exc}")
             return 1
-        with research_write_connection(db_path) as conn:
-            apply_migrations(conn)
-            stats = run_hypothesis_validate(conn)
-            path = write_hypotheses_report(conn)
-            print("HYPOTHESIS VALIDATE")
-            print(
-                f"  generated={stats['generated']} upserted={stats['upserted']} "
-                f"archived={stats['archived']} low_sample={stats['low_sample']}"
-            )
-            print(f"  counts={stats['counts']}")
-            print()
-            print(format_hypothesis_show(conn))
-            print(f"\nWrote {path}\n(analytics_db={db_path.resolve()} source={source})")
+
+        def _run_hv() -> str:
+            with research_write_connection(db_path) as conn:
+                apply_migrations(conn)
+                stats = run_hypothesis_validate(conn)
+                path = write_hypotheses_report(conn)
+                return (
+                    "HYPOTHESIS VALIDATE\n"
+                    f"  generated={stats['generated']} upserted={stats['upserted']} "
+                    f"archived={stats['archived']} low_sample={stats['low_sample']}\n"
+                    f"  counts={stats['counts']}\n\n"
+                    f"{format_hypothesis_show(conn)}\n"
+                    f"\nWrote {path}\n(analytics_db={db_path.resolve()} source={source})"
+                )
+
+        print(retry_on_db_locked(_run_hv))
         return 0
 
     if args.command == "hypothesis-show":
@@ -2882,6 +2971,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "experiment-run":
+        from bot.research.market_events.db import retry_on_db_locked
         from bot.research.market_events.experiment_engine.report import (
             run_experiment_cli,
         )
@@ -2898,12 +2988,16 @@ def main(argv: list[str] | None = None) -> int:
         except ResearchSyncError as exc:
             print(f"experiment-run failed: {exc}")
             return 1
-        with research_write_connection(db_path) as conn:
-            apply_migrations(conn)
-            print(
-                run_experiment_cli(conn, write_reports=True)
-                + f"\n\n(analytics_db={db_path.resolve()} source={source})"
-            )
+
+        def _run_er() -> str:
+            with research_write_connection(db_path) as conn:
+                apply_migrations(conn)
+                return (
+                    run_experiment_cli(conn, write_reports=True)
+                    + f"\n\n(analytics_db={db_path.resolve()} source={source})"
+                )
+
+        print(retry_on_db_locked(_run_er))
         return 0
 
     if args.command == "experiment-show":
@@ -3066,6 +3160,39 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             print(f"research-stress-test failed: {exc}")
             return 1
+
+    if args.command == "research-concurrency-stress":
+        from bot.research.market_events.research_concurrency_v1 import (
+            format_stress_report,
+            multithreaded_knowledge_history_stress,
+            run_research_concurrency_stress,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+
+        rounds = int(getattr(args, "workers", None) or 20)
+        try:
+            db_path, source, _ = resolve_research_analytics_sqlite_path()
+        except ResearchSyncError as exc:
+            print(f"research-concurrency-stress failed: {exc}")
+            return 1
+        mt = multithreaded_knowledge_history_stress(db_path, n_threads=12, n_writes_each=30)
+        result = run_research_concurrency_stress(rounds=rounds)
+        result["multithreaded_knowledge_history"] = mt
+        result["ok"] = bool(result.get("ok")) and bool(mt.get("ok"))
+        result["analytics_db"] = str(db_path)
+        result["analytics_source"] = source
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+        else:
+            print(format_stress_report(result))
+            print(
+                f"\nmultithreaded_knowledge_history: locked={mt.get('n_locked')} "
+                f"errors={mt.get('n_errors')} ok={mt.get('ok')}"
+            )
+        return 0 if result.get("ok") else 1
 
     if args.command == "market-regime":
         if _audit_s42_db_path(command="market-regime") != 0:

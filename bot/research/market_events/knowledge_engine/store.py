@@ -37,22 +37,25 @@ def _record_history(
         return
     if _s(old_value) == _s(new_value):
         return
-    conn.execute(
-        """
-        INSERT INTO knowledge_history (
-          entity_type, entity_key, field_name, old_value, new_value, note, recorded_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            entity_type,
-            entity_key,
-            field_name,
-            _s(old_value),
-            _s(new_value),
-            note,
-            int(now if now is not None else _now()),
-        ),
-    )
+    from bot.research.market_events.research_db_session import knowledge_history_write_guard
+
+    with knowledge_history_write_guard():
+        conn.execute(
+            """
+            INSERT INTO knowledge_history (
+              entity_type, entity_key, field_name, old_value, new_value, note, recorded_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entity_type,
+                entity_key,
+                field_name,
+                _s(old_value),
+                _s(new_value),
+                note,
+                int(now if now is not None else _now()),
+            ),
+        )
 
 
 def _verdict_to_status(verdict: str) -> str:
