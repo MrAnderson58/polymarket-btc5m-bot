@@ -16,16 +16,30 @@ class CandleBar:
     volume: float
 
 
+def _row_get(r: Any, key: str, idx: int, default: Any = None) -> Any:
+    if isinstance(r, dict):
+        return r.get(key, default)
+    try:
+        if hasattr(r, "keys") and key in r.keys():
+            return r[key]
+    except Exception:
+        pass
+    try:
+        return r[idx]
+    except Exception:
+        return default
+
+
 def bars_from_rows(rows: Sequence[Any]) -> list[CandleBar]:
     out: list[CandleBar] = []
     for r in rows:
         out.append(CandleBar(
-            open_ts=int(r["open_ts"]),
-            open=float(r["open"]),
-            high=float(r["high"]),
-            low=float(r["low"]),
-            close=float(r["close"]),
-            volume=float(r["volume"] or 0),
+            open_ts=int(_row_get(r, "open_ts", 0)),
+            open=float(_row_get(r, "open", 1)),
+            high=float(_row_get(r, "high", 2)),
+            low=float(_row_get(r, "low", 3)),
+            close=float(_row_get(r, "close", 4)),
+            volume=float(_row_get(r, "volume", 5) or 0),
         ))
     return out
 
@@ -38,17 +52,36 @@ def load_recent_candles(
     timeframe: str = "5m",
     limit: int = 120,
 ) -> list[CandleBar]:
-    rows = conn.execute(
-        """
-        SELECT open_ts, open, high, low, close, volume
-        FROM market_events_historical_candles
-        WHERE venue = ? AND symbol = ? AND timeframe = ?
-        ORDER BY open_ts DESC LIMIT ?
-        """,
-        (venue, symbol, timeframe, limit),
-    ).fetchall()
-    bars = bars_from_rows(reversed(rows))
-    return bars
+    sym = str(symbol or "").upper().replace("USDT", "")
+    venues = [venue, "binance_futures", "binance_spot", "snapshot_bars"]
+    seen: set[str] = set()
+    for v in venues:
+        if not v or v in seen:
+            continue
+        seen.add(v)
+        rows = conn.execute(
+            """
+            SELECT open_ts, open, high, low, close, volume
+            FROM market_events_historical_candles
+            WHERE venue = ? AND symbol = ? AND timeframe = ?
+            ORDER BY open_ts DESC LIMIT ?
+            """,
+            (v, sym, timeframe, limit),
+        ).fetchall()
+        if not rows and sym:
+            # try USDT-suffixed symbol
+            rows = conn.execute(
+                """
+                SELECT open_ts, open, high, low, close, volume
+                FROM market_events_historical_candles
+                WHERE venue = ? AND symbol = ? AND timeframe = ?
+                ORDER BY open_ts DESC LIMIT ?
+                """,
+                (v, f"{sym}USDT", timeframe, limit),
+            ).fetchall()
+        if rows:
+            return bars_from_rows(list(reversed(list(rows))))
+    return []
 
 
 def aggregate_bars(bars: list[CandleBar], *, window_minutes: int, bar_minutes: int = 5) -> list[CandleBar]:

@@ -288,14 +288,19 @@ def audit_feature_values(
 
 
 def _load_s55_rows(conn: Any) -> list[dict[str, Any]]:
+    """Load S55 rows; prefer fresh rows only (Feature Recovery V2 freshness gate)."""
     rows: list[dict[str, Any]] = []
+    max_age = int(os.environ.get("FEATURE_AUDIT_FRESH_MAX_AGE_SEC", str(7 * 86400)))
+    cutoff = int(time.time()) - max_age
     try:
         cur = conn.execute(
             """
             SELECT * FROM market_events_trade_features_s55
+            WHERE created_at >= ?
             ORDER BY COALESCE(closed_at, created_at, id) DESC
-            LIMIT 5000
-            """
+            LIMIT 50000
+            """,
+            (cutoff,),
         )
         cols = [d[0] for d in cur.description]
         for r in cur.fetchall():
@@ -311,6 +316,31 @@ def _load_s55_rows(conn: Any) -> list[dict[str, Any]]:
             rows.append(d)
     except Exception:
         pass
+    # If nothing fresh, fall back to latest N with STALE flag for visibility
+    if not rows:
+        try:
+            cur = conn.execute(
+                """
+                SELECT * FROM market_events_trade_features_s55
+                ORDER BY COALESCE(closed_at, created_at, id) DESC
+                LIMIT 5000
+                """
+            )
+            cols = [d[0] for d in cur.description]
+            for r in cur.fetchall():
+                d = {cols[i]: r[i] for i in range(len(cols))}
+                blob = {}
+                raw = d.get("features_json")
+                if isinstance(raw, str) and raw.strip():
+                    try:
+                        blob = json.loads(raw) or {}
+                    except Exception:
+                        blob = {}
+                d["_blob"] = blob
+                d["_stale_fallback"] = True
+                rows.append(d)
+        except Exception:
+            pass
     return rows
 
 
@@ -326,6 +356,16 @@ def run_feature_audit(
     samples = [extract_sample(r) for r in closed]
     s55 = _load_s55_rows(conn)
     formulas = audit_formula_sources(conn)
+
+    # Live recovery proof vectors (not limited to stale S55 stubs)
+    live_proof: dict[str, Any] = {}
+    try:
+        from bot.research.market_events.signal_intelligence.feature_recovery_v2 import (
+            compute_live_feature_vector,
+        )
+        live_proof = compute_live_feature_vector(conn, symbol="BTC")
+    except Exception as exc:
+        live_proof = {"error": str(exc)}
 
     broken_keys = set()
     for f in formulas.get("formulas") or []:
@@ -393,9 +433,19 @@ def run_feature_audit(
         "generated_at": now,
         "n_closed_samples": len(samples),
         "n_s55_rows": len(s55),
+        "s55_fresh_max_age_sec": int(os.environ.get("FEATURE_AUDIT_FRESH_MAX_AGE_SEC", str(7 * 86400))),
         "features": audits,
         "by_status": {k: sorted(v) for k, v in by_status.items()},
         "formula_sources": formulas,
+        "live_proof_btc": {
+            k: live_proof.get(k)
+            for k in (
+                "rsi", "ema20_distance", "ema50_distance", "ema200_distance",
+                "vwap_distance", "atr", "macd", "adx", "stoch_k", "trend",
+                "funding", "oi_delta", "fear_greed", "volatility", "ai_score",
+                "_candle_source", "_candle_n",
+            )
+        } if live_proof else {},
         "read_only": True,
         "gate_trading_unchanged": True,
     }

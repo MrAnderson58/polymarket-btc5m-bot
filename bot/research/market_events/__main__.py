@@ -242,6 +242,10 @@ def main(argv: list[str] | None = None) -> int:
             "experiment-leaderboard",
             "feature-audit",
             "feature-information",
+            "feature-health",
+            "feature-freshness",
+            "feature-completeness",
+            "feature-validate",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1366,6 +1370,80 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if info.get("ok") else 1
         except Exception as exc:
             print(f"feature-information failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "feature-health":
+        from bot.research.market_events.signal_intelligence.feature_recovery_v2.health import (
+            run_feature_health,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_feature_health(conn, write_recovery_report=True)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "GOOD": (out.get("counts") or {}).get("GOOD"),
+                    "WARNING": (out.get("counts") or {}).get("WARNING"),
+                    "BROKEN": (out.get("counts") or {}).get("BROKEN"),
+                    "recovered": out.get("recovered"),
+                    "broken": out.get("broken"),
+                    "constant": out.get("constant"),
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            if (out.get("recovery_report") or {}).get("path"):
+                print(f"Wrote {(out['recovery_report'])['path']}", file=sys.stderr)
+            return 0
+        except Exception as exc:
+            print(f"feature-health failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "feature-freshness":
+        from bot.research.market_events.signal_intelligence.feature_recovery_v2.health import (
+            run_feature_freshness,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_feature_freshness(conn)
+            print(out.get("report_markdown") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"feature-freshness failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "feature-completeness":
+        from bot.research.market_events.signal_intelligence.feature_recovery_v2.health import (
+            run_feature_completeness,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_feature_completeness(conn)
+            print(out.get("report_markdown") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"feature-completeness failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "feature-validate":
+        from bot.research.market_events.signal_intelligence.feature_recovery_v2.health import (
+            run_feature_validate,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_feature_validate(conn)
+            print(out.get("report_markdown") or "")
+            print(json.dumps({"ok": out.get("ok"), "issues": len(out.get("issues") or []), "sample_btc": out.get("sample_btc")}, indent=2, default=str), file=sys.stderr)
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"feature-validate failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "quant-research":

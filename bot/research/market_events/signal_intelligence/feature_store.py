@@ -204,7 +204,7 @@ def extract_sample(row: dict[str, Any], *, feature_version: str = FEATURE_VERSIO
 
 def load_closed_trade_rows(conn: Any, *, limit: int | None = None) -> list[dict[str, Any]]:
     """Load CLOSED paper trades joined with S55 feature columns when present."""
-    limit = int(limit or os.environ.get("ML_STORE_LIMIT", "5000"))
+    limit = int(limit or os.environ.get("ML_STORE_LIMIT", "100000"))
     sql = """
         SELECT p.*,
                f.gate_decision, f.market_regime, f.ai_score, f.macro_score, f.news_score,
@@ -217,7 +217,7 @@ def load_closed_trade_rows(conn: Any, *, limit: int | None = None) -> list[dict[
         WHERE p.status = 'CLOSED' AND p.pnl_pct IS NOT NULL
         ORDER BY COALESCE(p.closed_at, p.updated_at, p.id) DESC
         LIMIT ?
-        """
+    """
     try:
         rows = [_row(r) for r in conn.execute(sql, (limit,)).fetchall()]
     except Exception as exc:

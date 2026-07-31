@@ -138,19 +138,14 @@ def build_entry_features(conn: Any, s40_row: Any) -> dict[str, Any]:
     trend = _safe_float(trend_raw)
     news = _safe_float(_row_get(s40_row, "snapshot_news_score"))
     confidence = _safe_float(_row_get(s40_row, "snapshot_decision_confidence"))
-    ai = confidence  # historical alias used by S55/S56 columns
 
-    # Best-effort extras from recent market snapshot.
-    rsi = None
-    oi_delta = None
+    # Best-effort extras from recent market snapshot (refined by Feature Recovery V2).
     etf_flow = None
     macro_score = None
     btc_dominance = None
     spread = None
     shock_score = None
     market_regime = None
-    volatility = atr
-    prev_oi = None
 
     symbol = str(_row_get(s40_row, "symbol") or "").upper()
     strategy = str(_row_get(s40_row, "signal_type") or _row_get(s40_row, "s40_signal_type") or "").strip() or None
@@ -164,21 +159,30 @@ def build_entry_features(conn: Any, s40_row: Any) -> dict[str, Any]:
         ).fetchall()
         if snaps:
             snap = snaps[0]
+
+            def _sg(s: Any, key: str, idx: int) -> Any:
+                try:
+                    if hasattr(s, "keys") and key in s.keys():
+                        return s[key]
+                except Exception:
+                    pass
+                try:
+                    return s[idx]
+                except Exception:
+                    return None
+
             if funding is None:
-                funding = _safe_float(snap["funding"])
+                funding = _safe_float(_sg(snap, "funding", 0))
             if oi is None:
-                oi = _safe_float(snap["open_interest"])
+                oi = _safe_float(_sg(snap, "open_interest", 1))
             if atr is None:
-                atr = _safe_float(snap["atr"])
-                volatility = atr
+                atr = _safe_float(_sg(snap, "atr", 2))
             if fear is None:
-                fear = _safe_float(snap["fear_greed"])
+                fear = _safe_float(_sg(snap, "fear_greed", 3))
             if volume is None:
-                volume = _safe_float(snap["volume"])
+                volume = _safe_float(_sg(snap, "volume", 4))
             if btc_dominance is None:
-                btc_dominance = _safe_float(snap["btc_dominance"])
-            if len(snaps) > 1:
-                prev_oi = _safe_float(snaps[1]["open_interest"])
+                btc_dominance = _safe_float(_sg(snap, "btc_dominance", 5))
     except Exception:
         # Older DBs may lack btc_dominance — retry without it.
         try:
@@ -191,24 +195,30 @@ def build_entry_features(conn: Any, s40_row: Any) -> dict[str, Any]:
             ).fetchall()
             if snaps:
                 snap = snaps[0]
+
+                def _sg2(s: Any, key: str, idx: int) -> Any:
+                    try:
+                        if hasattr(s, "keys") and key in s.keys():
+                            return s[key]
+                    except Exception:
+                        pass
+                    try:
+                        return s[idx]
+                    except Exception:
+                        return None
+
                 if funding is None:
-                    funding = _safe_float(snap["funding"])
+                    funding = _safe_float(_sg2(snap, "funding", 0))
                 if oi is None:
-                    oi = _safe_float(snap["open_interest"])
+                    oi = _safe_float(_sg2(snap, "open_interest", 1))
                 if atr is None:
-                    atr = _safe_float(snap["atr"])
-                    volatility = atr
+                    atr = _safe_float(_sg2(snap, "atr", 2))
                 if fear is None:
-                    fear = _safe_float(snap["fear_greed"])
+                    fear = _safe_float(_sg2(snap, "fear_greed", 3))
                 if volume is None:
-                    volume = _safe_float(snap["volume"])
-                if len(snaps) > 1:
-                    prev_oi = _safe_float(snaps[1]["open_interest"])
+                    volume = _safe_float(_sg2(snap, "volume", 4))
         except Exception:
             pass
-
-    if oi is not None and prev_oi is not None:
-        oi_delta = oi - prev_oi
 
     funding_sign = None
     if funding is not None:
@@ -235,19 +245,20 @@ def build_entry_features(conn: Any, s40_row: Any) -> dict[str, Any]:
         "hour": hour,
         "weekday": weekday,
         "session": session,
-        "volatility": volatility,
-        "atr": atr,
-        "rsi": rsi,
+        "volatility": None,  # filled by Feature Recovery V2 (ATR%) — not atr alias
+        "atr": atr if atr not in (50.0, 50) else None,
+        "rsi": None,  # filled by Feature Recovery V2 from candles
         "funding": funding,
         "open_interest": oi,
-        "oi_delta": oi_delta if oi_delta is not None else oi,
+        "oi_delta": None,  # filled by V2 from snapshot delta — never alias of OI
+        "funding_delta": None,
         "etf_flow": etf_flow,
         "macro_score": macro_score,
         "news_score": news,
-        "ai_score": ai,
+        "ai_score": None,  # must not alias confidence (V2 clears duplicates)
         "decision_confidence": confidence,
         "confidence": confidence,
-        "trend": trend if trend is not None else ema_trend,
+        "trend": trend,
         "ema_trend": ema_trend,
         "volume": volume,
         "fear_greed": fear,
@@ -258,7 +269,21 @@ def build_entry_features(conn: Any, s40_row: Any) -> dict[str, Any]:
         "market_regime_version": None,  # filled by S57 attach
         "shock_score": shock_score,
         "entry_reason": None,  # filled when S58 why_opened is built; keep slot
+        "entry": _safe_float(_row_get(s40_row, "entry")),
     }
+    # Feature Recovery V2: real RSI/EMA/VWAP/ATR/MACD/BB/ADX/Stoch from candles
+    try:
+        from bot.research.market_events.signal_intelligence.feature_recovery_v2 import (
+            enrich_entry_features,
+        )
+        enrich_entry_features(
+            conn,
+            feats,
+            entry_price=_safe_float(feats.get("entry")),
+        )
+    except Exception as exc:
+        logger.warning("feature_recovery_v2 enrich failed: %s", exc)
+
     feats["features_json"] = json.dumps(
         {k: v for k, v in feats.items() if k != "features_json"},
         default=str,
