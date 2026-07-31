@@ -1061,6 +1061,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_knowledge_engine_v1(conn)
     _ensure_hypothesis_engine_v1(conn)
     _ensure_experiment_engine_v1(conn)
+    _ensure_alpha_validation_v2(conn)
 
     if not applied:
         conn.commit()
@@ -3579,6 +3580,15 @@ def _ensure_experiment_engine_v1(conn: Any) -> None:
     )
 
     ensure_experiment_engine_schema(conn)
+
+
+def _ensure_alpha_validation_v2(conn: Any) -> None:
+    """Create Alpha Validation Engine V2 tables if missing."""
+    from bot.research.market_events.signal_intelligence.alpha_validation_v2.schema import (
+        ensure_alpha_validation_schema,
+    )
+
+    ensure_alpha_validation_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """

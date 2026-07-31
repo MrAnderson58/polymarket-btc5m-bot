@@ -1,0 +1,5308 @@
+{
+  "run_id": "av2-1785533910-cc9144a3",
+  "n_rows": 50,
+  "results": [
+    {
+      "rule_id": "2|rsi_low|ema20_distance_le_-1.879199",
+      "rule_label": "(rsi in [30.0,45.0)) AND (ema20_distance<=q25(-1.879))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 6,
+      "winrate": 83.33,
+      "expectancy": 60.2391,
+      "pf": null,
+      "sharpe": 1.0266,
+      "ci_ev": [
+        10.6383,
+        117.9187
+      ],
+      "p_value": 0.049383,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 66.67,
+          "expectancy": 1.6835,
+          "pf": "inf",
+          "sharpe": 1.4142,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|rsi_low|ema50_distance_le_-1.906954",
+      "rule_label": "(rsi in [30.0,45.0)) AND (ema50_distance<=q25(-1.907))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 6,
+      "winrate": 83.33,
+      "expectancy": 60.2391,
+      "pf": null,
+      "sharpe": 1.0266,
+      "ci_ev": [
+        20.2261,
+        99.8311
+      ],
+      "p_value": 0.024691,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 66.67,
+          "expectancy": 1.6835,
+          "pf": "inf",
+          "sharpe": 1.4142,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema20_distance_le_-1.879199|stoch_k_le_50.92595",
+      "rule_label": "(ema20_distance<=q25(-1.879)) AND (stoch_k<=median(50.93))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 6,
+      "winrate": 83.33,
+      "expectancy": 60.2391,
+      "pf": null,
+      "sharpe": 1.0266,
+      "ci_ev": [
+        19.8052,
+        111.5416
+      ],
+      "p_value": 0.037037,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 66.67,
+          "expectancy": 1.6835,
+          "pf": "inf",
+          "sharpe": 1.4142,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema20_distance_le_-1.879199|stoch_k_le_41.6667",
+      "rule_label": "(ema20_distance<=q25(-1.879)) AND (stoch_k<=q25(41.67))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 6,
+      "winrate": 83.33,
+      "expectancy": 60.2391,
+      "pf": null,
+      "sharpe": 1.0266,
+      "ci_ev": [
+        1.8835,
+        101.4542
+      ],
+      "p_value": 0.024691,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 66.67,
+          "expectancy": 1.6835,
+          "pf": "inf",
+          "sharpe": 1.4142,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema20_distance_le_-1.879199|stoch_d_le_36.6402",
+      "rule_label": "(ema20_distance<=q25(-1.879)) AND (stoch_d<=q25(36.64))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 6,
+      "winrate": 83.33,
+      "expectancy": 60.2391,
+      "pf": null,
+      "sharpe": 1.0266,
+      "ci_ev": [
+        20.0262,
+        100.7782
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 66.67,
+          "expectancy": 1.6835,
+          "pf": "inf",
+          "sharpe": 1.4142,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema20_distance_le_-1.879199|bb_pct_b_le_0.28885",
+      "rule_label": "(ema20_distance<=q25(-1.879)) AND (bb_pct_b<=q25(0.2888))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 6,
+      "winrate": 83.33,
+      "expectancy": 60.2391,
+      "pf": null,
+      "sharpe": 1.0266,
+      "ci_ev": [
+        19.6053,
+        100.5783
+      ],
+      "p_value": 0.037037,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 66.67,
+          "expectancy": 1.6835,
+          "pf": "inf",
+          "sharpe": 1.4142,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema50_distance_le_-1.906954|stoch_k_le_50.92595",
+      "rule_label": "(ema50_distance<=q25(-1.907)) AND (stoch_k<=median(50.93))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 6,
+      "winrate": 83.33,
+      "expectancy": 60.2391,
+      "pf": null,
+      "sharpe": 1.0266,
+      "ci_ev": [
+        20.4471,
+        117.0428
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 66.67,
+          "expectancy": 1.6835,
+          "pf": "inf",
+          "sharpe": 1.4142,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema50_distance_le_-1.906954|stoch_k_le_41.6667",
+      "rule_label": "(ema50_distance<=q25(-1.907)) AND (stoch_k<=q25(41.67))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 6,
+      "winrate": 83.33,
+      "expectancy": 60.2391,
+      "pf": null,
+      "sharpe": 1.0266,
+      "ci_ev": [
+        19.8052,
+        101.8751
+      ],
+      "p_value": 0.024691,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 66.67,
+          "expectancy": 1.6835,
+          "pf": "inf",
+          "sharpe": 1.4142,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema50_distance_le_-1.906954|stoch_d_le_36.6402",
+      "rule_label": "(ema50_distance<=q25(-1.907)) AND (stoch_d<=q25(36.64))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 6,
+      "winrate": 83.33,
+      "expectancy": 60.2391,
+      "pf": null,
+      "sharpe": 1.0266,
+      "ci_ev": [
+        10.8172,
+        100.9992
+      ],
+      "p_value": 0.049383,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 66.67,
+          "expectancy": 1.6835,
+          "pf": "inf",
+          "sharpe": 1.4142,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema50_distance_le_-1.906954|bb_pct_b_le_0.28885",
+      "rule_label": "(ema50_distance<=q25(-1.907)) AND (bb_pct_b<=q25(0.2888))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 6,
+      "winrate": 83.33,
+      "expectancy": 60.2391,
+      "pf": null,
+      "sharpe": 1.0266,
+      "ci_ev": [
+        20.0262,
+        98.187
+      ],
+      "p_value": 0.024691,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 66.67,
+          "expectancy": 1.6835,
+          "pf": "inf",
+          "sharpe": 1.4142,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema200_distance_le_-1.684573|stoch_d_le_36.6402",
+      "rule_label": "(ema200_distance<=q25(-1.685)) AND (stoch_d<=q25(36.64))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 6,
+      "winrate": 83.33,
+      "expectancy": 60.2391,
+      "pf": null,
+      "sharpe": 1.0266,
+      "ci_ev": [
+        10.5962,
+        116.9506
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 66.67,
+          "expectancy": 1.6835,
+          "pf": "inf",
+          "sharpe": 1.4142,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|vwap_distance_le_-2.067766|stoch_d_le_36.6402",
+      "rule_label": "(vwap_distance<=q25(-2.068)) AND (stoch_d<=q25(36.64))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 6,
+      "winrate": 83.33,
+      "expectancy": 60.2391,
+      "pf": null,
+      "sharpe": 1.0266,
+      "ci_ev": [
+        20.2261,
+        101.9673
+      ],
+      "p_value": 0.037037,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 66.67,
+          "expectancy": 1.6835,
+          "pf": "inf",
+          "sharpe": 1.4142,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|rsi_low|ema200_distance_le_-1.684573",
+      "rule_label": "(rsi in [30.0,45.0)) AND (ema200_distance<=q25(-1.685))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 8,
+      "winrate": 87.5,
+      "expectancy": 58.6132,
+      "pf": null,
+      "sharpe": 1.1517,
+      "ci_ev": [
+        25.5471,
+        93.1416
+      ],
+      "p_value": 0.024691,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 5,
+          "winrate": 80.0,
+          "expectancy": 22.5043,
+          "pf": "inf",
+          "sharpe": 0.8819,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|rsi_low|vwap_distance_le_-2.067766",
+      "rule_label": "(rsi in [30.0,45.0)) AND (vwap_distance<=q25(-2.068))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 8,
+      "winrate": 87.5,
+      "expectancy": 58.6132,
+      "pf": null,
+      "sharpe": 1.1517,
+      "ci_ev": [
+        31.9326,
+        92.4155
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 5,
+          "winrate": 80.0,
+          "expectancy": 22.5043,
+          "pf": "inf",
+          "sharpe": 0.8819,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema200_distance_le_-1.684573|stoch_k_le_50.92595",
+      "rule_label": "(ema200_distance<=q25(-1.685)) AND (stoch_k<=median(50.93))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 8,
+      "winrate": 87.5,
+      "expectancy": 58.6132,
+      "pf": null,
+      "sharpe": 1.1517,
+      "ci_ev": [
+        29.9865,
+        90.8825
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 5,
+          "winrate": 80.0,
+          "expectancy": 22.5043,
+          "pf": "inf",
+          "sharpe": 0.8819,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema200_distance_le_-1.684573|stoch_k_le_41.6667",
+      "rule_label": "(ema200_distance<=q25(-1.685)) AND (stoch_k<=q25(41.67))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 8,
+      "winrate": 87.5,
+      "expectancy": 58.6132,
+      "pf": null,
+      "sharpe": 1.1517,
+      "ci_ev": [
+        25.3498,
+        88.7925
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 5,
+          "winrate": 80.0,
+          "expectancy": 22.5043,
+          "pf": "inf",
+          "sharpe": 0.8819,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema200_distance_le_-1.684573|bb_pct_b_le_0.28885",
+      "rule_label": "(ema200_distance<=q25(-1.685)) AND (bb_pct_b<=q25(0.2888))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 8,
+      "winrate": 87.5,
+      "expectancy": 58.6132,
+      "pf": null,
+      "sharpe": 1.1517,
+      "ci_ev": [
+        28.6094,
+        95.5253
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 5,
+          "winrate": 80.0,
+          "expectancy": 22.5043,
+          "pf": "inf",
+          "sharpe": 0.8819,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|vwap_distance_le_-2.067766|stoch_k_le_50.92595",
+      "rule_label": "(vwap_distance<=q25(-2.068)) AND (stoch_k<=median(50.93))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 8,
+      "winrate": 87.5,
+      "expectancy": 58.6132,
+      "pf": null,
+      "sharpe": 1.1517,
+      "ci_ev": [
+        21.3854,
+        89.7866
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 5,
+          "winrate": 80.0,
+          "expectancy": 22.5043,
+          "pf": "inf",
+          "sharpe": 0.8819,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|vwap_distance_le_-2.067766|stoch_k_le_41.6667",
+      "rule_label": "(vwap_distance<=q25(-2.068)) AND (stoch_k<=q25(41.67))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 8,
+      "winrate": 87.5,
+      "expectancy": 58.6132,
+      "pf": null,
+      "sharpe": 1.1517,
+      "ci_ev": [
+        21.5634,
+        96.1285
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 5,
+          "winrate": 80.0,
+          "expectancy": 22.5043,
+          "pf": "inf",
+          "sharpe": 0.8819,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|vwap_distance_le_-2.067766|bb_pct_b_le_0.28885",
+      "rule_label": "(vwap_distance<=q25(-2.068)) AND (bb_pct_b<=q25(0.2888))",
+      "status": "PASSED",
+      "reject_reason": null,
+      "n_matched": 8,
+      "winrate": 87.5,
+      "expectancy": 58.6132,
+      "pf": null,
+      "sharpe": 1.1517,
+      "ci_ev": [
+        20.9163,
+        93.3601
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": true,
+        "oos": true,
+        "stability": true
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": true,
+        "reason": "ok",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 5,
+          "winrate": 80.0,
+          "expectancy": 22.5043,
+          "pf": "inf",
+          "sharpe": 0.8819,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": true,
+        "reason": "ok",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 2,
+            "winrate": 100.0,
+            "expectancy": 53.7355,
+            "pf": "inf",
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [],
+        "ev_std": 58.5556,
+        "pf_std": 0.0,
+        "wr_std": 16.665,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema200_distance_le_-1.684573|atr_gt_0.00494286",
+      "rule_label": "(ema200_distance<=q25(-1.685)) AND (atr>median(0.004943))",
+      "status": "REJECTED",
+      "reject_reason": "rolling:lost_edge:w2; stability:lost_edge:b2",
+      "n_matched": 9,
+      "winrate": 66.67,
+      "expectancy": 68.5973,
+      "pf": 15.6915,
+      "sharpe": 1.1551,
+      "ci_ev": [
+        98.6709,
+        118.9221
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": false,
+        "oos": true,
+        "stability": false
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 2,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 68.6354,
+            "pf": 15.6996,
+            "sharpe": 1.1745,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 4,
+            "winrate": 100.0,
+            "expectancy": 109.8712,
+            "pf": "inf",
+            "sharpe": 6.8233,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": false,
+        "reason": "lost_edge:w2",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 6,
+            "winrate": 100.0,
+            "expectancy": 109.8998,
+            "pf": "inf",
+            "sharpe": 8.359,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [
+          "w2"
+        ],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 0.0,
+          "expectancy": -14.0076,
+          "pf": 0.0,
+          "sharpe": null,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 6,
+          "winrate": 100.0,
+          "expectancy": 109.8998,
+          "pf": "inf",
+          "sharpe": 8.359,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": false,
+        "reason": "lost_edge:b2",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 1
+          },
+          {
+            "n": 3,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "bucket": 2
+          },
+          {
+            "n": 6,
+            "winrate": 100.0,
+            "expectancy": 109.8998,
+            "pf": "inf",
+            "sharpe": 8.359,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [
+          "b2"
+        ],
+        "ev_std": 61.9537,
+        "pf_std": 5.0,
+        "wr_std": 50.0,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema20_distance_le_-1.879199|atr_pct_le_0.150585",
+      "rule_label": "(ema20_distance<=q25(-1.879)) AND (atr_pct<=median(0.1506))",
+      "status": "REJECTED",
+      "reject_reason": "rolling:lost_edge:w2; stability:lost_edge:b2",
+      "n_matched": 6,
+      "winrate": 50.0,
+      "expectancy": 52.3935,
+      "pf": 8.4807,
+      "sharpe": 0.7878,
+      "ci_ev": [
+        7.5114,
+        97.2756
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": false,
+        "oos": true,
+        "stability": false
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 2,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 1,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": false,
+        "reason": "lost_edge:w2",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [
+          "w2"
+        ],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 0.0,
+          "expectancy": -14.0076,
+          "pf": 0.0,
+          "sharpe": null,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": false,
+        "reason": "lost_edge:b2",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 1
+          },
+          {
+            "n": 3,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [
+          "b2"
+        ],
+        "ev_std": 66.4011,
+        "pf_std": 5.0,
+        "wr_std": 50.0,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema50_distance_le_-1.906954|atr_pct_le_0.150585",
+      "rule_label": "(ema50_distance<=q25(-1.907)) AND (atr_pct<=median(0.1506))",
+      "status": "REJECTED",
+      "reject_reason": "rolling:lost_edge:w2; stability:lost_edge:b2",
+      "n_matched": 6,
+      "winrate": 50.0,
+      "expectancy": 52.3935,
+      "pf": 8.4807,
+      "sharpe": 0.7878,
+      "ci_ev": [
+        7.5114,
+        97.2756
+      ],
+      "p_value": 0.024691,
+      "gates": {
+        "walk_forward": true,
+        "rolling": false,
+        "oos": true,
+        "stability": false
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 2,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 1,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": false,
+        "reason": "lost_edge:w2",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [
+          "w2"
+        ],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 3,
+          "winrate": 0.0,
+          "expectancy": -14.0076,
+          "pf": 0.0,
+          "sharpe": null,
+          "has_edge": null,
+          "ok": false,
+          "thin": true,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 3,
+          "winrate": 100.0,
+          "expectancy": 118.7946,
+          "pf": "inf",
+          "sharpe": 22.7761,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": false,
+        "reason": "lost_edge:b2",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 1
+          },
+          {
+            "n": 3,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "bucket": 2
+          },
+          {
+            "n": 3,
+            "winrate": 100.0,
+            "expectancy": 118.7946,
+            "pf": "inf",
+            "sharpe": 22.7761,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [
+          "b2"
+        ],
+        "ev_std": 66.4011,
+        "pf_std": 5.0,
+        "wr_std": 50.0,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema20_distance_le_-1.879199|macd_le_-0.0004944000000000001",
+      "rule_label": "(ema20_distance<=q25(-1.879)) AND (macd<=median(-0.0004944))",
+      "status": "REJECTED",
+      "reject_reason": "rolling:lost_edge:w2; stability:lost_edge:b2",
+      "n_matched": 12,
+      "winrate": 66.67,
+      "expectancy": 51.8689,
+      "pf": 15.8116,
+      "sharpe": 0.8786,
+      "ci_ev": [
+        95.5978,
+        119.3727
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": false,
+        "oos": true,
+        "stability": false
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 5,
+            "winrate": 40.0,
+            "expectancy": -4.5929,
+            "pf": 0.1803,
+            "sharpe": -0.5932,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 68.6354,
+            "pf": 15.6996,
+            "sharpe": 1.1745,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 4,
+            "winrate": 100.0,
+            "expectancy": 109.8712,
+            "pf": "inf",
+            "sharpe": 6.8233,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": false,
+        "reason": "lost_edge:w2",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 6,
+            "winrate": 100.0,
+            "expectancy": 109.8998,
+            "pf": "inf",
+            "sharpe": 8.359,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [
+          "w2"
+        ],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 6,
+          "winrate": 33.33,
+          "expectancy": -6.162,
+          "pf": 0.1202,
+          "sharpe": -0.7809,
+          "has_edge": false,
+          "ok": false,
+          "thin": false,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 6,
+          "winrate": 100.0,
+          "expectancy": 109.8998,
+          "pf": "inf",
+          "sharpe": 8.359,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": false,
+        "reason": "lost_edge:b2",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 3,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "bucket": 2
+          },
+          {
+            "n": 6,
+            "winrate": 100.0,
+            "expectancy": 109.8998,
+            "pf": "inf",
+            "sharpe": 8.359,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [
+          "b2"
+        ],
+        "ev_std": 55.0858,
+        "pf_std": 4.714,
+        "wr_std": 41.5743,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema50_distance_le_-1.906954|macd_le_-0.0004944000000000001",
+      "rule_label": "(ema50_distance<=q25(-1.907)) AND (macd<=median(-0.0004944))",
+      "status": "REJECTED",
+      "reject_reason": "rolling:lost_edge:w2; stability:lost_edge:b2",
+      "n_matched": 12,
+      "winrate": 66.67,
+      "expectancy": 51.8689,
+      "pf": 15.8116,
+      "sharpe": 0.8786,
+      "ci_ev": [
+        98.2632,
+        117.9363
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": false,
+        "oos": true,
+        "stability": false
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 5,
+            "winrate": 40.0,
+            "expectancy": -4.5929,
+            "pf": 0.1803,
+            "sharpe": -0.5932,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 68.6354,
+            "pf": 15.6996,
+            "sharpe": 1.1745,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 4,
+            "winrate": 100.0,
+            "expectancy": 109.8712,
+            "pf": "inf",
+            "sharpe": 6.8233,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": false,
+        "reason": "lost_edge:w2",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 6,
+            "winrate": 100.0,
+            "expectancy": 109.8998,
+            "pf": "inf",
+            "sharpe": 8.359,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [
+          "w2"
+        ],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 6,
+          "winrate": 33.33,
+          "expectancy": -6.162,
+          "pf": 0.1202,
+          "sharpe": -0.7809,
+          "has_edge": false,
+          "ok": false,
+          "thin": false,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 6,
+          "winrate": 100.0,
+          "expectancy": 109.8998,
+          "pf": "inf",
+          "sharpe": 8.359,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": false,
+        "reason": "lost_edge:b2",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 3,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "bucket": 2
+          },
+          {
+            "n": 6,
+            "winrate": 100.0,
+            "expectancy": 109.8998,
+            "pf": "inf",
+            "sharpe": 8.359,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [
+          "b2"
+        ],
+        "ev_std": 55.0858,
+        "pf_std": 4.714,
+        "wr_std": 41.5743,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|ema200_distance_le_-1.684573|macd_le_-0.0004944000000000001",
+      "rule_label": "(ema200_distance<=q25(-1.685)) AND (macd<=median(-0.0004944))",
+      "status": "REJECTED",
+      "reject_reason": "rolling:lost_edge:w2; stability:lost_edge:b2",
+      "n_matched": 12,
+      "winrate": 66.67,
+      "expectancy": 51.8689,
+      "pf": 15.8116,
+      "sharpe": 0.8786,
+      "ci_ev": [
+        97.3873,
+        118.8615
+      ],
+      "p_value": 0.012346,
+      "gates": {
+        "walk_forward": true,
+        "rolling": false,
+        "oos": true,
+        "stability": false
+      },
+      "walk_forward": {
+        "passed": true,
+        "reason": "ok",
+        "splits": {
+          "train": {
+            "n": 5,
+            "winrate": 40.0,
+            "expectancy": -4.5929,
+            "pf": 0.1803,
+            "sharpe": -0.5932,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "universe_n": 30
+          },
+          "validation": {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 68.6354,
+            "pf": 15.6996,
+            "sharpe": 1.1745,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          },
+          "test": {
+            "n": 4,
+            "winrate": 100.0,
+            "expectancy": 109.8712,
+            "pf": "inf",
+            "sharpe": 6.8233,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "universe_n": 10
+          }
+        },
+        "independent_failures": []
+      },
+      "rolling": {
+        "passed": false,
+        "reason": "lost_edge:w2",
+        "windows": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "window": 0,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 1,
+            "universe_n": 12
+          },
+          {
+            "n": 3,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "window": 2,
+            "universe_n": 12
+          },
+          {
+            "n": 6,
+            "winrate": 100.0,
+            "expectancy": 109.8998,
+            "pf": "inf",
+            "sharpe": 8.359,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "window": 3,
+            "universe_n": 14
+          }
+        ],
+        "independent_failures": [
+          "w2"
+        ],
+        "n_windows": 4
+      },
+      "oos": {
+        "passed": true,
+        "reason": "ok",
+        "is": {
+          "n": 6,
+          "winrate": 33.33,
+          "expectancy": -6.162,
+          "pf": 0.1202,
+          "sharpe": -0.7809,
+          "has_edge": false,
+          "ok": false,
+          "thin": false,
+          "universe_n": 35
+        },
+        "oos": {
+          "n": 6,
+          "winrate": 100.0,
+          "expectancy": 109.8998,
+          "pf": "inf",
+          "sharpe": 8.359,
+          "has_edge": true,
+          "ok": true,
+          "thin": false,
+          "universe_n": 15
+        }
+      },
+      "stability": {
+        "passed": false,
+        "reason": "lost_edge:b2",
+        "buckets": [
+          {
+            "n": 0,
+            "winrate": null,
+            "expectancy": null,
+            "pf": null,
+            "sharpe": null,
+            "has_edge": null,
+            "ok": false,
+            "thin": true,
+            "bucket": 0
+          },
+          {
+            "n": 3,
+            "winrate": 66.67,
+            "expectancy": 1.6835,
+            "pf": "inf",
+            "sharpe": 1.4142,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 1
+          },
+          {
+            "n": 3,
+            "winrate": 0.0,
+            "expectancy": -14.0076,
+            "pf": 0.0,
+            "sharpe": null,
+            "has_edge": false,
+            "ok": false,
+            "thin": false,
+            "bucket": 2
+          },
+          {
+            "n": 6,
+            "winrate": 100.0,
+            "expectancy": 109.8998,
+            "pf": "inf",
+            "sharpe": 8.359,
+            "has_edge": true,
+            "ok": true,
+            "thin": false,
+            "bucket": 3
+          }
+        ],
+        "independent_failures": [
+          "b2"
+        ],
+        "ev_std": 55.0858,
+        "pf_std": 4.714,
+        "wr_std": 41.5743,
+        "n_buckets": 4
+      }
+    },
+    {
+      "rule_id": "2|atr_pct_le_0.150585|stoch_k_le_41.6667",
+      "rule_label": "(atr_pct<=median(0.1506)) AND (stoch_k<=q25(41.67))",
+      "status": "INSUFFICIENT",
+      "reject_reason": "n_matched<5",
+      "n_matched": 3,
+      "winrate": null,
+      "expectancy": null,
+      "pf": null,
+      "sharpe": null,
+      "ci_ev": [
+        null,
+        null
+      ],
+      "p_value": null,
+      "gates": {
+        "walk_forward": false,
+        "rolling": false,
+        "oos": false,
+        "stability": false
+      },
+      "walk_forward": {},
+      "rolling": {},
+      "oos": {},
+      "stability": {}
+    },
+    {
+      "rule_id": "2|atr_pct_le_0.150585|stoch_d_le_36.6402",
+      "rule_label": "(atr_pct<=median(0.1506)) AND (stoch_d<=q25(36.64))",
+      "status": "INSUFFICIENT",
+      "reject_reason": "n_matched<5",
+      "n_matched": 3,
+      "winrate": null,
+      "expectancy": null,
+      "pf": null,
+      "sharpe": null,
+      "ci_ev": [
+        null,
+        null
+      ],
+      "p_value": null,
+      "gates": {
+        "walk_forward": false,
+        "rolling": false,
+        "oos": false,
+        "stability": false
+      },
+      "walk_forward": {},
+      "rolling": {},
+      "oos": {},
+      "stability": {}
+    },
+    {
+      "rule_id": "2|ema20_distance_le_-1.879199|macd_hist_le_-0.00183916",
+      "rule_label": "(ema20_distance<=q25(-1.879)) AND (macd_hist<=q25(-0.001839))",
+      "status": "INSUFFICIENT",
+      "reject_reason": "n_matched<5",
+      "n_matched": 3,
+      "winrate": null,
+      "expectancy": null,
+      "pf": null,
+      "sharpe": null,
+      "ci_ev": [
+        null,
+        null
+      ],
+      "p_value": null,
+      "gates": {
+        "walk_forward": false,
+        "rolling": false,
+        "oos": false,
+        "stability": false
+      },
+      "walk_forward": {},
+      "rolling": {},
+      "oos": {},
+      "stability": {}
+    },
+    {
+      "rule_id": "2|ema50_distance_le_-1.906954|macd_hist_le_-0.00183916",
+      "rule_label": "(ema50_distance<=q25(-1.907)) AND (macd_hist<=q25(-0.001839))",
+      "status": "INSUFFICIENT",
+      "reject_reason": "n_matched<5",
+      "n_matched": 3,
+      "winrate": null,
+      "expectancy": null,
+      "pf": null,
+      "sharpe": null,
+      "ci_ev": [
+        null,
+        null
+      ],
+      "p_value": null,
+      "gates": {
+        "walk_forward": false,
+        "rolling": false,
+        "oos": false,
+        "stability": false
+      },
+      "walk_forward": {},
+      "rolling": {},
+      "oos": {},
+      "stability": {}
+    }
+  ]
+}

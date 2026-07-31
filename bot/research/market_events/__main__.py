@@ -247,6 +247,8 @@ def main(argv: list[str] | None = None) -> int:
             "feature-completeness",
             "feature-validate",
             "alpha-engine",
+            "alpha-validate",
+            "alpha-validation-report",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1414,6 +1416,79 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"alpha-engine failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "alpha-validate":
+        from bot.research.market_events.signal_intelligence.alpha_validation_v2 import (
+            run_alpha_validation_v2,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_alpha_validation_v2(conn, write_reports=True, persist=True)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "run_id": out.get("run_id"),
+                    "n_rows": out.get("n_rows"),
+                    "n_candidates": out.get("n_candidates"),
+                    "n_passed": out.get("n_passed"),
+                    "n_rejected": out.get("n_rejected"),
+                    "n_insufficient": out.get("n_insufficient"),
+                    "elapsed_sec": out.get("elapsed_sec"),
+                    "paths": out.get("paths"),
+                    "passed": [
+                        {
+                            "rule_id": r.get("rule_id"),
+                            "label": r.get("rule_label"),
+                            "n": r.get("n_matched"),
+                            "expectancy": r.get("expectancy"),
+                            "pf": r.get("pf"),
+                            "p_value": r.get("p_value"),
+                        }
+                        for r in (out.get("passed") or [])[:10]
+                    ],
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            for label, path in (out.get("paths") or {}).items():
+                print(f"Wrote {label}: {path}", file=sys.stderr)
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"alpha-validate failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "alpha-validation-report":
+        from bot.research.market_events.signal_intelligence.alpha_validation_v2 import (
+            run_alpha_validation_report,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_alpha_validation_report(conn, write_reports=True)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "run_id": out.get("run_id"),
+                    "n_results": len(out.get("results") or []),
+                    "history": [
+                        {
+                            "run_id": h.get("run_id"),
+                            "n_passed": h.get("n_passed"),
+                            "n_rejected": h.get("n_rejected"),
+                            "started_at": h.get("started_at"),
+                        }
+                        for h in (out.get("history") or [])[:5]
+                    ],
+                    "paths": out.get("paths"),
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"alpha-validation-report failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "feature-health":
