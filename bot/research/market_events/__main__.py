@@ -240,6 +240,8 @@ def main(argv: list[str] | None = None) -> int:
             "ml-report",
             "run-experiments",
             "experiment-leaderboard",
+            "feature-audit",
+            "feature-information",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1322,6 +1324,49 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
         print(text)
         return 0
+
+    if args.command == "feature-audit":
+        from bot.research.market_events.signal_intelligence.math_recovery_v1 import (
+            run_feature_audit,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_feature_audit(conn, write_reports=True)
+            print(out.get("report_markdown") or "")
+            for label, path in (out.get("report_paths") or {}).items():
+                print(f"Wrote {label}: {path}", file=sys.stderr)
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"feature-audit failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "feature-information":
+        from bot.research.market_events.signal_intelligence.math_recovery_v1 import (
+            run_feature_information,
+            run_mathematical_recovery,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                info = run_feature_information(conn, write_reports=True)
+                # Final recovery report reuses information + re-runs audit/pipeline read-only
+                recovery = run_mathematical_recovery(
+                    conn,
+                    write_reports=True,
+                    feature_info=info,
+                )
+            print(info.get("report_markdown") or "")
+            for label, path in (info.get("report_paths") or {}).items():
+                print(f"Wrote {label}: {path}", file=sys.stderr)
+            if recovery.get("report_path"):
+                print(f"Wrote recovery: {recovery['report_path']}", file=sys.stderr)
+            return 0 if info.get("ok") else 1
+        except Exception as exc:
+            print(f"feature-information failed: {exc}", file=sys.stderr)
+            return 1
 
     if args.command == "quant-research":
         from bot.research.market_events.signal_intelligence.quant_research_g50 import run_quant_research_g50
@@ -2978,13 +3023,26 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "pipeline-audit":
+        from bot.research.market_events.signal_intelligence.math_recovery_v1 import (
+            run_pipeline_flow_audit,
+        )
         from bot.research.market_events.signal_intelligence.pipeline_audit_g0 import (
             format_pipeline_audit_g0,
         )
-        with market_events_connection() as conn:
-            apply_migrations(conn)
-            print(format_pipeline_audit_g0(conn))
-        return 0
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                flow = run_pipeline_flow_audit(conn, write_reports=True)
+                print(flow.get("report_markdown") or "")
+                for label, path in (flow.get("report_paths") or {}).items():
+                    print(f"Wrote {label}: {path}", file=sys.stderr)
+                print("\n--- G0 pipeline health (legacy) ---\n")
+                print(format_pipeline_audit_g0(conn))
+            return 0 if flow.get("ok") else 1
+        except Exception as exc:
+            print(f"pipeline-audit failed: {exc}", file=sys.stderr)
+            return 1
 
     if args.command == "recorder-debug":
         from bot.research.market_events.signal_intelligence.pipeline_audit_g0 import (

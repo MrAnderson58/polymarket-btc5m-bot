@@ -1,0 +1,198 @@
+{
+  "ok": true,
+  "hours": 24,
+  "generated_at": 1785515342,
+  "processing_time_ms": 98.8,
+  "stages": [
+    {
+      "name": "Market / Snapshots",
+      "input_rows": null,
+      "output_rows": 2567,
+      "window_rows": 652,
+      "drop_pct": null,
+      "reject_reason": null,
+      "notes": "candles=32734",
+      "critical": false,
+      "label": null
+    },
+    {
+      "name": "Collector \u2192 Candidates (G31)",
+      "input_rows": 652,
+      "output_rows": 51240,
+      "window_rows": 13060,
+      "drop_pct": null,
+      "reject_reason": [
+        {
+          "reason": "No reversal confirmation",
+          "n": 10494
+        },
+        {
+          "reason": "Volume weak (35)",
+          "n": 1306
+        },
+        {
+          "reason": "Confidence 7.0 < 7.5",
+          "n": 260
+        },
+        {
+          "reason": "Confidence 7.1 < 7.5",
+          "n": 182
+        },
+        {
+          "reason": "Confidence 7.2 < 7.5",
+          "n": 140
+        },
+        {
+          "reason": "Volume weak (39)",
+          "n": 118
+        },
+        {
+          "reason": "Confidence 6.9 < 7.5",
+          "n": 109
+        },
+        {
+          "reason": "Volume weak (40)",
+          "n": 102
+        }
+      ],
+      "notes": "rejected_in_window=13060",
+      "critical": false,
+      "label": null
+    },
+    {
+      "name": "Candidates \u2192 S40 Signals",
+      "input_rows": 13060,
+      "output_rows": 10800,
+      "window_rows": 3960,
+      "drop_pct": 69.68,
+      "reject_reason": null,
+      "notes": null,
+      "critical": false,
+      "label": null
+    },
+    {
+      "name": "Signals \u2192 Features (S55)",
+      "input_rows": 3960,
+      "output_rows": 150,
+      "window_rows": 100,
+      "drop_pct": 97.47,
+      "reject_reason": [
+        {
+          "reason": "NEGATIVE_EXPECTANCY",
+          "n": 100
+        }
+      ],
+      "notes": "S55 includes blocked attempts (paper_trade_id NULL)",
+      "critical": true,
+      "label": "CRITICAL BOTTLENECK"
+    },
+    {
+      "name": "Gate (kept vs logged)",
+      "input_rows": 150,
+      "output_rows": 5,
+      "window_rows": null,
+      "drop_pct": 96.67,
+      "reject_reason": [
+        {
+          "reason": "NEGATIVE_EXPECTANCY",
+          "n": 100
+        }
+      ],
+      "notes": "ALLOWED/REGIME_EXPLORE/EXPLORE counted as pass",
+      "critical": true,
+      "label": "CRITICAL BOTTLENECK"
+    },
+    {
+      "name": "Gate \u2192 Paper (S42)",
+      "input_rows": 50,
+      "output_rows": 50,
+      "window_rows": 0,
+      "drop_pct": 66.67,
+      "reject_reason": [
+        {
+          "reason": "NEGATIVE_EXPECTANCY",
+          "n": 100
+        }
+      ],
+      "notes": "open=0 linked_s55=50",
+      "critical": false,
+      "label": null
+    },
+    {
+      "name": "Paper \u2192 Closed",
+      "input_rows": 50,
+      "output_rows": 50,
+      "window_rows": 0,
+      "drop_pct": 0.0,
+      "reject_reason": null,
+      "notes": "still_open=0",
+      "critical": false,
+      "label": null
+    },
+    {
+      "name": "Closed \u2192 Research / Feature Store",
+      "input_rows": 50,
+      "output_rows": 3,
+      "window_rows": null,
+      "drop_pct": null,
+      "reject_reason": null,
+      "notes": "feature_store_v1 files=3",
+      "critical": false,
+      "label": null
+    },
+    {
+      "name": "Feature Store \u2192 ML dataset",
+      "input_rows": 50,
+      "output_rows": 50,
+      "window_rows": null,
+      "drop_pct": 0.0,
+      "reject_reason": null,
+      "notes": "/Users/andrey/polymarket-bot/polymarket-btc5m-bot/research/ml/datasets/v1/training_dataset.csv",
+      "critical": false,
+      "label": null
+    }
+  ],
+  "bottlenecks": [
+    {
+      "from": "Candidates(window)",
+      "to": "S55(window)",
+      "input": 13060,
+      "output": 100,
+      "drop_pct": 99.23,
+      "label": "CRITICAL BOTTLENECK"
+    },
+    {
+      "from": "S55(all)",
+      "to": "Gate-pass",
+      "input": 150,
+      "output": 5,
+      "drop_pct": 96.67,
+      "label": "CRITICAL BOTTLENECK"
+    },
+    {
+      "from": "S40(window)",
+      "to": "S42(window opens)",
+      "input": 3960,
+      "output": 0,
+      "drop_pct": 100.0,
+      "label": "CRITICAL BOTTLENECK"
+    }
+  ],
+  "counts": {
+    "snapshots_all": 2567,
+    "snapshots_window": 652,
+    "candidates_all": 51240,
+    "candidates_window": 13060,
+    "s40_all": 10800,
+    "s40_window": 3960,
+    "s55_all": 150,
+    "s55_window": 100,
+    "gate_pass": 5,
+    "s42_all": 50,
+    "s42_closed": 50,
+    "s42_open": 0,
+    "ml_samples": 50
+  },
+  "read_only": true,
+  "report_markdown": "# Pipeline Flow Audit \u2014 Signal Mathematics Recovery\n\n_Window=24h | processing_time_ms=98.8_\n\n```\nMarket \u2192 Collector \u2192 Candidate \u2192 Features \u2192 Gate \u2192 S55 \u2192 S42 \u2192 Close \u2192 Research \u2192 Feature Store \u2192 ML\n```\n\n## Flow\n\n### Market / Snapshots\n- input_rows: `None`\n- output_rows: `2567`\n- window_rows: `652`\n- drop_%: `None`\n- notes: candles=32734\n\n### Collector \u2192 Candidates (G31)\n- input_rows: `652`\n- output_rows: `51240`\n- window_rows: `13060`\n- drop_%: `None`\n- notes: rejected_in_window=13060\n\n- reject reasons:\n  - `No reversal confirmation`: 10494\n  - `Volume weak (35)`: 1306\n  - `Confidence 7.0 < 7.5`: 260\n  - `Confidence 7.1 < 7.5`: 182\n  - `Confidence 7.2 < 7.5`: 140\n  - `Volume weak (39)`: 118\n  - `Confidence 6.9 < 7.5`: 109\n  - `Volume weak (40)`: 102\n\n### Candidates \u2192 S40 Signals\n- input_rows: `13060`\n- output_rows: `10800`\n- window_rows: `3960`\n- drop_%: `69.68`\n- notes: None\n\n### Signals \u2192 Features (S55) **CRITICAL BOTTLENECK**\n- input_rows: `3960`\n- output_rows: `150`\n- window_rows: `100`\n- drop_%: `97.47`\n- notes: S55 includes blocked attempts (paper_trade_id NULL)\n\n- reject reasons:\n  - `NEGATIVE_EXPECTANCY`: 100\n\n### Gate (kept vs logged) **CRITICAL BOTTLENECK**\n- input_rows: `150`\n- output_rows: `5`\n- window_rows: `None`\n- drop_%: `96.67`\n- notes: ALLOWED/REGIME_EXPLORE/EXPLORE counted as pass\n\n- reject reasons:\n  - `NEGATIVE_EXPECTANCY`: 100\n\n### Gate \u2192 Paper (S42)\n- input_rows: `50`\n- output_rows: `50`\n- window_rows: `0`\n- drop_%: `66.67`\n- notes: open=0 linked_s55=50\n\n- reject reasons:\n  - `NEGATIVE_EXPECTANCY`: 100\n\n### Paper \u2192 Closed\n- input_rows: `50`\n- output_rows: `50`\n- window_rows: `0`\n- drop_%: `0.0`\n- notes: still_open=0\n\n### Closed \u2192 Research / Feature Store\n- input_rows: `50`\n- output_rows: `3`\n- window_rows: `None`\n- drop_%: `None`\n- notes: feature_store_v1 files=3\n\n### Feature Store \u2192 ML dataset\n- input_rows: `50`\n- output_rows: `50`\n- window_rows: `None`\n- drop_%: `0.0`\n- notes: /Users/andrey/polymarket-bot/polymarket-btc5m-bot/research/ml/datasets/v1/training_dataset.csv\n\n## Critical bottlenecks\n\n- **CRITICAL BOTTLENECK** `Candidates(window)` \u2192 `S55(window)`: 13060 \u2192 100 (drop 99.23%)\n- **CRITICAL BOTTLENECK** `S55(all)` \u2192 `Gate-pass`: 150 \u2192 5 (drop 96.67%)\n- **CRITICAL BOTTLENECK** `S40(window)` \u2192 `S42(window opens)`: 3960 \u2192 0 (drop 100.0%)\n"
+}

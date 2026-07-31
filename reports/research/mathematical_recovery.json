@@ -1,0 +1,104 @@
+{
+  "recommended_production_feature_set": [
+    "symbol",
+    "oi_delta",
+    "gate_decision",
+    "direction",
+    "market_regime",
+    "hour",
+    "weekday"
+  ],
+  "recommended_ml_feature_set": [
+    "symbol",
+    "oi_delta",
+    "gate_decision"
+  ],
+  "recommended_research_feature_set": [
+    "btc_dominance",
+    "gate_decision",
+    "gate_expected_pnl_pct",
+    "oi_delta",
+    "open_interest",
+    "regime_score",
+    "similar_count",
+    "symbol"
+  ],
+  "immediate_fixes": [
+    "Implement real RSI from candles into build_entry_features (stop hardcoding None).",
+    "Persist EMA20/50/200 (or distances) from candle history into S55/Feature Store.",
+    "Compute and store VWAP so vwap_distance is non-null.",
+    "Fix atr: currently CONSTANT placeholder \u2014 wire per-symbol live values.",
+    "Fix funding: currently CONSTANT placeholder \u2014 wire per-symbol live values.",
+    "Fix fear_greed: currently CONSTANT placeholder \u2014 wire per-symbol live values.",
+    "Fix trend: currently CONSTANT placeholder \u2014 wire per-symbol live values.",
+    "Fix volume: currently CONSTANT placeholder \u2014 wire per-symbol live values.",
+    "Populate decision_confidence on S40/S42 \u2014 required for optimizer confidence gates.",
+    "Unblock pipeline: Candidates(window) \u2192 S55(window) drop 99.23% (CRITICAL BOTTLENECK).",
+    "Unblock pipeline: S55(all) \u2192 Gate-pass drop 96.67% (CRITICAL BOTTLENECK).",
+    "Unblock pipeline: S40(window) \u2192 S42(window opens) drop 100.0% (CRITICAL BOTTLENECK).",
+    "CRITICAL: constant/empty columns: direction, pattern, news_category(all_null), market_regime, confidence(all_null), ai_score(all_null), macro_score(all_null), news_score(all_null), volatility, atr, vwap_distance(all_null), ema20_distance(all_null), ema50_distance(all_null), ema200_distance(all_null), rsi(all_null), macd(all_null), funding, liquidation_metric(all_null), spread(all_null), book_imbalance(all_null)"
+  ],
+  "critical_bugs": [
+    "BROKEN SOURCE: RSI \u2014 Hardcoded rsi=None in build_entry_features \u2014 never computed from candles.",
+    "BROKEN SOURCE: VWAP \u2014 VWAP not populated in S55/S40 \u2014 distances always NULL in Feature Store.",
+    "CRITICAL: constant/empty columns: direction, pattern, news_category(all_null), market_regime, confidence(all_null), ai_score(all_null), macro_score(all_null), news_score(all_null), volatility, atr, vwap_distance(all_null), ema20_distance(all_null), ema50_distance(all_null), ema200_distance(all_null), rsi(all_null), macd(all_null), funding, liquidation_metric(all_null), spread(all_null), book_imbalance(all_null)"
+  ],
+  "best_combos": [
+    {
+      "features": [
+        "oi_delta",
+        "gate_decision"
+      ],
+      "k": 2,
+      "n": 5,
+      "ev": 2.5435,
+      "pf": 1.0553,
+      "wr": 60.0,
+      "ci_ev": [
+        -93.1305,
+        80.4227
+      ],
+      "p_value": 0.5025,
+      "rules": [
+        {
+          "feature": "oi_delta",
+          "side": "low",
+          "median": -26872.95
+        },
+        {
+          "feature": "gate_decision",
+          "side": "high",
+          "median": 0.0
+        }
+      ]
+    },
+    {
+      "features": [
+        "symbol",
+        "oi_delta"
+      ],
+      "k": 2,
+      "n": 13,
+      "ev": -19.7345,
+      "pf": 0.5505,
+      "wr": 30.77,
+      "ci_ev": [
+        -77.2003,
+        27.2436
+      ],
+      "p_value": 0.8209,
+      "rules": [
+        {
+          "feature": "symbol",
+          "side": "low",
+          "median": 8.0
+        },
+        {
+          "feature": "oi_delta",
+          "side": "low",
+          "median": -26872.95
+        }
+      ]
+    }
+  ]
+}

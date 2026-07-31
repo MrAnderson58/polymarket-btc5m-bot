@@ -1,0 +1,1432 @@
+{
+  "ok": true,
+  "generated_at": 1785515341,
+  "n_closed_samples": 50,
+  "n_s55_rows": 150,
+  "features": [
+    {
+      "feature": "ema200_distance",
+      "source_table": "derived in feature_store.extract_sample",
+      "source_module": "feature_store",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "BROKEN"
+    },
+    {
+      "feature": "ema20_distance",
+      "source_table": "derived in feature_store.extract_sample",
+      "source_module": "feature_store",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "BROKEN"
+    },
+    {
+      "feature": "ema50_distance",
+      "source_table": "derived in feature_store.extract_sample",
+      "source_module": "feature_store",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "BROKEN"
+    },
+    {
+      "feature": "rsi",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55.build_entry_features",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "BROKEN"
+    },
+    {
+      "feature": "vwap_distance",
+      "source_table": "derived in feature_store.extract_sample",
+      "source_module": "feature_store",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "BROKEN"
+    },
+    {
+      "feature": "ai_score",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 (confidence alias)",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "book_imbalance",
+      "source_table": "features_json",
+      "source_module": "feature_store",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "btc_move",
+      "source_table": "features_json",
+      "source_module": "feature_store",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "confidence",
+      "source_table": "S42.decision_confidence / S40.snapshot_decision_confidence",
+      "source_module": "candidate / decision",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "decision_confidence",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 / features_json",
+      "percent_filled": 0.0,
+      "null_count": 150,
+      "n": 150,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "etf_flow",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 / features_json",
+      "percent_filled": 0.0,
+      "null_count": 150,
+      "n": 150,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "liquidation_metric",
+      "source_table": "features_json",
+      "source_module": "feature_store",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "macd",
+      "source_table": "features_json",
+      "source_module": "feature_store.extract_sample",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "macro_score",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "news_category",
+      "source_table": "market_events_paper_trades_s42",
+      "source_module": "news",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "news_score",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "shock_score",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 / features_json",
+      "percent_filled": 0.0,
+      "null_count": 150,
+      "n": 150,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "spread",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "time_to_expiry",
+      "source_table": "features_json",
+      "source_module": "feature_store",
+      "percent_filled": 0.0,
+      "null_count": 50,
+      "n": 50,
+      "constant_pct": 0.0,
+      "mode": null,
+      "unique_values": 0,
+      "unique_sample": [],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": null,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": null,
+      "last_seen": null,
+      "status": "EMPTY"
+    },
+    {
+      "feature": "atr",
+      "source_table": "market_events_trade_features_s55 / market_snapshots_g3",
+      "source_module": "trade_intelligence_s55.build_entry_features",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 100.0,
+      "mode": "50.0",
+      "unique_values": 1,
+      "unique_sample": [
+        "50.0"
+      ],
+      "min": 50.0,
+      "max": 50.0,
+      "median": 50.0,
+      "std": 0.0,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": 0.0,
+      "correlation_vs_pnl": 0.0,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "direction",
+      "source_table": "market_events_paper_trades_s42",
+      "source_module": "paper / S40",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 100.0,
+      "mode": "LONG",
+      "unique_values": 1,
+      "unique_sample": [
+        "LONG"
+      ],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "ema_trend",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 / features_json",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 150,
+      "constant_pct": 100.0,
+      "mode": "0.0",
+      "unique_values": 1,
+      "unique_sample": [
+        "0.0"
+      ],
+      "min": 0.0,
+      "max": 0.0,
+      "median": 0.0,
+      "std": 0.0,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": 0.0,
+      "correlation_vs_pnl": 0.0,
+      "first_seen": 1785176008,
+      "last_seen": 1785515340,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "fear_greed",
+      "source_table": "market_events_trade_features_s55 / market_snapshots_g3",
+      "source_module": "trade_intelligence_s55.build_entry_features",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 100.0,
+      "mode": "22.0",
+      "unique_values": 1,
+      "unique_sample": [
+        "22.0"
+      ],
+      "min": 22.0,
+      "max": 22.0,
+      "median": 22.0,
+      "std": 0.0,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": 0.0,
+      "correlation_vs_pnl": 0.0,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "funding",
+      "source_table": "market_events_trade_features_s55 / market_snapshots_g3",
+      "source_module": "trade_intelligence_s55.build_entry_features",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 100.0,
+      "mode": "54.1",
+      "unique_values": 1,
+      "unique_sample": [
+        "54.1"
+      ],
+      "min": 54.1,
+      "max": 54.1,
+      "median": 54.1,
+      "std": 0.0,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": 0.0,
+      "correlation_vs_pnl": 0.0,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "hour",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 100.0,
+      "mode": "21.0",
+      "unique_values": 1,
+      "unique_sample": [
+        "21.0"
+      ],
+      "min": 21.0,
+      "max": 21.0,
+      "median": 21.0,
+      "std": 0.0,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": 0.0,
+      "correlation_vs_pnl": 0.0,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "market_regime",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "market_regime_s57",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 100.0,
+      "mode": "RANGE",
+      "unique_values": 1,
+      "unique_sample": [
+        "RANGE"
+      ],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "pattern",
+      "source_table": "S42.pattern_json",
+      "source_module": "strategy_optimizer._pattern_label",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 100.0,
+      "mode": "{\"candidate_state\": \"provisional\", \"reje",
+      "unique_values": 1,
+      "unique_sample": [
+        "{\"candidate_state\": \"provisional\", \"reje"
+      ],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "regime_confidence",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 / features_json",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 150,
+      "constant_pct": 100.0,
+      "mode": "0.95",
+      "unique_values": 1,
+      "unique_sample": [
+        "0.95"
+      ],
+      "min": 0.95,
+      "max": 0.95,
+      "median": 0.95,
+      "std": 0.0,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": 0.0,
+      "correlation_vs_pnl": 0.0,
+      "first_seen": 1785176008,
+      "last_seen": 1785515340,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "trend",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55.build_entry_features",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 100.0,
+      "mode": "0.0",
+      "unique_values": 1,
+      "unique_sample": [
+        "0.0"
+      ],
+      "min": 0.0,
+      "max": 0.0,
+      "median": 0.0,
+      "std": 0.0,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": 0.0,
+      "correlation_vs_pnl": 0.0,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "volatility",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 (alias of atr)",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 100.0,
+      "mode": "50.0",
+      "unique_values": 1,
+      "unique_sample": [
+        "50.0"
+      ],
+      "min": 50.0,
+      "max": 50.0,
+      "median": 50.0,
+      "std": 0.0,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": 0.0,
+      "correlation_vs_pnl": 0.0,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "volume",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55.build_entry_features",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 100.0,
+      "mode": "0.0",
+      "unique_values": 1,
+      "unique_sample": [
+        "0.0"
+      ],
+      "min": 0.0,
+      "max": 0.0,
+      "median": 0.0,
+      "std": 0.0,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": 0.0,
+      "correlation_vs_pnl": 0.0,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "weekday",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 100.0,
+      "mode": "0.0",
+      "unique_values": 1,
+      "unique_sample": [
+        "0.0"
+      ],
+      "min": 0.0,
+      "max": 0.0,
+      "median": 0.0,
+      "std": 0.0,
+      "entropy": 0.0,
+      "mutual_information_vs_pnl": 0.0,
+      "correlation_vs_pnl": 0.0,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "CONSTANT"
+    },
+    {
+      "feature": "gate_decision",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 gate",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 90.0,
+      "mode": "INSUFFICIENT_HISTORY",
+      "unique_values": 2,
+      "unique_sample": [
+        "INSUFFICIENT_HISTORY",
+        "REGIME_EXPLORE"
+      ],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": 0.469,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "LOW_VARIANCE"
+    },
+    {
+      "feature": "open_interest",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 / features_json",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 150,
+      "constant_pct": 86.67,
+      "mode": "72.0",
+      "unique_values": 2,
+      "unique_sample": [
+        "38.0",
+        "72.0"
+      ],
+      "min": 72.0,
+      "max": 72.0,
+      "median": 72.0,
+      "std": 0.0,
+      "entropy": 0.5665,
+      "mutual_information_vs_pnl": 0.0,
+      "correlation_vs_pnl": 0.0,
+      "first_seen": 1785176008,
+      "last_seen": 1785515340,
+      "status": "LOW_VARIANCE"
+    },
+    {
+      "feature": "regime_score",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 / features_json",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 150,
+      "constant_pct": 66.67,
+      "mode": "0.745",
+      "unique_values": 2,
+      "unique_sample": [
+        "-0.255",
+        "0.745"
+      ],
+      "min": -0.255,
+      "max": -0.255,
+      "median": -0.255,
+      "std": 0.0,
+      "entropy": 0.9183,
+      "mutual_information_vs_pnl": 0.0,
+      "correlation_vs_pnl": 0.0,
+      "first_seen": 1785176008,
+      "last_seen": 1785515340,
+      "status": "LOW_VARIANCE"
+    },
+    {
+      "feature": "btc_dominance",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 / features_json",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 150,
+      "constant_pct": 66.67,
+      "mode": "49.86",
+      "unique_values": 11,
+      "unique_sample": [
+        "49.69",
+        "49.72",
+        "49.86",
+        "49.98",
+        "50.0",
+        "50.02",
+        "50.03",
+        "50.14",
+        "50.17",
+        "50.18",
+        "50.19"
+      ],
+      "min": 49.69,
+      "max": 50.19,
+      "median": 50.02,
+      "std": 0.113988,
+      "entropy": 1.6915,
+      "mutual_information_vs_pnl": 0.0979,
+      "correlation_vs_pnl": -0.1341,
+      "first_seen": 1785176008,
+      "last_seen": 1785515340,
+      "status": "GOOD"
+    },
+    {
+      "feature": "gate_expected_pnl_pct",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 / features_json",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 150,
+      "constant_pct": 66.67,
+      "mode": "-1.2647",
+      "unique_values": 13,
+      "unique_sample": [
+        "-1.2647",
+        "-1.4194",
+        "-4.2754",
+        "-4.5568",
+        "-4.6282",
+        "-4.8415",
+        "-5.0762",
+        "-5.8766",
+        "-6.0322",
+        "-6.2847",
+        "-6.9582",
+        "-7.9557",
+        "0.0"
+      ],
+      "min": -7.9557,
+      "max": 0.0,
+      "median": -0.7097,
+      "std": 3.133329,
+      "entropy": 1.7588,
+      "mutual_information_vs_pnl": 0.1213,
+      "correlation_vs_pnl": -0.0436,
+      "first_seen": 1785176008,
+      "last_seen": 1785515340,
+      "status": "GOOD"
+    },
+    {
+      "feature": "oi_delta",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55.build_entry_features",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 50.0,
+      "mode": "72.0",
+      "unique_values": 11,
+      "unique_sample": [
+        "-53817.9",
+        "-53867.683",
+        "-54210.8",
+        "-54214.439",
+        "-54223.889",
+        "-54224.779",
+        "-54295.682",
+        "-54298.597",
+        "-54319.7",
+        "-54351.762",
+        "72.0"
+      ],
+      "min": -54351.762,
+      "max": 72.0,
+      "median": -26872.95,
+      "std": 27116.595412,
+      "entropy": 2.4419,
+      "mutual_information_vs_pnl": 0.1102,
+      "correlation_vs_pnl": -0.0248,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "GOOD"
+    },
+    {
+      "feature": "similar_count",
+      "source_table": "market_events_trade_features_s55",
+      "source_module": "trade_intelligence_s55 / features_json",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 150,
+      "constant_pct": 66.67,
+      "mode": "50.0",
+      "unique_values": 13,
+      "unique_sample": [
+        "0.0",
+        "10.0",
+        "12.0",
+        "13.0",
+        "15.0",
+        "16.0",
+        "17.0",
+        "18.0",
+        "19.0",
+        "45.0",
+        "50.0",
+        "6.0",
+        "7.0"
+      ],
+      "min": 0.0,
+      "max": 45.0,
+      "median": 3.0,
+      "std": 13.465452,
+      "entropy": 1.7588,
+      "mutual_information_vs_pnl": 0.1092,
+      "correlation_vs_pnl": 0.0478,
+      "first_seen": 1785176008,
+      "last_seen": 1785515340,
+      "status": "GOOD"
+    },
+    {
+      "feature": "symbol",
+      "source_table": "market_events_paper_trades_s42",
+      "source_module": "paper / S40",
+      "percent_filled": 100.0,
+      "null_count": 0,
+      "n": 50,
+      "constant_pct": 6.0,
+      "mode": "BTC",
+      "unique_values": 20,
+      "unique_sample": [
+        "ADA",
+        "APT",
+        "ARB",
+        "AVAX",
+        "BNB",
+        "BTC",
+        "DOGE",
+        "ETH",
+        "INJ",
+        "LINK",
+        "MANTA",
+        "MATIC",
+        "NEAR",
+        "OP",
+        "PEPE",
+        "SOL",
+        "SUI",
+        "TON",
+        "WIF",
+        "XRP"
+      ],
+      "min": null,
+      "max": null,
+      "median": null,
+      "std": null,
+      "entropy": 4.2929,
+      "mutual_information_vs_pnl": null,
+      "correlation_vs_pnl": null,
+      "first_seen": 1785176009,
+      "last_seen": 1785361779,
+      "status": "GOOD"
+    }
+  ],
+  "by_status": {
+    "BROKEN": [
+      "ema200_distance",
+      "ema20_distance",
+      "ema50_distance",
+      "rsi",
+      "vwap_distance"
+    ],
+    "EMPTY": [
+      "ai_score",
+      "book_imbalance",
+      "btc_move",
+      "confidence",
+      "decision_confidence",
+      "etf_flow",
+      "liquidation_metric",
+      "macd",
+      "macro_score",
+      "news_category",
+      "news_score",
+      "shock_score",
+      "spread",
+      "time_to_expiry"
+    ],
+    "CONSTANT": [
+      "atr",
+      "direction",
+      "ema_trend",
+      "fear_greed",
+      "funding",
+      "hour",
+      "market_regime",
+      "pattern",
+      "regime_confidence",
+      "trend",
+      "volatility",
+      "volume",
+      "weekday"
+    ],
+    "LOW_VARIANCE": [
+      "gate_decision",
+      "open_interest",
+      "regime_score"
+    ],
+    "GOOD": [
+      "btc_dominance",
+      "gate_expected_pnl_pct",
+      "oi_delta",
+      "similar_count",
+      "symbol"
+    ]
+  },
+  "formula_sources": {
+    "formulas": [
+      {
+        "formula": "RSI",
+        "feature_keys": [
+          "rsi"
+        ],
+        "compute_module": "bot.research.market_events.signal_intelligence.trade_intelligence_s55",
+        "compute_function": "build_entry_features",
+        "source_table": "market_events_trade_features_s55 / features_json",
+        "collector": null,
+        "notes": "Hardcoded rsi=None in build_entry_features \u2014 never computed from candles.",
+        "expected_producer": "candle RSI (missing)",
+        "status": "BROKEN SOURCE",
+        "live": {
+          "snapshots": {
+            "last_update": 1785515279,
+            "age_sec": 62,
+            "status": "OK"
+          },
+          "s40": {
+            "last_update": 1785514974,
+            "age_sec": 367,
+            "status": "OK"
+          },
+          "s55": {
+            "last_update": 1785515340,
+            "age_sec": 1,
+            "status": "OK"
+          }
+        }
+      },
+      {
+        "formula": "EMA",
+        "feature_keys": [
+          "ema20",
+          "ema50",
+          "ema200",
+          "ema20_distance",
+          "ema50_distance",
+          "ema200_distance",
+          "ema_trend"
+        ],
+        "compute_module": "bot.research.market_events.signal_intelligence.trade_intelligence_s55",
+        "compute_function": "build_entry_features (ema_trend proxy from snapshot_trend)",
+        "source_table": "market_snapshots_g3 / S40 snapshot_trend",
+        "collector": "g3 snapshot / S40 signal snapshot",
+        "notes": "True EMA levels not written; only ema_trend proxy from trend string/float.",
+        "expected_producer": "candle EMA distances (missing)",
+        "status": "OK",
+        "live": {
+          "snapshots": {
+            "last_update": 1785515279,
+            "age_sec": 62,
+            "status": "OK"
+          },
+          "s40": {
+            "last_update": 1785514974,
+            "age_sec": 367,
+            "status": "OK"
+          },
+          "s55": {
+            "last_update": 1785515340,
+            "age_sec": 1,
+            "status": "OK"
+          }
+        }
+      },
+      {
+        "formula": "VWAP",
+        "feature_keys": [
+          "vwap",
+          "vwap_distance"
+        ],
+        "compute_module": "bot.research.market_events.signal_intelligence.feature_store",
+        "compute_function": "extract_sample (_dist from vwap)",
+        "source_table": null,
+        "collector": null,
+        "notes": "VWAP not populated in S55/S40 \u2014 distances always NULL in Feature Store.",
+        "expected_producer": "session VWAP (missing)",
+        "status": "BROKEN SOURCE",
+        "live": {
+          "snapshots": {
+            "last_update": 1785515279,
+            "age_sec": 62,
+            "status": "OK"
+          },
+          "s40": {
+            "last_update": 1785514974,
+            "age_sec": 367,
+            "status": "OK"
+          },
+          "s55": {
+            "last_update": 1785515340,
+            "age_sec": 1,
+            "status": "OK"
+          }
+        }
+      },
+      {
+        "formula": "ATR",
+        "feature_keys": [
+          "atr",
+          "volatility"
+        ],
+        "compute_module": "bot.research.market_events.signal_intelligence.trade_intelligence_s55",
+        "compute_function": "build_entry_features (from S40 snapshot_atr or market_snapshots_g3.atr)",
+        "source_table": "market_snapshots_g3.atr / S40.snapshot_atr",
+        "collector": "g3-run / market snapshot collector",
+        "notes": "volatility aliased to atr; observed CONSTANT placeholder values in S55.",
+        "expected_producer": "True Wilder ATR from candles",
+        "status": "OK",
+        "live": {
+          "snapshots": {
+            "last_update": 1785515279,
+            "age_sec": 62,
+            "status": "OK"
+          },
+          "s40": {
+            "last_update": 1785514974,
+            "age_sec": 367,
+            "status": "OK"
+          },
+          "s55": {
+            "last_update": 1785515340,
+            "age_sec": 1,
+            "status": "OK"
+          }
+        }
+      },
+      {
+        "formula": "Funding",
+        "feature_keys": [
+          "funding",
+          "funding_sign"
+        ],
+        "compute_module": "bot.research.market_events.signal_intelligence.trade_intelligence_s55",
+        "compute_function": "build_entry_features",
+        "source_table": "market_snapshots_g3.funding",
+        "collector": "g3 snapshot / Bybit (or configured) funding feed",
+        "notes": "From S40 snapshot_funding or latest market_snapshots_g3.funding.",
+        "expected_producer": "per-symbol funding",
+        "status": "OK",
+        "live": {
+          "snapshots": {
+            "last_update": 1785515279,
+            "age_sec": 62,
+            "status": "OK"
+          },
+          "s40": {
+            "last_update": 1785514974,
+            "age_sec": 367,
+            "status": "OK"
+          },
+          "s55": {
+            "last_update": 1785515340,
+            "age_sec": 1,
+            "status": "OK"
+          }
+        }
+      },
+      {
+        "formula": "OI",
+        "feature_keys": [
+          "oi_delta",
+          "open_interest"
+        ],
+        "compute_module": "bot.research.market_events.signal_intelligence.trade_intelligence_s55",
+        "compute_function": "build_entry_features (oi - prev_oi from last 2 snapshots)",
+        "source_table": "market_snapshots_g3.open_interest",
+        "collector": "g3 snapshot",
+        "notes": "Often falls back to raw OI when prev missing; cross-symbol identical deltas observed.",
+        "expected_producer": "per-symbol OI delta",
+        "status": "OK",
+        "live": {
+          "snapshots": {
+            "last_update": 1785515279,
+            "age_sec": 62,
+            "status": "OK"
+          },
+          "s40": {
+            "last_update": 1785514974,
+            "age_sec": 367,
+            "status": "OK"
+          },
+          "s55": {
+            "last_update": 1785515340,
+            "age_sec": 1,
+            "status": "OK"
+          }
+        }
+      },
+      {
+        "formula": "Fear",
+        "feature_keys": [
+          "fear_greed"
+        ],
+        "compute_module": "bot.research.market_events.signal_intelligence.trade_intelligence_s55",
+        "compute_function": "build_entry_features",
+        "source_table": "market_snapshots_g3.fear_greed",
+        "collector": "macro / fear&greed collector",
+        "notes": "From S40 snapshot_fear_greed or market_snapshots_g3.fear_greed.",
+        "expected_producer": "Alternative.me / configured FG feed",
+        "status": "OK",
+        "live": {
+          "snapshots": {
+            "last_update": 1785515279,
+            "age_sec": 62,
+            "status": "OK"
+          },
+          "s40": {
+            "last_update": 1785514974,
+            "age_sec": 367,
+            "status": "OK"
+          },
+          "s55": {
+            "last_update": 1785515340,
+            "age_sec": 1,
+            "status": "OK"
+          }
+        }
+      },
+      {
+        "formula": "Trend",
+        "feature_keys": [
+          "trend",
+          "ema_trend"
+        ],
+        "compute_module": "bot.research.market_events.signal_intelligence.trade_intelligence_s55",
+        "compute_function": "build_entry_features",
+        "source_table": "S40.snapshot_trend / features_json.trend",
+        "collector": "trend / MTF pipeline",
+        "notes": "From S40 snapshot_trend; often 0.0 constant in closed book.",
+        "expected_producer": "signed trend score",
+        "status": "OK",
+        "live": {
+          "snapshots": {
+            "last_update": 1785515279,
+            "age_sec": 62,
+            "status": "OK"
+          },
+          "s40": {
+            "last_update": 1785514974,
+            "age_sec": 367,
+            "status": "OK"
+          },
+          "s55": {
+            "last_update": 1785515340,
+            "age_sec": 1,
+            "status": "OK"
+          }
+        }
+      },
+      {
+        "formula": "AI score",
+        "feature_keys": [
+          "ai_score"
+        ],
+        "compute_module": "bot.research.market_events.signal_intelligence.trade_intelligence_s55",
+        "compute_function": "build_entry_features (ai_score = decision_confidence alias)",
+        "source_table": "S40.snapshot_decision_confidence",
+        "collector": "candidate / decision engine",
+        "notes": "Not a separate model score \u2014 alias of snapshot_decision_confidence; often NULL.",
+        "expected_producer": "real AI / decision confidence",
+        "status": "OK",
+        "live": {
+          "snapshots": {
+            "last_update": 1785515279,
+            "age_sec": 62,
+            "status": "OK"
+          },
+          "s40": {
+            "last_update": 1785514974,
+            "age_sec": 367,
+            "status": "OK"
+          },
+          "s55": {
+            "last_update": 1785515340,
+            "age_sec": 1,
+            "status": "OK"
+          }
+        }
+      },
+      {
+        "formula": "Neighbor EV",
+        "feature_keys": [
+          "gate_expected_pnl_pct",
+          "similar_count"
+        ],
+        "compute_module": "bot.research.market_events.signal_intelligence.trade_intelligence_s55",
+        "compute_function": "estimate_from_similar / gate path",
+        "source_table": "market_events_trade_features_s55.gate_expected_pnl_pct",
+        "collector": null,
+        "notes": "Neighbor EV used for S55 gate; stored on S55 columns.",
+        "expected_producer": "similar-trade estimator",
+        "status": "OK",
+        "live": {
+          "snapshots": {
+            "last_update": 1785515279,
+            "age_sec": 62,
+            "status": "OK"
+          },
+          "s40": {
+            "last_update": 1785514974,
+            "age_sec": 367,
+            "status": "OK"
+          },
+          "s55": {
+            "last_update": 1785515340,
+            "age_sec": 1,
+            "status": "OK"
+          }
+        }
+      },
+      {
+        "formula": "Regime",
+        "feature_keys": [
+          "market_regime",
+          "regime_score",
+          "regime_confidence"
+        ],
+        "compute_module": "bot.research.market_events.signal_intelligence.market_regime_s57",
+        "compute_function": "regime classification applied into S55 features",
+        "source_table": "market_events_trade_features_s55.market_regime",
+        "collector": null,
+        "notes": "S57 regime; closed book observed as 100% RANGE.",
+        "expected_producer": "market_regime_s57",
+        "status": "OK",
+        "live": {
+          "snapshots": {
+            "last_update": 1785515279,
+            "age_sec": 62,
+            "status": "OK"
+          },
+          "s40": {
+            "last_update": 1785514974,
+            "age_sec": 367,
+            "status": "OK"
+          },
+          "s55": {
+            "last_update": 1785515340,
+            "age_sec": 1,
+            "status": "OK"
+          }
+        }
+      }
+    ],
+    "live_tables": {
+      "market_snapshots_g3": {
+        "last_update": 1785515279,
+        "age_sec": 62,
+        "status": "OK"
+      },
+      "market_events_signal_learning_s40_signals": {
+        "last_update": 1785514974,
+        "age_sec": 367,
+        "status": "OK"
+      },
+      "market_events_trade_features_s55": {
+        "last_update": 1785515340,
+        "age_sec": 1,
+        "status": "OK"
+      },
+      "market_events_paper_trades_s42": {
+        "last_update": 1785361779,
+        "age_sec": 153562,
+        "status": "STALE"
+      },
+      "market_candidate_g31": {
+        "last_update": 1785515326,
+        "age_sec": 15,
+        "status": "OK"
+      },
+      "market_events_historical_candles": {
+        "last_update": 1785515100,
+        "age_sec": 241,
+        "status": "OK"
+      },
+      "checked_at": 1785515341
+    }
+  },
+  "read_only": true,
+  "gate_trading_unchanged": true,
+  "report_markdown": "# Feature Audit V1 \u2014 Signal Mathematics Recovery\n\n_Generated ts=1785515341 | closed samples=50 | S55 rows=150_\n\nRead-only. No Gate / Trading / Paper / Execution changes.\n\n## Status summary\n\n- **BROKEN**: 5 \u2014 `ema200_distance, ema20_distance, ema50_distance, rsi, vwap_distance`\n- **CONSTANT**: 13 \u2014 `atr, direction, ema_trend, fear_greed, funding, hour, market_regime, pattern, regime_confidence, trend, volatility, volume, weekday`\n- **EMPTY**: 14 \u2014 `ai_score, book_imbalance, btc_move, confidence, decision_confidence, etf_flow, liquidation_metric, macd, macro_score, news_category, news_score, shock_score, spread, time_to_expiry`\n- **GOOD**: 5 \u2014 `btc_dominance, gate_expected_pnl_pct, oi_delta, similar_count, symbol`\n- **LOW_VARIANCE**: 3 \u2014 `gate_decision, open_interest, regime_score`\n\n## Features\n\n| feature | filled% | nulls | const% | unique | min | max | median | std | entropy | MI|pnl | corr|pnl | status |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|\n| ema200_distance | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **BROKEN** |\n| ema20_distance | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **BROKEN** |\n| ema50_distance | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **BROKEN** |\n| rsi | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **BROKEN** |\n| vwap_distance | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **BROKEN** |\n| ai_score | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| book_imbalance | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| btc_move | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| confidence | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| decision_confidence | 0.0 | 150 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| etf_flow | 0.0 | 150 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| liquidation_metric | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| macd | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| macro_score | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| news_category | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| news_score | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| shock_score | 0.0 | 150 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| spread | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| time_to_expiry | 0.0 | 50 | 0.0 | 0 | None | None | None | None | None | None | None | **EMPTY** |\n| atr | 100.0 | 0 | 100.0 | 1 | 50.0 | 50.0 | 50.0 | 0.0 | 0.0 | 0.0 | 0.0 | **CONSTANT** |\n| direction | 100.0 | 0 | 100.0 | 1 | None | None | None | None | 0.0 | None | None | **CONSTANT** |\n| ema_trend | 100.0 | 0 | 100.0 | 1 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | **CONSTANT** |\n| fear_greed | 100.0 | 0 | 100.0 | 1 | 22.0 | 22.0 | 22.0 | 0.0 | 0.0 | 0.0 | 0.0 | **CONSTANT** |\n| funding | 100.0 | 0 | 100.0 | 1 | 54.1 | 54.1 | 54.1 | 0.0 | 0.0 | 0.0 | 0.0 | **CONSTANT** |\n| hour | 100.0 | 0 | 100.0 | 1 | 21.0 | 21.0 | 21.0 | 0.0 | 0.0 | 0.0 | 0.0 | **CONSTANT** |\n| market_regime | 100.0 | 0 | 100.0 | 1 | None | None | None | None | 0.0 | None | None | **CONSTANT** |\n| pattern | 100.0 | 0 | 100.0 | 1 | None | None | None | None | 0.0 | None | None | **CONSTANT** |\n| regime_confidence | 100.0 | 0 | 100.0 | 1 | 0.95 | 0.95 | 0.95 | 0.0 | 0.0 | 0.0 | 0.0 | **CONSTANT** |\n| trend | 100.0 | 0 | 100.0 | 1 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | **CONSTANT** |\n| volatility | 100.0 | 0 | 100.0 | 1 | 50.0 | 50.0 | 50.0 | 0.0 | 0.0 | 0.0 | 0.0 | **CONSTANT** |\n| volume | 100.0 | 0 | 100.0 | 1 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | **CONSTANT** |\n| weekday | 100.0 | 0 | 100.0 | 1 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | **CONSTANT** |\n| gate_decision | 100.0 | 0 | 90.0 | 2 | None | None | None | None | 0.469 | None | None | **LOW_VARIANCE** |\n| open_interest | 100.0 | 0 | 86.67 | 2 | 72.0 | 72.0 | 72.0 | 0.0 | 0.5665 | 0.0 | 0.0 | **LOW_VARIANCE** |\n| regime_score | 100.0 | 0 | 66.67 | 2 | -0.255 | -0.255 | -0.255 | 0.0 | 0.9183 | 0.0 | 0.0 | **LOW_VARIANCE** |\n| btc_dominance | 100.0 | 0 | 66.67 | 11 | 49.69 | 50.19 | 50.02 | 0.113988 | 1.6915 | 0.0979 | -0.1341 | **GOOD** |\n| gate_expected_pnl_pct | 100.0 | 0 | 66.67 | 13 | -7.9557 | 0.0 | -0.7097 | 3.133329 | 1.7588 | 0.1213 | -0.0436 | **GOOD** |\n| oi_delta | 100.0 | 0 | 50.0 | 11 | -54351.762 | 72.0 | -26872.95 | 27116.595412 | 2.4419 | 0.1102 | -0.0248 | **GOOD** |\n| similar_count | 100.0 | 0 | 66.67 | 13 | 0.0 | 45.0 | 3.0 | 13.465452 | 1.7588 | 0.1092 | 0.0478 | **GOOD** |\n| symbol | 100.0 | 0 | 6.0 | 20 | None | None | None | None | 4.2929 | None | None | **GOOD** |\n\n## Formula sources\n\n### RSI \u2014 `BROKEN SOURCE`\n- module: `bot.research.market_events.signal_intelligence.trade_intelligence_s55`\n- function: `build_entry_features`\n- table: `market_events_trade_features_s55 / features_json`\n- collector: `None`\n- notes: Hardcoded rsi=None in build_entry_features \u2014 never computed from candles.\n\n### EMA \u2014 `OK`\n- module: `bot.research.market_events.signal_intelligence.trade_intelligence_s55`\n- function: `build_entry_features (ema_trend proxy from snapshot_trend)`\n- table: `market_snapshots_g3 / S40 snapshot_trend`\n- collector: `g3 snapshot / S40 signal snapshot`\n- notes: True EMA levels not written; only ema_trend proxy from trend string/float.\n\n### VWAP \u2014 `BROKEN SOURCE`\n- module: `bot.research.market_events.signal_intelligence.feature_store`\n- function: `extract_sample (_dist from vwap)`\n- table: `None`\n- collector: `None`\n- notes: VWAP not populated in S55/S40 \u2014 distances always NULL in Feature Store.\n\n### ATR \u2014 `OK`\n- module: `bot.research.market_events.signal_intelligence.trade_intelligence_s55`\n- function: `build_entry_features (from S40 snapshot_atr or market_snapshots_g3.atr)`\n- table: `market_snapshots_g3.atr / S40.snapshot_atr`\n- collector: `g3-run / market snapshot collector`\n- notes: volatility aliased to atr; observed CONSTANT placeholder values in S55.\n\n### Funding \u2014 `OK`\n- module: `bot.research.market_events.signal_intelligence.trade_intelligence_s55`\n- function: `build_entry_features`\n- table: `market_snapshots_g3.funding`\n- collector: `g3 snapshot / Bybit (or configured) funding feed`\n- notes: From S40 snapshot_funding or latest market_snapshots_g3.funding.\n\n### OI \u2014 `OK`\n- module: `bot.research.market_events.signal_intelligence.trade_intelligence_s55`\n- function: `build_entry_features (oi - prev_oi from last 2 snapshots)`\n- table: `market_snapshots_g3.open_interest`\n- collector: `g3 snapshot`\n- notes: Often falls back to raw OI when prev missing; cross-symbol identical deltas observed.\n\n### Fear \u2014 `OK`\n- module: `bot.research.market_events.signal_intelligence.trade_intelligence_s55`\n- function: `build_entry_features`\n- table: `market_snapshots_g3.fear_greed`\n- collector: `macro / fear&greed collector`\n- notes: From S40 snapshot_fear_greed or market_snapshots_g3.fear_greed.\n\n### Trend \u2014 `OK`\n- module: `bot.research.market_events.signal_intelligence.trade_intelligence_s55`\n- function: `build_entry_features`\n- table: `S40.snapshot_trend / features_json.trend`\n- collector: `trend / MTF pipeline`\n- notes: From S40 snapshot_trend; often 0.0 constant in closed book.\n\n### AI score \u2014 `OK`\n- module: `bot.research.market_events.signal_intelligence.trade_intelligence_s55`\n- function: `build_entry_features (ai_score = decision_confidence alias)`\n- table: `S40.snapshot_decision_confidence`\n- collector: `candidate / decision engine`\n- notes: Not a separate model score \u2014 alias of snapshot_decision_confidence; often NULL.\n\n### Neighbor EV \u2014 `OK`\n- module: `bot.research.market_events.signal_intelligence.trade_intelligence_s55`\n- function: `estimate_from_similar / gate path`\n- table: `market_events_trade_features_s55.gate_expected_pnl_pct`\n- collector: `None`\n- notes: Neighbor EV used for S55 gate; stored on S55 columns.\n\n### Regime \u2014 `OK`\n- module: `bot.research.market_events.signal_intelligence.market_regime_s57`\n- function: `regime classification applied into S55 features`\n- table: `market_events_trade_features_s55.market_regime`\n- collector: `None`\n- notes: S57 regime; closed book observed as 100% RANGE.\n\n\n## Live table freshness\n\n- `market_snapshots_g3`: {'last_update': 1785515279, 'age_sec': 62, 'status': 'OK'}\n- `market_events_signal_learning_s40_signals`: {'last_update': 1785514974, 'age_sec': 367, 'status': 'OK'}\n- `market_events_trade_features_s55`: {'last_update': 1785515340, 'age_sec': 1, 'status': 'OK'}\n- `market_events_paper_trades_s42`: {'last_update': 1785361779, 'age_sec': 153562, 'status': 'STALE'}\n- `market_candidate_g31`: {'last_update': 1785515326, 'age_sec': 15, 'status': 'OK'}\n- `market_events_historical_candles`: {'last_update': 1785515100, 'age_sec': 241, 'status': 'OK'}\n"
+}
