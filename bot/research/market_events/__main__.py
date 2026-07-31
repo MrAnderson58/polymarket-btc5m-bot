@@ -246,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
             "feature-freshness",
             "feature-completeness",
             "feature-validate",
+            "alpha-engine",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1370,6 +1371,49 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if info.get("ok") else 1
         except Exception as exc:
             print(f"feature-information failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "alpha-engine":
+        from bot.research.market_events.signal_intelligence.alpha_discovery_engine_v1 import (
+            run_alpha_engine_v1,
+        )
+
+        try:
+            with market_events_connection() as conn:
+                apply_migrations(conn)
+                out = run_alpha_engine_v1(conn, write_reports=True)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "n_rows": out.get("n_rows"),
+                    "n_rules_tested": out.get("n_rules_tested"),
+                    "n_candidates": out.get("n_candidates"),
+                    "n_significant_fdr": out.get("n_significant_fdr"),
+                    "elapsed_sec": out.get("elapsed_sec"),
+                    "paths": out.get("paths"),
+                    "top": [
+                        {
+                            "rank": c.get("rank"),
+                            "label": c.get("label"),
+                            "n": c.get("n"),
+                            "winrate": c.get("winrate"),
+                            "expectancy": c.get("expectancy"),
+                            "pf": c.get("pf"),
+                            "sharpe": c.get("sharpe"),
+                            "p_value": c.get("p_value"),
+                            "q_value_fdr": c.get("q_value_fdr"),
+                            "alpha_score": c.get("alpha_score"),
+                        }
+                        for c in (out.get("top_candidates") or [])[:8]
+                    ],
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            for label, path in (out.get("paths") or {}).items():
+                print(f"Wrote {label}: {path}", file=sys.stderr)
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"alpha-engine failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "feature-health":

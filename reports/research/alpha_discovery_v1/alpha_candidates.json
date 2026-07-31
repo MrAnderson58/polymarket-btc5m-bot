@@ -1,0 +1,887 @@
+{
+  "n_rows": 50,
+  "baseline": {
+    "n": 50,
+    "winrate": 36.0,
+    "expectancy": -25.2943,
+    "pf": 0.4379,
+    "pf_inf": false,
+    "avg_pnl": -25.2943,
+    "sharpe": -0.2754,
+    "total_pnl": -1264.7133
+  },
+  "min_n": 8,
+  "n_rules_tested": 104,
+  "candidates": [
+    {
+      "id": "oi_delta_le_-26872.95",
+      "label": "oi_delta<=median(-2.687e+04)",
+      "features": [
+        "oi_delta"
+      ],
+      "n": 25,
+      "winrate": 32.0,
+      "expectancy": -22.9688,
+      "pf": 0.5067,
+      "avg_pnl": -22.9688,
+      "sharpe": -0.2439,
+      "ci_ev": [
+        -51.2673,
+        17.5327
+      ],
+      "p_value": 0.803279,
+      "expectancy_delta": 2.3255,
+      "pf_delta": 0.0688,
+      "overfit": false,
+      "train_ev": -57.204,
+      "test_ev": 14.1194,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": 1.1415,
+      "significant_fdr": false,
+      "rank": 1
+    },
+    {
+      "id": "2|oi_delta_le_-26872.95|direction_eq_LONG",
+      "label": "(oi_delta<=median(-2.687e+04)) AND (direction==LONG)",
+      "features": [
+        "oi_delta",
+        "direction"
+      ],
+      "n": 25,
+      "winrate": 32.0,
+      "expectancy": -22.9688,
+      "pf": 0.5067,
+      "avg_pnl": -22.9688,
+      "sharpe": -0.2439,
+      "ci_ev": [
+        -49.8629,
+        6.6869
+      ],
+      "p_value": 0.868852,
+      "expectancy_delta": 2.3255,
+      "pf_delta": 0.0688,
+      "overfit": false,
+      "train_ev": -57.204,
+      "test_ev": 14.1194,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": 1.1415,
+      "significant_fdr": false,
+      "rank": 2
+    },
+    {
+      "id": "2|oi_delta_le_-26872.95|market_regime_eq_RANGE",
+      "label": "(oi_delta<=median(-2.687e+04)) AND (market_regime==RANGE)",
+      "features": [
+        "oi_delta",
+        "market_regime"
+      ],
+      "n": 25,
+      "winrate": 32.0,
+      "expectancy": -22.9688,
+      "pf": 0.5067,
+      "avg_pnl": -22.9688,
+      "sharpe": -0.2439,
+      "ci_ev": [
+        -56.0842,
+        15.7004
+      ],
+      "p_value": 0.901639,
+      "expectancy_delta": 2.3255,
+      "pf_delta": 0.0688,
+      "overfit": false,
+      "train_ev": -57.204,
+      "test_ev": 14.1194,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": 1.1415,
+      "significant_fdr": false,
+      "rank": 3
+    },
+    {
+      "id": "3|oi_delta_le_-26872.95|direction_eq_LONG|market_regime_eq_RANGE",
+      "label": "(oi_delta<=median(-2.687e+04)) AND (direction==LONG) AND (market_regime==RANGE)",
+      "features": [
+        "oi_delta",
+        "direction",
+        "market_regime"
+      ],
+      "n": 25,
+      "winrate": 32.0,
+      "expectancy": -22.9688,
+      "pf": 0.5067,
+      "avg_pnl": -22.9688,
+      "sharpe": -0.2439,
+      "ci_ev": [
+        -59.2042,
+        7.5513
+      ],
+      "p_value": 0.885246,
+      "expectancy_delta": 2.3255,
+      "pf_delta": 0.0688,
+      "overfit": false,
+      "train_ev": -57.204,
+      "test_ev": 14.1194,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": 1.1415,
+      "significant_fdr": false,
+      "rank": 4
+    },
+    {
+      "id": "oi_delta_gt_-26872.95",
+      "label": "oi_delta>median(-2.687e+04)",
+      "features": [
+        "oi_delta"
+      ],
+      "n": 25,
+      "winrate": 40.0,
+      "expectancy": -27.6198,
+      "pf": 0.3643,
+      "avg_pnl": -27.6198,
+      "sharpe": -0.309,
+      "ci_ev": [
+        -59.6693,
+        -0.8126
+      ],
+      "p_value": 0.819672,
+      "expectancy_delta": -2.3255,
+      "pf_delta": -0.0736,
+      "overfit": false,
+      "train_ev": -41.6162,
+      "test_ev": 75.0211,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -0.987,
+      "significant_fdr": false,
+      "rank": 5
+    },
+    {
+      "id": "oi_delta_ge_72.0",
+      "label": "oi_delta>=q75(72)",
+      "features": [
+        "oi_delta"
+      ],
+      "n": 25,
+      "winrate": 40.0,
+      "expectancy": -27.6198,
+      "pf": 0.3643,
+      "avg_pnl": -27.6198,
+      "sharpe": -0.309,
+      "ci_ev": [
+        -55.4729,
+        3.9821
+      ],
+      "p_value": 0.868852,
+      "expectancy_delta": -2.3255,
+      "pf_delta": -0.0736,
+      "overfit": false,
+      "train_ev": -41.6162,
+      "test_ev": 75.0211,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -0.987,
+      "significant_fdr": false,
+      "rank": 6
+    },
+    {
+      "id": "2|oi_delta_gt_-26872.95|direction_eq_LONG",
+      "label": "(oi_delta>median(-2.687e+04)) AND (direction==LONG)",
+      "features": [
+        "oi_delta",
+        "direction"
+      ],
+      "n": 25,
+      "winrate": 40.0,
+      "expectancy": -27.6198,
+      "pf": 0.3643,
+      "avg_pnl": -27.6198,
+      "sharpe": -0.309,
+      "ci_ev": [
+        -61.3906,
+        -2.1924
+      ],
+      "p_value": 0.803279,
+      "expectancy_delta": -2.3255,
+      "pf_delta": -0.0736,
+      "overfit": false,
+      "train_ev": -41.6162,
+      "test_ev": 75.0211,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -0.987,
+      "significant_fdr": false,
+      "rank": 7
+    },
+    {
+      "id": "2|oi_delta_ge_72.0|direction_eq_LONG",
+      "label": "(oi_delta>=q75(72)) AND (direction==LONG)",
+      "features": [
+        "oi_delta",
+        "direction"
+      ],
+      "n": 25,
+      "winrate": 40.0,
+      "expectancy": -27.6198,
+      "pf": 0.3643,
+      "avg_pnl": -27.6198,
+      "sharpe": -0.309,
+      "ci_ev": [
+        -69.3063,
+        6.4959
+      ],
+      "p_value": 0.836066,
+      "expectancy_delta": -2.3255,
+      "pf_delta": -0.0736,
+      "overfit": false,
+      "train_ev": -41.6162,
+      "test_ev": 75.0211,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -0.987,
+      "significant_fdr": false,
+      "rank": 8
+    },
+    {
+      "id": "2|oi_delta_gt_-26872.95|gate_decision_eq_INSUFFICIENT_HISTORY",
+      "label": "(oi_delta>median(-2.687e+04)) AND (gate_decision==INSUFFICIENT_HISTORY)",
+      "features": [
+        "oi_delta",
+        "gate_decision"
+      ],
+      "n": 25,
+      "winrate": 40.0,
+      "expectancy": -27.6198,
+      "pf": 0.3643,
+      "avg_pnl": -27.6198,
+      "sharpe": -0.309,
+      "ci_ev": [
+        -61.7704,
+        -0.3279
+      ],
+      "p_value": 0.819672,
+      "expectancy_delta": -2.3255,
+      "pf_delta": -0.0736,
+      "overfit": false,
+      "train_ev": -41.6162,
+      "test_ev": 75.0211,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -0.987,
+      "significant_fdr": false,
+      "rank": 9
+    },
+    {
+      "id": "2|oi_delta_ge_72.0|gate_decision_eq_INSUFFICIENT_HISTORY",
+      "label": "(oi_delta>=q75(72)) AND (gate_decision==INSUFFICIENT_HISTORY)",
+      "features": [
+        "oi_delta",
+        "gate_decision"
+      ],
+      "n": 25,
+      "winrate": 40.0,
+      "expectancy": -27.6198,
+      "pf": 0.3643,
+      "avg_pnl": -27.6198,
+      "sharpe": -0.309,
+      "ci_ev": [
+        -63.279,
+        0.2007
+      ],
+      "p_value": 0.836066,
+      "expectancy_delta": -2.3255,
+      "pf_delta": -0.0736,
+      "overfit": false,
+      "train_ev": -41.6162,
+      "test_ev": 75.0211,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -0.987,
+      "significant_fdr": false,
+      "rank": 10
+    },
+    {
+      "id": "2|oi_delta_gt_-26872.95|market_regime_eq_RANGE",
+      "label": "(oi_delta>median(-2.687e+04)) AND (market_regime==RANGE)",
+      "features": [
+        "oi_delta",
+        "market_regime"
+      ],
+      "n": 25,
+      "winrate": 40.0,
+      "expectancy": -27.6198,
+      "pf": 0.3643,
+      "avg_pnl": -27.6198,
+      "sharpe": -0.309,
+      "ci_ev": [
+        -64.652,
+        0.8995
+      ],
+      "p_value": 0.901639,
+      "expectancy_delta": -2.3255,
+      "pf_delta": -0.0736,
+      "overfit": false,
+      "train_ev": -41.6162,
+      "test_ev": 75.0211,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -0.987,
+      "significant_fdr": false,
+      "rank": 11
+    },
+    {
+      "id": "2|oi_delta_ge_72.0|market_regime_eq_RANGE",
+      "label": "(oi_delta>=q75(72)) AND (market_regime==RANGE)",
+      "features": [
+        "oi_delta",
+        "market_regime"
+      ],
+      "n": 25,
+      "winrate": 40.0,
+      "expectancy": -27.6198,
+      "pf": 0.3643,
+      "avg_pnl": -27.6198,
+      "sharpe": -0.309,
+      "ci_ev": [
+        -57.7026,
+        -0.2271
+      ],
+      "p_value": 0.852459,
+      "expectancy_delta": -2.3255,
+      "pf_delta": -0.0736,
+      "overfit": false,
+      "train_ev": -41.6162,
+      "test_ev": 75.0211,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -0.987,
+      "significant_fdr": false,
+      "rank": 12
+    },
+    {
+      "id": "3|oi_delta_gt_-26872.95|direction_eq_LONG|gate_decision_eq_INSUFFICIENT_HISTORY",
+      "label": "(oi_delta>median(-2.687e+04)) AND (direction==LONG) AND (gate_decision==INSUFFICIENT_HISTORY)",
+      "features": [
+        "oi_delta",
+        "direction",
+        "gate_decision"
+      ],
+      "n": 25,
+      "winrate": 40.0,
+      "expectancy": -27.6198,
+      "pf": 0.3643,
+      "avg_pnl": -27.6198,
+      "sharpe": -0.309,
+      "ci_ev": [
+        -65.564,
+        8.2872
+      ],
+      "p_value": 0.918033,
+      "expectancy_delta": -2.3255,
+      "pf_delta": -0.0736,
+      "overfit": false,
+      "train_ev": -41.6162,
+      "test_ev": 75.0211,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -0.987,
+      "significant_fdr": false,
+      "rank": 13
+    },
+    {
+      "id": "3|oi_delta_gt_-26872.95|direction_eq_LONG|market_regime_eq_RANGE",
+      "label": "(oi_delta>median(-2.687e+04)) AND (direction==LONG) AND (market_regime==RANGE)",
+      "features": [
+        "oi_delta",
+        "direction",
+        "market_regime"
+      ],
+      "n": 25,
+      "winrate": 40.0,
+      "expectancy": -27.6198,
+      "pf": 0.3643,
+      "avg_pnl": -27.6198,
+      "sharpe": -0.309,
+      "ci_ev": [
+        -65.5668,
+        -3.1622
+      ],
+      "p_value": 0.868852,
+      "expectancy_delta": -2.3255,
+      "pf_delta": -0.0736,
+      "overfit": false,
+      "train_ev": -41.6162,
+      "test_ev": 75.0211,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -0.987,
+      "significant_fdr": false,
+      "rank": 14
+    },
+    {
+      "id": "3|oi_delta_gt_-26872.95|gate_decision_eq_INSUFFICIENT_HISTORY|market_regime_eq_RANGE",
+      "label": "(oi_delta>median(-2.687e+04)) AND (gate_decision==INSUFFICIENT_HISTORY) AND (market_regime==RANGE)",
+      "features": [
+        "oi_delta",
+        "gate_decision",
+        "market_regime"
+      ],
+      "n": 25,
+      "winrate": 40.0,
+      "expectancy": -27.6198,
+      "pf": 0.3643,
+      "avg_pnl": -27.6198,
+      "sharpe": -0.309,
+      "ci_ev": [
+        -63.0634,
+        7.4203
+      ],
+      "p_value": 0.786885,
+      "expectancy_delta": -2.3255,
+      "pf_delta": -0.0736,
+      "overfit": false,
+      "train_ev": -41.6162,
+      "test_ev": 75.0211,
+      "coverage": 50.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -0.987,
+      "significant_fdr": false,
+      "rank": 15
+    },
+    {
+      "id": "gate_decision_eq_INSUFFICIENT_HISTORY",
+      "label": "gate_decision==INSUFFICIENT_HISTORY",
+      "features": [
+        "gate_decision"
+      ],
+      "n": 45,
+      "winrate": 33.33,
+      "expectancy": -28.3874,
+      "pf": 0.3677,
+      "avg_pnl": -28.3874,
+      "sharpe": -0.316,
+      "ci_ev": [
+        -56.3688,
+        2.5945
+      ],
+      "p_value": 0.655738,
+      "expectancy_delta": -3.0931,
+      "pf_delta": -0.0702,
+      "overfit": false,
+      "train_ev": -47.406,
+      "test_ev": 38.1778,
+      "coverage": 90.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -1.3209,
+      "significant_fdr": false,
+      "rank": 16
+    },
+    {
+      "id": "2|direction_eq_LONG|gate_decision_eq_INSUFFICIENT_HISTORY",
+      "label": "(direction==LONG) AND (gate_decision==INSUFFICIENT_HISTORY)",
+      "features": [
+        "direction",
+        "gate_decision"
+      ],
+      "n": 45,
+      "winrate": 33.33,
+      "expectancy": -28.3874,
+      "pf": 0.3677,
+      "avg_pnl": -28.3874,
+      "sharpe": -0.316,
+      "ci_ev": [
+        -53.1184,
+        -4.467
+      ],
+      "p_value": 0.42623,
+      "expectancy_delta": -3.0931,
+      "pf_delta": -0.0702,
+      "overfit": false,
+      "train_ev": -47.406,
+      "test_ev": 38.1778,
+      "coverage": 90.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -1.3209,
+      "significant_fdr": false,
+      "rank": 17
+    },
+    {
+      "id": "2|gate_decision_eq_INSUFFICIENT_HISTORY|market_regime_eq_RANGE",
+      "label": "(gate_decision==INSUFFICIENT_HISTORY) AND (market_regime==RANGE)",
+      "features": [
+        "gate_decision",
+        "market_regime"
+      ],
+      "n": 45,
+      "winrate": 33.33,
+      "expectancy": -28.3874,
+      "pf": 0.3677,
+      "avg_pnl": -28.3874,
+      "sharpe": -0.316,
+      "ci_ev": [
+        -51.0492,
+        -1.0011
+      ],
+      "p_value": 0.52459,
+      "expectancy_delta": -3.0931,
+      "pf_delta": -0.0702,
+      "overfit": false,
+      "train_ev": -47.406,
+      "test_ev": 38.1778,
+      "coverage": 90.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -1.3209,
+      "significant_fdr": false,
+      "rank": 18
+    },
+    {
+      "id": "3|direction_eq_LONG|gate_decision_eq_INSUFFICIENT_HISTORY|market_regime_eq_RANGE",
+      "label": "(direction==LONG) AND (gate_decision==INSUFFICIENT_HISTORY) AND (market_regime==RANGE)",
+      "features": [
+        "direction",
+        "gate_decision",
+        "market_regime"
+      ],
+      "n": 45,
+      "winrate": 33.33,
+      "expectancy": -28.3874,
+      "pf": 0.3677,
+      "avg_pnl": -28.3874,
+      "sharpe": -0.316,
+      "ci_ev": [
+        -51.9793,
+        -5.8858
+      ],
+      "p_value": 0.540984,
+      "expectancy_delta": -3.0931,
+      "pf_delta": -0.0702,
+      "overfit": false,
+      "train_ev": -47.406,
+      "test_ev": 38.1778,
+      "coverage": 90.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -1.3209,
+      "significant_fdr": false,
+      "rank": 19
+    },
+    {
+      "id": "oi_delta_le_-54210.8",
+      "label": "oi_delta<=q25(-5.421e+04)",
+      "features": [
+        "oi_delta"
+      ],
+      "n": 20,
+      "winrate": 25.0,
+      "expectancy": -29.3469,
+      "pf": 0.3716,
+      "avg_pnl": -29.3469,
+      "sharpe": -0.3248,
+      "ci_ev": [
+        -63.4939,
+        -0.2066
+      ],
+      "p_value": 0.819672,
+      "expectancy_delta": -4.0526,
+      "pf_delta": -0.0663,
+      "overfit": false,
+      "train_ev": -57.204,
+      "test_ev": 22.3879,
+      "coverage": 40.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -1.7664,
+      "significant_fdr": false,
+      "rank": 20
+    },
+    {
+      "id": "2|oi_delta_le_-54210.8|direction_eq_LONG",
+      "label": "(oi_delta<=q25(-5.421e+04)) AND (direction==LONG)",
+      "features": [
+        "oi_delta",
+        "direction"
+      ],
+      "n": 20,
+      "winrate": 25.0,
+      "expectancy": -29.3469,
+      "pf": 0.3716,
+      "avg_pnl": -29.3469,
+      "sharpe": -0.3248,
+      "ci_ev": [
+        -68.5579,
+        12.1589
+      ],
+      "p_value": 0.836066,
+      "expectancy_delta": -4.0526,
+      "pf_delta": -0.0663,
+      "overfit": false,
+      "train_ev": -57.204,
+      "test_ev": 22.3879,
+      "coverage": 40.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -1.7664,
+      "significant_fdr": false,
+      "rank": 21
+    },
+    {
+      "id": "2|oi_delta_le_-26872.95|gate_decision_eq_INSUFFICIENT_HISTORY",
+      "label": "(oi_delta<=median(-2.687e+04)) AND (gate_decision==INSUFFICIENT_HISTORY)",
+      "features": [
+        "oi_delta",
+        "gate_decision"
+      ],
+      "n": 20,
+      "winrate": 25.0,
+      "expectancy": -29.3469,
+      "pf": 0.3716,
+      "avg_pnl": -29.3469,
+      "sharpe": -0.3248,
+      "ci_ev": [
+        -58.1157,
+        -3.4732
+      ],
+      "p_value": 0.852459,
+      "expectancy_delta": -4.0526,
+      "pf_delta": -0.0663,
+      "overfit": false,
+      "train_ev": -57.204,
+      "test_ev": 22.3879,
+      "coverage": 40.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -1.7664,
+      "significant_fdr": false,
+      "rank": 22
+    },
+    {
+      "id": "2|oi_delta_le_-54210.8|gate_decision_eq_INSUFFICIENT_HISTORY",
+      "label": "(oi_delta<=q25(-5.421e+04)) AND (gate_decision==INSUFFICIENT_HISTORY)",
+      "features": [
+        "oi_delta",
+        "gate_decision"
+      ],
+      "n": 20,
+      "winrate": 25.0,
+      "expectancy": -29.3469,
+      "pf": 0.3716,
+      "avg_pnl": -29.3469,
+      "sharpe": -0.3248,
+      "ci_ev": [
+        -67.5448,
+        8.0011
+      ],
+      "p_value": 0.852459,
+      "expectancy_delta": -4.0526,
+      "pf_delta": -0.0663,
+      "overfit": false,
+      "train_ev": -57.204,
+      "test_ev": 22.3879,
+      "coverage": 40.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -1.7664,
+      "significant_fdr": false,
+      "rank": 23
+    },
+    {
+      "id": "2|oi_delta_le_-54210.8|market_regime_eq_RANGE",
+      "label": "(oi_delta<=q25(-5.421e+04)) AND (market_regime==RANGE)",
+      "features": [
+        "oi_delta",
+        "market_regime"
+      ],
+      "n": 20,
+      "winrate": 25.0,
+      "expectancy": -29.3469,
+      "pf": 0.3716,
+      "avg_pnl": -29.3469,
+      "sharpe": -0.3248,
+      "ci_ev": [
+        -63.3676,
+        8.0571
+      ],
+      "p_value": 0.754098,
+      "expectancy_delta": -4.0526,
+      "pf_delta": -0.0663,
+      "overfit": false,
+      "train_ev": -57.204,
+      "test_ev": 22.3879,
+      "coverage": 40.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -1.7664,
+      "significant_fdr": false,
+      "rank": 24
+    },
+    {
+      "id": "3|oi_delta_le_-26872.95|direction_eq_LONG|gate_decision_eq_INSUFFICIENT_HISTORY",
+      "label": "(oi_delta<=median(-2.687e+04)) AND (direction==LONG) AND (gate_decision==INSUFFICIENT_HISTORY)",
+      "features": [
+        "oi_delta",
+        "direction",
+        "gate_decision"
+      ],
+      "n": 20,
+      "winrate": 25.0,
+      "expectancy": -29.3469,
+      "pf": 0.3716,
+      "avg_pnl": -29.3469,
+      "sharpe": -0.3248,
+      "ci_ev": [
+        -64.4285,
+        -5.4589
+      ],
+      "p_value": 0.868852,
+      "expectancy_delta": -4.0526,
+      "pf_delta": -0.0663,
+      "overfit": false,
+      "train_ev": -57.204,
+      "test_ev": 22.3879,
+      "coverage": 40.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -1.7664,
+      "significant_fdr": false,
+      "rank": 25
+    },
+    {
+      "id": "3|oi_delta_le_-26872.95|gate_decision_eq_INSUFFICIENT_HISTORY|market_regime_eq_RANGE",
+      "label": "(oi_delta<=median(-2.687e+04)) AND (gate_decision==INSUFFICIENT_HISTORY) AND (market_regime==RANGE)",
+      "features": [
+        "oi_delta",
+        "gate_decision",
+        "market_regime"
+      ],
+      "n": 20,
+      "winrate": 25.0,
+      "expectancy": -29.3469,
+      "pf": 0.3716,
+      "avg_pnl": -29.3469,
+      "sharpe": -0.3248,
+      "ci_ev": [
+        -59.7744,
+        -3.3438
+      ],
+      "p_value": 0.754098,
+      "expectancy_delta": -4.0526,
+      "pf_delta": -0.0663,
+      "overfit": false,
+      "train_ev": -57.204,
+      "test_ev": 22.3879,
+      "coverage": 40.0,
+      "q_value_fdr": 0.918033,
+      "p_value_bonferroni": 1.0,
+      "alpha_score": -1.7664,
+      "significant_fdr": false,
+      "rank": 26
+    },
+    {
+      "id": "direction_eq_LONG",
+      "label": "direction==LONG",
+      "features": [
+        "direction"
+      ],
+      "n": 50,
+      "winrate": 36.0,
+      "expectancy": -25.2943,
+      "pf": 0.4379,
+      "avg_pnl": -25.2943,
+      "sharpe": -0.2754,
+      "ci_ev": [
+        -52.1016,
+        1.5306
+      ],
+      "p_value": null,
+      "expectancy_delta": 0.0,
+      "pf_delta": 0.0,
+      "overfit": false,
+      "train_ev": -47.406,
+      "test_ev": 26.2997,
+      "coverage": 100.0,
+      "q_value_fdr": null,
+      "p_value_bonferroni": null,
+      "alpha_score": -11.3083,
+      "significant_fdr": false,
+      "rank": 27
+    },
+    {
+      "id": "market_regime_eq_RANGE",
+      "label": "market_regime==RANGE",
+      "features": [
+        "market_regime"
+      ],
+      "n": 50,
+      "winrate": 36.0,
+      "expectancy": -25.2943,
+      "pf": 0.4379,
+      "avg_pnl": -25.2943,
+      "sharpe": -0.2754,
+      "ci_ev": [
+        -51.6767,
+        -4.2048
+      ],
+      "p_value": null,
+      "expectancy_delta": 0.0,
+      "pf_delta": 0.0,
+      "overfit": false,
+      "train_ev": -47.406,
+      "test_ev": 26.2997,
+      "coverage": 100.0,
+      "q_value_fdr": null,
+      "p_value_bonferroni": null,
+      "alpha_score": -11.3083,
+      "significant_fdr": false,
+      "rank": 28
+    },
+    {
+      "id": "2|direction_eq_LONG|market_regime_eq_RANGE",
+      "label": "(direction==LONG) AND (market_regime==RANGE)",
+      "features": [
+        "direction",
+        "market_regime"
+      ],
+      "n": 50,
+      "winrate": 36.0,
+      "expectancy": -25.2943,
+      "pf": 0.4379,
+      "avg_pnl": -25.2943,
+      "sharpe": -0.2754,
+      "ci_ev": [
+        -46.5845,
+        -3.1207
+      ],
+      "p_value": null,
+      "expectancy_delta": 0.0,
+      "pf_delta": 0.0,
+      "overfit": false,
+      "train_ev": -47.406,
+      "test_ev": 26.2997,
+      "coverage": 100.0,
+      "q_value_fdr": null,
+      "p_value_bonferroni": null,
+      "alpha_score": -11.3083,
+      "significant_fdr": false,
+      "rank": 29
+    }
+  ]
+}
