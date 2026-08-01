@@ -1,0 +1,54 @@
+{
+  "clusters": {
+    "Liquidity": {
+      "n_rules": 0,
+      "best_score": 0.0,
+      "rules": []
+    },
+    "Momentum": {
+      "n_rules": 0,
+      "best_score": 0.0,
+      "rules": []
+    },
+    "Mean Reversion": {
+      "n_rules": 0,
+      "best_score": 0.0,
+      "rules": []
+    },
+    "Breakout": {
+      "n_rules": 0,
+      "best_score": 0.0,
+      "rules": []
+    },
+    "Trend": {
+      "n_rules": 0,
+      "best_score": 0.0,
+      "rules": []
+    },
+    "Panic": {
+      "n_rules": 0,
+      "best_score": 0.0,
+      "rules": []
+    },
+    "Volatility Expansion": {
+      "n_rules": 0,
+      "best_score": 0.0,
+      "rules": []
+    },
+    "Compression": {
+      "n_rules": 0,
+      "best_score": 0.0,
+      "rules": []
+    }
+  },
+  "cluster_names": [
+    "Liquidity",
+    "Momentum",
+    "Mean Reversion",
+    "Breakout",
+    "Trend",
+    "Panic",
+    "Volatility Expansion",
+    "Compression"
+  ]
+}
