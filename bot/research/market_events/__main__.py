@@ -377,14 +377,6 @@ def main(argv: list[str] | None = None) -> int:
         help="research-sync-import: copy snapshot into configured SQLite analytics path",
     )
     parser.add_argument(
-        "--force",
-        action="store_true",
-        help=(
-            "research-sync-import --activate: bypass Safety V2 preflight abort "
-            "(older/smaller/fewer CLOSED). Auto-rollback still runs if CLOSED drops."
-        ),
-    )
-    parser.add_argument(
         "--universe",
         default=None,
         help="shock-paper: core|tradfi-liquid|multi-paper | observe: tradfi-observe|all-observe|crypto-observe",
@@ -466,7 +458,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="trade-postmortem: force run even before RCA_EVERY_N",
+        help=(
+            "trade-postmortem: force run even before RCA_EVERY_N; "
+            "research-sync-import --activate: bypass Safety V2 preflight abort "
+            "(older/smaller/fewer CLOSED; auto-rollback still runs if CLOSED drops)"
+        ),
     )
     parser.add_argument(
         "--backfill",
