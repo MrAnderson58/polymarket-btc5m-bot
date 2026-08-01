@@ -258,6 +258,7 @@ def main(argv: list[str] | None = None) -> int:
             "market-causality",
             "market-brain",
             "market-shadow-live",
+            "market-signal-evolution",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1882,6 +1883,84 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"market-shadow-live failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "market-signal-evolution":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.event_schema import apply_migrations
+        from bot.research.market_events.signal_intelligence.signal_evolution_v1 import (
+            run_signal_evolution_v1,
+        )
+
+        try:
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"market-signal-evolution failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_evo() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    return run_signal_evolution_v1(
+                        conn, write_reports=True, persist_library=True
+                    )
+
+            out = retry_on_db_locked(_run_evo)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "ok": out.get("ok"),
+                    "n_signals": out.get("n_signals"),
+                    "n_occurrences": out.get("n_occurrences"),
+                    "elapsed_sec": out.get("elapsed_sec"),
+                    "mean_update_ms": out.get("mean_update_ms"),
+                    "p95_update_ms": out.get("p95_update_ms"),
+                    "within_budget": out.get("within_budget"),
+                    "lifecycle_counts": out.get("lifecycle_counts"),
+                    "drift_stats": out.get("drift_stats"),
+                    "half_life_estimates": out.get("half_life_estimates"),
+                    "strongest": [
+                        {
+                            "signal": s.get("signal"),
+                            "score": s.get("score"),
+                            "status": s.get("status"),
+                            "half_life": s.get("half_life"),
+                            "drift": s.get("drift"),
+                        }
+                        for s in (out.get("strongest") or [])[:8]
+                    ],
+                    "weakest": [
+                        {
+                            "signal": s.get("signal"),
+                            "score": s.get("score"),
+                            "status": s.get("status"),
+                            "half_life": s.get("half_life"),
+                            "drift": s.get("drift"),
+                        }
+                        for s in (out.get("weakest") or [])[:8]
+                    ],
+                    "promotion": out.get("promotion"),
+                    "library_upserted": out.get("library_upserted"),
+                    "paths": out.get("paths"),
+                    "analytics_db": str(db_path),
+                    "source": source,
+                    "gate_unchanged": True,
+                    "strategy_unchanged": True,
+                    "paper_unchanged": True,
+                    "execution_unchanged": True,
+                    "optimizer_unchanged": True,
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"market-signal-evolution failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-engine":
