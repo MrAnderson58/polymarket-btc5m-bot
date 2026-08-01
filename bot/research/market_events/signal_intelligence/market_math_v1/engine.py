@@ -9,6 +9,7 @@ from typing import Any
 
 from bot.research.market_events.config import BASE_DIR
 from bot.research.market_events.signal_intelligence.market_math_v1.dataset import (
+    count_corpus,
     load_market_math_dataset,
 )
 from bot.research.market_events.signal_intelligence.market_math_v1.studies import (
@@ -36,7 +37,8 @@ def run_market_math_research(
 ) -> dict[str, Any]:
     """Run studies 1–10 on the full available S42/S55 corpus."""
     t0 = time.time()
-    rows = load_market_math_dataset(conn, limit=limit)
+    load_stats = count_corpus(conn)
+    rows = load_market_math_dataset(conn, limit=limit, print_stats=True)
     # Adaptive min_n for tiny local books
     n = len(rows)
     min_n = 8 if n < 200 else 20
@@ -57,7 +59,11 @@ def run_market_math_research(
     result = {
         "ok": True,
         "n_trades": n,
-        "limit_note": "full available CLOSED S42×S55 history (no LIMIT 50)",
+        "loaded_closed_trades": load_stats.get("closed_s42"),
+        "loaded_s55_rows": load_stats.get("s55"),
+        "matched_rows": load_stats.get("matched"),
+        "load_stats": load_stats,
+        "limit_note": "full available CLOSED S42 INNER JOIN S55 history (no default LIMIT)",
         "baseline": features.get("baseline"),
         "feature_statistics": features,
         "pair_statistics": pairs,

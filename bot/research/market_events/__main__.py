@@ -251,6 +251,7 @@ def main(argv: list[str] | None = None) -> int:
             "alpha-validation-report",
             "market-math-research",
             "market-math-report",
+            "market-math-debug",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1407,6 +1408,9 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 json.dumps({
                     "n_trades": out.get("n_trades"),
+                    "loaded_closed_trades": out.get("loaded_closed_trades"),
+                    "loaded_s55_rows": out.get("loaded_s55_rows"),
+                    "matched_rows": out.get("matched_rows"),
                     "elapsed_sec": out.get("elapsed_sec"),
                     "n_top_rules": len(out.get("top_rules") or []),
                     "n_harmful": (out.get("market_regimes") or {}).get("n_harmful"),
@@ -1450,6 +1454,41 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"market-math-report failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "market-math-debug":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import (
+            research_migrate_then_readonly,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.market_math_v1 import (
+            format_market_math_debug,
+        )
+
+        try:
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"market-math-debug failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_mm_debug() -> str:
+                with research_migrate_then_readonly(db_path) as conn:
+                    return format_market_math_debug(conn, db_path=db_path)
+
+            text = retry_on_db_locked(_run_mm_debug)
+            print(text)
+            print(
+                json.dumps({"ok": True, "analytics_db": str(db_path), "source": source}, indent=2),
+                file=sys.stderr,
+            )
+            return 0
+        except Exception as exc:
+            print(f"market-math-debug failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-engine":

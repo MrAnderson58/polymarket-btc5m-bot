@@ -1,10 +1,11 @@
-"""Load full S42+S55 corpus for market mathematics (no artificial small LIMIT)."""
+"""Load full S42⋈S55 corpus for market mathematics (no artificial small LIMIT)."""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
+import sys
 from typing import Any
 
 from bot.research.market_events.signal_intelligence.feature_store import extract_sample
@@ -52,8 +53,40 @@ GATE_FILTER_FEATURES: tuple[str, ...] = (
     "oi_delta",
 )
 
-# Full history — never default to 50.
-_FULL_LIMIT = int(os.environ.get("MARKET_MATH_LIMIT", "10000000"))
+# Full history — never default to 50. Only apply LIMIT when env/arg is set.
+_ENV_LIMIT = os.environ.get("MARKET_MATH_LIMIT")
+
+
+CLOSED_S42_SQL = """
+SELECT COUNT(*)
+FROM market_events_paper_trades_s42 p
+WHERE p.status = 'CLOSED' AND p.pnl_pct IS NOT NULL
+"""
+
+S55_COUNT_SQL = """
+SELECT COUNT(*)
+FROM market_events_trade_features_s55
+"""
+
+JOIN_SQL = """
+SELECT p.*,
+       f.gate_decision, f.market_regime, f.ai_score, f.macro_score, f.news_score,
+       f.volatility, f.atr, f.rsi, f.funding, f.oi_delta, f.spread, f.volume,
+       f.fear_greed, f.trend, f.hour, f.weekday, f.features_json,
+       f.mfe_pct AS f_mfe, f.mae_pct AS f_mae, f.duration_sec,
+       f.pnl_usd AS f_pnl_usd, f.pnl_pct AS f_pnl_pct
+FROM market_events_paper_trades_s42 p
+INNER JOIN market_events_trade_features_s55 f ON f.paper_trade_id = p.id
+WHERE p.status = 'CLOSED' AND p.pnl_pct IS NOT NULL
+ORDER BY COALESCE(p.closed_at, p.updated_at, p.id) ASC
+"""
+
+JOIN_COUNT_SQL = """
+SELECT COUNT(*)
+FROM market_events_paper_trades_s42 p
+INNER JOIN market_events_trade_features_s55 f ON f.paper_trade_id = p.id
+WHERE p.status = 'CLOSED' AND p.pnl_pct IS NOT NULL
+"""
 
 
 def _row(r: Any) -> dict[str, Any]:
@@ -74,24 +107,64 @@ def _parse_blob(raw: Any) -> dict[str, Any]:
     return {}
 
 
-def load_all_closed_trade_rows(conn: Any, *, limit: int | None = None) -> list[dict[str, Any]]:
-    """Load ALL CLOSED S42 trades joined with S55 (no LIMIT 50)."""
-    lim = int(limit if limit is not None else _FULL_LIMIT)
-    sql = """
-        SELECT p.*,
-               f.gate_decision, f.market_regime, f.ai_score, f.macro_score, f.news_score,
-               f.volatility, f.atr, f.rsi, f.funding, f.oi_delta, f.spread, f.volume,
-               f.fear_greed, f.trend, f.hour, f.weekday, f.features_json,
-               f.mfe_pct AS f_mfe, f.mae_pct AS f_mae, f.duration_sec,
-               f.pnl_usd AS f_pnl_usd, f.pnl_pct AS f_pnl_pct
-        FROM market_events_paper_trades_s42 p
-        LEFT JOIN market_events_trade_features_s55 f ON f.paper_trade_id = p.id
-        WHERE p.status = 'CLOSED' AND p.pnl_pct IS NOT NULL
-        ORDER BY COALESCE(p.closed_at, p.updated_at, p.id) ASC
-        LIMIT ?
-    """
+def _safe_count(conn: Any, sql: str) -> int:
     try:
-        rows = [_row(r) for r in conn.execute(sql, (lim,)).fetchall()]
+        row = conn.execute(sql).fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
+    except Exception as exc:
+        logger.warning("market_math: count failed: %s", exc)
+        return 0
+
+
+def count_corpus(conn: Any) -> dict[str, int]:
+    """Row counts for CLOSED S42, S55, and INNER JOIN match set."""
+    return {
+        "closed_s42": _safe_count(conn, CLOSED_S42_SQL),
+        "s55": _safe_count(conn, S55_COUNT_SQL),
+        "matched": _safe_count(conn, JOIN_COUNT_SQL),
+    }
+
+
+def print_load_stats(stats: dict[str, int], *, file: Any = None) -> None:
+    out = file or sys.stdout
+    print("Loaded CLOSED trades:", file=out)
+    print(stats.get("closed_s42", 0), file=out)
+    print("", file=out)
+    print("Loaded S55 rows:", file=out)
+    print(stats.get("s55", 0), file=out)
+    print("", file=out)
+    print("Matched rows:", file=out)
+    print(stats.get("matched", 0), file=out)
+
+
+def load_all_closed_trade_rows(
+    conn: Any,
+    *,
+    limit: int | None = None,
+    print_stats: bool = False,
+) -> list[dict[str, Any]]:
+    """Load ALL CLOSED S42 trades INNER JOINed with S55 (no default LIMIT 50)."""
+    stats = count_corpus(conn)
+    if print_stats:
+        print_load_stats(stats)
+
+    # Resolve optional limit: explicit arg > env > no limit (full history).
+    lim: int | None
+    if limit is not None:
+        lim = int(limit)
+    elif _ENV_LIMIT is not None and str(_ENV_LIMIT).strip() != "":
+        lim = int(_ENV_LIMIT)
+    else:
+        lim = None
+
+    sql = JOIN_SQL
+    params: tuple[Any, ...] = ()
+    if lim is not None:
+        sql = JOIN_SQL + "\nLIMIT ?"
+        params = (lim,)
+
+    try:
+        rows = [_row(r) for r in conn.execute(sql, params).fetchall()]
     except Exception as exc:
         logger.warning("market_math: S42/S55 load failed: %s", exc)
         rows = []
@@ -109,9 +182,10 @@ def load_market_math_dataset(
     conn: Any,
     *,
     limit: int | None = None,
+    print_stats: bool = False,
 ) -> list[dict[str, Any]]:
     """Full closed book with feature vectors for mathematics research."""
-    raw = load_all_closed_trade_rows(conn, limit=limit)
+    raw = load_all_closed_trade_rows(conn, limit=limit, print_stats=print_stats)
     out: list[dict[str, Any]] = []
     for r in raw:
         sample = extract_sample(r)
@@ -167,8 +241,14 @@ def load_market_math_dataset(
 
 __all__ = [
     "CATEGORICAL_FEATURES",
+    "CLOSED_S42_SQL",
     "GATE_FILTER_FEATURES",
+    "JOIN_COUNT_SQL",
+    "JOIN_SQL",
     "NUMERIC_FEATURES",
+    "S55_COUNT_SQL",
+    "count_corpus",
     "load_all_closed_trade_rows",
     "load_market_math_dataset",
+    "print_load_stats",
 ]

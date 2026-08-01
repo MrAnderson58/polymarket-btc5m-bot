@@ -5,7 +5,7 @@ _Market Mathematics Research V1 — explainable statistics only. No Gate / Strat
 - Trades analyzed: **50** (full available CLOSED S42×S55 history)
 > **Note:** Local analytics DB currently exposes fewer CLOSED rows than a full ~30k production corpus. Re-run `market-math-research` on the host with the complete book.
 - Baseline EV=-25.2943 PF=0.4379 WR=36.0 Sharpe=-0.2754
-- Elapsed: Nones
+- Elapsed: 0.115s
 
 ## TOP rules
 

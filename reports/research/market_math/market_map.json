@@ -44,7 +44,7 @@
         "oi_delta"
       ],
       "rule": "oi<=72 AND oi_delta<=-26873",
-      "confidence": 0.3329,
+      "confidence": 0.2644,
       "n": 25,
       "winrate": 32.0,
       "profit_factor": 0.5067,
@@ -53,12 +53,12 @@
       "median_pnl": -14.0076,
       "std": 94.1618,
       "ci95": [
-        -55.4362,
-        5.872
+        -61.5209,
+        17.4548
       ],
       "sharpe": -0.2439,
       "kelly": -0.4469,
-      "p_value": 0.836066,
+      "p_value": 0.918033,
       "delta_ev": 2.3255,
       "pf_inf": false
     },
@@ -68,7 +68,7 @@
         "oi_delta"
       ],
       "rule": "oi<=72 AND oi_delta<=-26873",
-      "confidence": 0.3329,
+      "confidence": 0.2644,
       "n": 25,
       "winrate": 32.0,
       "profit_factor": 0.5067,
@@ -77,12 +77,12 @@
       "median_pnl": -14.0076,
       "std": 94.1618,
       "ci95": [
-        -55.4362,
-        5.872
+        -61.5209,
+        17.4548
       ],
       "sharpe": -0.2439,
       "kelly": -0.4469,
-      "p_value": 0.836066,
+      "p_value": 0.918033,
       "delta_ev": 2.3255,
       "pf_inf": false
     },
@@ -92,7 +92,7 @@
         "oi_delta"
       ],
       "rule": "oi>=72 AND oi_delta<=-26873",
-      "confidence": 0.3227,
+      "confidence": 0.2878,
       "n": 25,
       "winrate": 32.0,
       "profit_factor": 0.5067,
@@ -101,12 +101,12 @@
       "median_pnl": -14.0076,
       "std": 94.1618,
       "ci95": [
-        -50.6487,
-        12.904
+        -65.7654,
+        13.6228
       ],
       "sharpe": -0.2439,
       "kelly": -0.4469,
-      "p_value": 0.852459,
+      "p_value": 0.819672,
       "delta_ev": 2.3255,
       "pf_inf": false
     },
@@ -116,7 +116,7 @@
         "fear_greed"
       ],
       "rule": "oi_delta<=-26873 AND fear_greed<=22",
-      "confidence": 0.2894,
+      "confidence": 0.3042,
       "n": 25,
       "winrate": 32.0,
       "profit_factor": 0.5067,
@@ -125,12 +125,12 @@
       "median_pnl": -14.0076,
       "std": 94.1618,
       "ci95": [
-        -62.0239,
-        10.76
+        -56.9732,
+        7.3651
       ],
       "sharpe": -0.2439,
       "kelly": -0.4469,
-      "p_value": 0.885246,
+      "p_value": 0.918033,
       "delta_ev": 2.3255,
       "pf_inf": false
     },
@@ -140,7 +140,7 @@
         "fear_greed"
       ],
       "rule": "oi_delta<=-26873 AND fear_greed<=22",
-      "confidence": 0.2894,
+      "confidence": 0.3042,
       "n": 25,
       "winrate": 32.0,
       "profit_factor": 0.5067,
@@ -149,12 +149,12 @@
       "median_pnl": -14.0076,
       "std": 94.1618,
       "ci95": [
-        -62.0239,
-        10.76
+        -56.9732,
+        7.3651
       ],
       "sharpe": -0.2439,
       "kelly": -0.4469,
-      "p_value": 0.885246,
+      "p_value": 0.918033,
       "delta_ev": 2.3255,
       "pf_inf": false
     },
@@ -164,7 +164,7 @@
         "fear_greed"
       ],
       "rule": "oi_delta<=-26873 AND fear_greed>=22",
-      "confidence": 0.3175,
+      "confidence": 0.2745,
       "n": 25,
       "winrate": 32.0,
       "profit_factor": 0.5067,
@@ -173,8 +173,32 @@
       "median_pnl": -14.0076,
       "std": 94.1618,
       "ci95": [
-        -57.3147,
-        8.1473
+        -56.3918,
+        15.834
+      ],
+      "sharpe": -0.2439,
+      "kelly": -0.4469,
+      "p_value": 0.95082,
+      "delta_ev": 2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta<=-26873 AND trend<=0",
+      "confidence": 0.3326,
+      "n": 25,
+      "winrate": 32.0,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "mean_pnl": -22.9688,
+      "median_pnl": -14.0076,
+      "std": 94.1618,
+      "ci95": [
+        -48.5996,
+        11.3359
       ],
       "sharpe": -0.2439,
       "kelly": -0.4469,
@@ -188,7 +212,7 @@
         "trend"
       ],
       "rule": "oi_delta<=-26873 AND trend<=0",
-      "confidence": 0.2724,
+      "confidence": 0.3326,
       "n": 25,
       "winrate": 32.0,
       "profit_factor": 0.5067,
@@ -197,36 +221,12 @@
       "median_pnl": -14.0076,
       "std": 94.1618,
       "ci95": [
-        -65.53,
-        13.5206
+        -48.5996,
+        11.3359
       ],
       "sharpe": -0.2439,
       "kelly": -0.4469,
-      "p_value": 0.885246,
-      "delta_ev": 2.3255,
-      "pf_inf": false
-    },
-    {
-      "features": [
-        "oi_delta",
-        "trend"
-      ],
-      "rule": "oi_delta<=-26873 AND trend<=0",
-      "confidence": 0.2724,
-      "n": 25,
-      "winrate": 32.0,
-      "profit_factor": 0.5067,
-      "expectancy": -22.9688,
-      "mean_pnl": -22.9688,
-      "median_pnl": -14.0076,
-      "std": 94.1618,
-      "ci95": [
-        -65.53,
-        13.5206
-      ],
-      "sharpe": -0.2439,
-      "kelly": -0.4469,
-      "p_value": 0.885246,
+      "p_value": 0.852459,
       "delta_ev": 2.3255,
       "pf_inf": false
     },
@@ -236,7 +236,7 @@
         "trend"
       ],
       "rule": "oi_delta<=-26873 AND trend>=0",
-      "confidence": 0.2958,
+      "confidence": 0.2905,
       "n": 25,
       "winrate": 32.0,
       "profit_factor": 0.5067,
@@ -245,12 +245,12 @@
       "median_pnl": -14.0076,
       "std": 94.1618,
       "ci95": [
-        -55.9529,
-        12.9598
+        -63.8919,
+        9.991
       ],
       "sharpe": -0.2439,
       "kelly": -0.4469,
-      "p_value": 0.901639,
+      "p_value": 0.868852,
       "delta_ev": 2.3255,
       "pf_inf": false
     },
@@ -260,7 +260,7 @@
         "fear_greed"
       ],
       "rule": "oi<=72 AND fear_greed<=22",
-      "confidence": 0.4709,
+      "confidence": 0.4728,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -269,8 +269,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -45.2816,
-        -0.8264
+        -51.4684,
+        -7.7792
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -284,7 +284,7 @@
         "fear_greed"
       ],
       "rule": "oi<=72 AND fear_greed<=22",
-      "confidence": 0.4709,
+      "confidence": 0.4728,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -293,8 +293,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -45.2816,
-        -0.8264
+        -51.4684,
+        -7.7792
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -308,7 +308,7 @@
         "fear_greed"
       ],
       "rule": "oi<=72 AND fear_greed>=22",
-      "confidence": 0.4757,
+      "confidence": 0.4338,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -317,8 +317,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -43.7694,
-        -1.2521
+        -54.8595,
+        4.6197
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -332,7 +332,7 @@
         "fear_greed"
       ],
       "rule": "oi<=72 AND fear_greed<=22",
-      "confidence": 0.4709,
+      "confidence": 0.4728,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -341,8 +341,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -45.2816,
-        -0.8264
+        -51.4684,
+        -7.7792
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -356,7 +356,7 @@
         "fear_greed"
       ],
       "rule": "oi<=72 AND fear_greed<=22",
-      "confidence": 0.4709,
+      "confidence": 0.4728,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -365,8 +365,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -45.2816,
-        -0.8264
+        -51.4684,
+        -7.7792
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -380,7 +380,7 @@
         "fear_greed"
       ],
       "rule": "oi<=72 AND fear_greed>=22",
-      "confidence": 0.4757,
+      "confidence": 0.4338,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -389,8 +389,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -43.7694,
-        -1.2521
+        -54.8595,
+        4.6197
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -404,7 +404,7 @@
         "fear_greed"
       ],
       "rule": "oi>=72 AND fear_greed<=22",
-      "confidence": 0.4697,
+      "confidence": 0.476,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -413,8 +413,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -50.6562,
-        -5.7284
+        -46.6104,
+        -4.1939
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -428,7 +428,7 @@
         "fear_greed"
       ],
       "rule": "oi>=72 AND fear_greed<=22",
-      "confidence": 0.4697,
+      "confidence": 0.476,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -437,8 +437,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -50.6562,
-        -5.7284
+        -46.6104,
+        -4.1939
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -452,7 +452,7 @@
         "fear_greed"
       ],
       "rule": "oi>=72 AND fear_greed>=22",
-      "confidence": 0.4748,
+      "confidence": 0.4822,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -461,8 +461,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -43.6678,
-        -0.773
+        -43.9144,
+        -4.0384
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -476,7 +476,7 @@
         "trend"
       ],
       "rule": "oi<=72 AND trend<=0",
-      "confidence": 0.4397,
+      "confidence": 0.4464,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -485,8 +485,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -57.3145,
-        -0.2226
+        -56.023,
+        -1.6389
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -500,7 +500,7 @@
         "trend"
       ],
       "rule": "oi<=72 AND trend<=0",
-      "confidence": 0.4397,
+      "confidence": 0.4464,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -509,8 +509,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -57.3145,
-        -0.2226
+        -56.023,
+        -1.6389
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -524,7 +524,7 @@
         "trend"
       ],
       "rule": "oi<=72 AND trend>=0",
-      "confidence": 0.4619,
+      "confidence": 0.469,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -533,8 +533,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -45.2327,
-        2.8893
+        -49.8913,
+        -4.6601
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -548,7 +548,7 @@
         "trend"
       ],
       "rule": "oi<=72 AND trend<=0",
-      "confidence": 0.4397,
+      "confidence": 0.4464,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -557,8 +557,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -57.3145,
-        -0.2226
+        -56.023,
+        -1.6389
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -572,7 +572,7 @@
         "trend"
       ],
       "rule": "oi<=72 AND trend<=0",
-      "confidence": 0.4397,
+      "confidence": 0.4464,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -581,8 +581,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -57.3145,
-        -0.2226
+        -56.023,
+        -1.6389
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -596,7 +596,7 @@
         "trend"
       ],
       "rule": "oi<=72 AND trend>=0",
-      "confidence": 0.4619,
+      "confidence": 0.469,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -605,8 +605,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -45.2327,
-        2.8893
+        -49.8913,
+        -4.6601
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,
@@ -620,7 +620,7 @@
         "trend"
       ],
       "rule": "oi>=72 AND trend<=0",
-      "confidence": 0.4572,
+      "confidence": 0.4447,
       "n": 50,
       "winrate": 36.0,
       "profit_factor": 0.4379,
@@ -629,8 +629,8 @@
       "median_pnl": -11.5808,
       "std": 91.8375,
       "ci95": [
-        -57.8728,
-        -7.8832
+        -52.1118,
+        2.9415
       ],
       "sharpe": -0.2754,
       "kelly": -0.6142,

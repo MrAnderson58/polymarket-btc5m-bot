@@ -142,6 +142,9 @@ class TestEngine(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
             with mock.patch(
+                "bot.research.market_events.signal_intelligence.market_math_v1.engine.count_corpus",
+                return_value={"closed_s42": 220, "s55": 220, "matched": 220},
+            ), mock.patch(
                 "bot.research.market_events.signal_intelligence.market_math_v1.engine.load_market_math_dataset",
                 return_value=rows,
             ), mock.patch(
@@ -154,6 +157,7 @@ class TestEngine(unittest.TestCase):
                 out = run_market_math_research(conn=None, write_reports=True)
             self.assertTrue(out["ok"])
             self.assertEqual(out["n_trades"], 220)
+            self.assertEqual(out["matched_rows"], 220)
             self.assertTrue(out["gate_strategy_paper_optimizer_unchanged"])
             self.assertTrue(Path(out["paths"]["report_md"]).exists())
             self.assertTrue((td_path / "out" / "top_rules.json").exists())
@@ -210,6 +214,95 @@ class TestEngine(unittest.TestCase):
             ):
                 self.assertIn(key, paths)
                 self.assertTrue(Path(paths[key]).exists())
+
+
+class TestLoaderNoLimit50(unittest.TestCase):
+    def test_join_loads_all_without_default_limit(self) -> None:
+        import sqlite3
+
+        from bot.research.market_events.signal_intelligence.market_math_v1.dataset import (
+            JOIN_SQL,
+            count_corpus,
+            load_all_closed_trade_rows,
+        )
+        from bot.research.market_events.signal_intelligence.market_math_v1.debug import (
+            format_market_math_debug,
+        )
+
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        con.executescript(
+            """
+            CREATE TABLE market_events_paper_trades_s42 (
+              id INTEGER PRIMARY KEY,
+              status TEXT,
+              pnl_pct REAL,
+              pnl_usd REAL,
+              closed_at INTEGER,
+              updated_at INTEGER,
+              symbol TEXT,
+              direction TEXT,
+              entry REAL,
+              mfe_pct REAL,
+              mae_pct REAL
+            );
+            CREATE TABLE market_events_trade_features_s55 (
+              id INTEGER PRIMARY KEY,
+              paper_trade_id INTEGER,
+              gate_decision TEXT,
+              market_regime TEXT,
+              ai_score REAL, macro_score REAL, news_score REAL,
+              volatility REAL, atr REAL, rsi REAL, funding REAL, oi_delta REAL,
+              spread REAL, volume REAL, fear_greed REAL, trend REAL,
+              hour REAL, weekday REAL, features_json TEXT,
+              mfe_pct REAL, mae_pct REAL, duration_sec INTEGER,
+              pnl_usd REAL, pnl_pct REAL
+            );
+            CREATE VIEW research_dataset AS SELECT 1 AS x WHERE 0;
+            """
+        )
+        n = 73  # deliberately not 50
+        for i in range(1, n + 1):
+            con.execute(
+                "INSERT INTO market_events_paper_trades_s42 "
+                "(id, status, pnl_pct, pnl_usd, closed_at, symbol, direction, entry) "
+                "VALUES (?, 'CLOSED', ?, ?, ?, 'BTC', 'LONG', 100)",
+                (i, 0.1 * (1 if i % 2 else -1), 1.0, 1_700_000_000 + i),
+            )
+            con.execute(
+                "INSERT INTO market_events_trade_features_s55 "
+                "(paper_trade_id, atr, rsi, funding, features_json, pnl_pct) "
+                "VALUES (?, 1.2, 35, -0.0001, '{}', ?)",
+                (i, 0.1),
+            )
+        # orphan s55 + unmatched closed without features (INNER JOIN drops it)
+        con.execute(
+            "INSERT INTO market_events_paper_trades_s42 "
+            "(id, status, pnl_pct, closed_at, symbol, direction) "
+            "VALUES (9999, 'CLOSED', 1.0, 1, 'ETH', 'SHORT')"
+        )
+        con.execute(
+            "INSERT INTO market_events_trade_features_s55 (paper_trade_id, atr) VALUES (NULL, 9.9)"
+        )
+        con.commit()
+
+        stats = count_corpus(con)
+        self.assertEqual(stats["closed_s42"], n + 1)
+        self.assertEqual(stats["s55"], n + 1)
+        self.assertEqual(stats["matched"], n)
+        self.assertIn("INNER JOIN", JOIN_SQL)
+        self.assertNotIn("LIMIT", JOIN_SQL)
+
+        rows = load_all_closed_trade_rows(con, print_stats=False)
+        self.assertEqual(len(rows), n)
+
+        text = format_market_math_debug(con, db_path=":memory:")
+        self.assertIn("Loaded CLOSED trades:", text)
+        self.assertIn(str(n + 1), text)
+        self.assertIn("Matched rows:", text)
+        self.assertIn("market_events_paper_trades_s42", text)
+        self.assertIn("feature_store", text)
+        self.assertIn("training_dataset", text)
 
 
 if __name__ == "__main__":
