@@ -15,6 +15,9 @@ from bot.research.market_events.signal_intelligence.research_lake_v1.loader impo
     load_research_lake_rows,
     research_lake_row_count,
 )
+from bot.research.market_events.signal_intelligence.research_lake_v1.materialize import (
+    materialize_closed_from_s40_reviews,
+)
 from bot.research.market_events.signal_intelligence.research_lake_v1.schema import (
     DATASET_VERSION,
     FEATURE_VERSION,
@@ -29,6 +32,7 @@ __all__ = [
     "build_research_lake_v1",
     "ensure_research_lake_schema",
     "load_research_lake_rows",
+    "materialize_closed_from_s40_reviews",
     "research_lake_health_v1",
     "research_lake_row_count",
 ]

@@ -2,17 +2,19 @@
 
 _Recommendation only. No automatic promotion._
 
-## Status: **NOT_READY**
+## Status: **BEATS_PRODUCTION**
 
-Brain is NOT ready — shadow shows no clear edge yet.
+Brain beats production — improve calibration / sample size before paper A/B.
 
 - ready_for_paper_ab: **False**
 - auto_promotion: **False** (always false)
-- evaluated n: **50**
+- evaluated n: **19160**
 
 ## Reasons
 
-- last_100: ΔEV=2237.4517 positive but ΔWR=-0.02 not yet ≥0
+- last_100: brain ΔEV>0 and hit-rate ≥ production
+- last_500: brain beats production on ΔEV/WR
+- calibration not reliable enough (score=0.0, mean_gap=None)
 
 ## Ladder
 

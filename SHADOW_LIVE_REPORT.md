@@ -4,32 +4,32 @@ _Shadow Live Evaluation V1 — research-only. No trade execution. Does not modif
 
 ## Run
 
-- candidates: **50**
-- shadow decisions: **50**
-- evaluated (closed): **50**
-- runtime total: **0.026s**
-- mean decision latency: **0.104 ms**
-- p95 decision latency: **0.125 ms**
-- lake source: `research_lake_v1`
+- candidates: **19160**
+- shadow decisions: **19160**
+- evaluated (closed): **19160**
+- runtime total: **66.761s**
+- mean decision latency: **0.06 ms**
+- p95 decision latency: **0.067 ms**
+- lake source: `research_lake`
 
 ## Production vs Brain (all)
 
 ```json
 {
-  "n": 50,
-  "brain_hit_rate": 0.64,
-  "production_hit_rate": 0.66,
-  "delta_wr": -0.02,
+  "n": 19160,
+  "brain_hit_rate": 0.5457,
+  "production_hit_rate": 0.1326,
+  "delta_wr": 0.4131,
   "brain_ev": 2250.1694,
-  "production_ev": 12.7177,
-  "delta_ev": 2237.4517,
+  "production_ev": -7759.6938,
+  "delta_ev": 10009.8632,
   "brain_pf": null,
-  "production_pf": 1.0553,
+  "production_pf": 0.3737,
   "delta_pf": null,
   "false_positives": 0,
-  "false_negatives": 3,
-  "brain_wins": 27,
-  "production_wins": 3,
+  "false_negatives": 8689,
+  "brain_wins": 16630,
+  "production_wins": 2510,
   "ties": 20
 }
 ```
@@ -41,20 +41,20 @@ _Shadow Live Evaluation V1 — research-only. No trade execution. Does not modif
 ```json
 {
   "n": 50,
-  "brain_hit_rate": 0.64,
-  "production_hit_rate": 0.66,
-  "delta_wr": -0.02,
-  "brain_ev": 2250.1694,
-  "production_ev": 12.7177,
-  "delta_ev": 2237.4517,
+  "brain_hit_rate": 0.22,
+  "production_hit_rate": 0.08,
+  "delta_wr": 0.14,
+  "brain_ev": 0.0,
+  "production_ev": -65.6379,
+  "delta_ev": 65.6379,
   "brain_pf": null,
-  "production_pf": 1.0553,
+  "production_pf": 0.0668,
   "delta_pf": null,
   "false_positives": 0,
-  "false_negatives": 3,
-  "brain_wins": 27,
-  "production_wins": 3,
-  "ties": 20
+  "false_negatives": 39,
+  "brain_wins": 46,
+  "production_wins": 4,
+  "ties": 0
 }
 ```
 
@@ -62,21 +62,21 @@ _Shadow Live Evaluation V1 — research-only. No trade execution. Does not modif
 
 ```json
 {
-  "n": 50,
-  "brain_hit_rate": 0.64,
-  "production_hit_rate": 0.66,
-  "delta_wr": -0.02,
-  "brain_ev": 2250.1694,
-  "production_ev": 12.7177,
-  "delta_ev": 2237.4517,
+  "n": 100,
+  "brain_hit_rate": 0.23,
+  "production_hit_rate": 0.07,
+  "delta_wr": 0.16,
+  "brain_ev": 0.0,
+  "production_ev": -132.4798,
+  "delta_ev": 132.4798,
   "brain_pf": null,
-  "production_pf": 1.0553,
+  "production_pf": 0.0526,
   "delta_pf": null,
   "false_positives": 0,
-  "false_negatives": 3,
-  "brain_wins": 27,
-  "production_wins": 3,
-  "ties": 20
+  "false_negatives": 77,
+  "brain_wins": 93,
+  "production_wins": 7,
+  "ties": 0
 }
 ```
 
@@ -84,21 +84,21 @@ _Shadow Live Evaluation V1 — research-only. No trade execution. Does not modif
 
 ```json
 {
-  "n": 50,
-  "brain_hit_rate": 0.64,
-  "production_hit_rate": 0.66,
-  "delta_wr": -0.02,
-  "brain_ev": 2250.1694,
-  "production_ev": 12.7177,
-  "delta_ev": 2237.4517,
+  "n": 500,
+  "brain_hit_rate": 0.298,
+  "production_hit_rate": 0.07,
+  "delta_wr": 0.228,
+  "brain_ev": 0.0,
+  "production_ev": -662.6005,
+  "delta_ev": 662.6005,
   "brain_pf": null,
-  "production_pf": 1.0553,
+  "production_pf": 0.0543,
   "delta_pf": null,
   "false_positives": 0,
-  "false_negatives": 3,
-  "brain_wins": 27,
-  "production_wins": 3,
-  "ties": 20
+  "false_negatives": 351,
+  "brain_wins": 465,
+  "production_wins": 35,
+  "ties": 0
 }
 ```
 
@@ -106,21 +106,21 @@ _Shadow Live Evaluation V1 — research-only. No trade execution. Does not modif
 
 ```json
 {
-  "n": 50,
-  "brain_hit_rate": 0.64,
-  "production_hit_rate": 0.66,
-  "delta_wr": -0.02,
-  "brain_ev": 2250.1694,
-  "production_ev": 12.7177,
-  "delta_ev": 2237.4517,
+  "n": 1000,
+  "brain_hit_rate": 0.347,
+  "production_hit_rate": 0.078,
+  "delta_wr": 0.269,
+  "brain_ev": 0.0,
+  "production_ev": -1301.967,
+  "delta_ev": 1301.967,
   "brain_pf": null,
-  "production_pf": 1.0553,
+  "production_pf": 0.058,
   "delta_pf": null,
   "false_positives": 0,
-  "false_negatives": 3,
-  "brain_wins": 27,
-  "production_wins": 3,
-  "ties": 20
+  "false_negatives": 653,
+  "brain_wins": 922,
+  "production_wins": 78,
+  "ties": 0
 }
 ```
 
@@ -200,14 +200,16 @@ _Shadow Live Evaluation V1 — research-only. No trade execution. Does not modif
 
 ```json
 {
-  "status": "NOT_READY",
-  "recommendation": "Brain is NOT ready \u2014 shadow shows no clear edge yet.",
+  "status": "BEATS_PRODUCTION",
+  "recommendation": "Brain beats production \u2014 improve calibration / sample size before paper A/B.",
   "ready_for_paper_ab": false,
   "auto_promotion": false,
   "reasons": [
-    "last_100: \u0394EV=2237.4517 positive but \u0394WR=-0.02 not yet \u22650"
+    "last_100: brain \u0394EV>0 and hit-rate \u2265 production",
+    "last_500: brain beats production on \u0394EV/WR",
+    "calibration not reliable enough (score=0.0, mean_gap=None)"
   ],
-  "n": 50
+  "n": 19160
 }
 ```
 

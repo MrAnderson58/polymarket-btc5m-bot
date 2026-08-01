@@ -83,14 +83,16 @@ def load_replay_trades(
         stats["n_lake"] = n
         if n > 0:
             rows = load_research_lake_rows(conn, limit=limit)
-            stats["source"] = "research_lake_v1"
+            stats["source"] = "research_lake"
         else:
+            # Explicit empty-lake path. Callers that still need math must opt in.
             from bot.research.market_events.signal_intelligence.market_math_v1.dataset import (
                 load_market_math_dataset,
             )
 
             rows = load_market_math_dataset(conn, limit=limit, print_stats=False)
             stats["source"] = "market_math_fallback"
+            stats["warning"] = "research_lake_empty_using_market_math_fallback"
     except Exception as exc:
         stats["error"] = str(exc)
         return [], stats

@@ -1,19 +1,20 @@
 {
-  "ok": false,
-  "status": "FAIL",
-  "n_lake": 50,
-  "n_s42_closed": 50,
+  "ok": true,
+  "status": "WARN",
+  "n_lake": 19160,
+  "n_s42_closed": 19160,
   "coverage_pct": 100.0,
   "duplicates": 0,
-  "missing_s55_joins": 0,
+  "missing_s55_joins": 19110,
   "missing_pnl": 0,
   "missing_symbol": 0,
-  "null_feature_rows": 0,
-  "broken_feature_rows": 50,
-  "sampled_feature_rows": 50,
+  "null_feature_rows": 500,
+  "broken_feature_rows": 0,
+  "sampled_feature_rows": 500,
   "schema_drift": [],
   "issues": [
-    "broken_features=50"
+    "missing_s55_joins=19110",
+    "null_explosion=500/500"
   ],
   "dataset_version": "rlake-v1",
   "feature_version": "v1",
@@ -22,7 +23,7 @@
     "dataset_version": "rlake-v1",
     "feature_version": "v1",
     "schema_version": "1.0.0",
-    "last_build_ts": "1785606734",
+    "last_build_ts": "1785606808",
     "builder_version": "v2-streaming"
   }
 }

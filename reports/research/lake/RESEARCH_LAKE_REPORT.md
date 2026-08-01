@@ -4,26 +4,27 @@ _Research Lake Builder V2 — streaming batches, preloaded joins, SQL profiling.
 
 - Mode: **full**
 - Builder: `v2-streaming`
-- Rows seen/inserted/updated/skipped: 50/0/0/50
+- Rows seen/inserted/updated/skipped: 19160/19110/0/50
 - dataset_version: `rlake-v1`
 - feature_version: `v1`
 - schema_version: `1.0.0`
-- Health: **FAIL** (lake=50 s42_closed=50 coverage=100.0%)
-- Elapsed: 1.014s
+- Health: **WARN** (lake=19160 s42_closed=19160 coverage=100.0%)
+- Elapsed: 15.79s
 - no_select_in_trade_loop: True
 
 ## Integrity
 
 - duplicates: 0
-- missing_s55_joins: 0
+- missing_s55_joins: 19110
 - missing_pnl: 0
-- null_feature_rows: 0
-- broken_feature_rows: 50
+- null_feature_rows: 500
+- broken_feature_rows: 0
 - schema_drift: []
 
 ## Issues
 
-- broken_features=50
+- missing_s55_joins=19110
+- null_explosion=500/500
 
 ## Consumers
 

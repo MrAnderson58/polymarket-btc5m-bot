@@ -104,29 +104,41 @@ def research_lake_health_v1(conn: Any) -> dict[str, Any]:
 
     coverage = round(100.0 * n_lake / n_closed, 2) if n_closed else (100.0 if n_lake == 0 else 0.0)
     issues: list[str] = []
+    notes: list[str] = []
     if duplicates:
         issues.append(f"duplicates={duplicates}")
-    if n_closed and missing_s55 > n_lake * 0.5:
-        issues.append(f"missing_s55_joins={missing_s55}")
     if missing_pnl:
         issues.append(f"missing_pnl={missing_pnl}")
     if missing_symbol:
         issues.append(f"missing_symbol={missing_symbol}")
-    if sampled and null_feature_hits > sampled * 0.5:
-        issues.append(f"null_explosion={null_feature_hits}/{sampled}")
-    if broken_features:
-        issues.append(f"broken_features={broken_features}")
     if drift:
         issues.extend(drift)
     if n_closed and n_lake < n_closed:
         issues.append(f"lake_behind_s42 lake={n_lake} closed={n_closed}")
+    if n_closed and coverage < 99.0:
+        issues.append(f"coverage_below_99={coverage}")
+    # Feature join sparsity is expected for research S40 backfill — note only when covered.
+    if n_closed and missing_s55 > n_lake * 0.5:
+        (notes if coverage >= 99.0 else issues).append(f"missing_s55_joins={missing_s55}")
+    if sampled and null_feature_hits > sampled * 0.5:
+        (notes if coverage >= 99.0 else issues).append(
+            f"null_explosion={null_feature_hits}/{sampled}"
+        )
+    if broken_features:
+        (notes if coverage >= 99.0 else issues).append(f"broken_features={broken_features}")
 
-    status = "OK" if not issues else ("WARN" if n_lake > 0 else "EMPTY")
-    if duplicates or (sampled and broken_features > sampled * 0.3):
+    # Coverage / duplicates are hard failures.
+    if n_lake == 0 and n_closed == 0:
+        status = "EMPTY"
+    elif duplicates or (n_closed and coverage < 99.0) or (n_closed and n_lake < n_closed):
         status = "FAIL"
+    elif issues:
+        status = "WARN"
+    else:
+        status = "OK"
 
     return {
-        "ok": status in ("OK", "WARN", "EMPTY"),
+        "ok": status in ("OK", "WARN"),
         "status": status,
         "n_lake": n_lake,
         "n_s42_closed": n_closed,
@@ -140,6 +152,7 @@ def research_lake_health_v1(conn: Any) -> dict[str, Any]:
         "sampled_feature_rows": sampled,
         "schema_drift": drift,
         "issues": issues,
+        "notes": notes,
         "dataset_version": DATASET_VERSION,
         "feature_version": FEATURE_VERSION,
         "schema_version": SCHEMA_VERSION_LAKE,

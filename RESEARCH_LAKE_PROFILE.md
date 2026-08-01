@@ -6,12 +6,12 @@ Research Lake Builder V2 — SQL profile for streaming builds.
 
 - builder_version: `v2-streaming`
 - mode: `full`
-- rows_seen / inserted / updated / skipped: 50 / 0 / 0 / 50
+- rows_seen / inserted / updated / skipped: 19160 / 19110 / 0 / 50
 - batch_size: 1000
-- elapsed_sec (wall): 1.014
-- n_queries profiled: 12
-- total_sql_sec: 0.9657
-- n_slow (>=1s): 0
+- elapsed_sec (wall): 15.79
+- n_queries profiled: 52
+- total_sql_sec: 1.8194
+- n_slow (>=1s): 1
 - no_select_in_trade_loop: True
 
 ## Before / After
@@ -22,8 +22,7 @@ Research Lake Builder V2 — SQL profile for streaming builds.
 | S42 load | Full table / unbounded | `WHERE id > last_id LIMIT 1000` batches |
 | Inserts | Single end commit (or per-row) | Upsert + commit every 1000 rows |
 | Indexes | Missing on `s55.paper_trade_id` etc. | Auto `CREATE INDEX IF NOT EXISTS` on JOIN keys |
-| Wall time (this run) | (N× queries → minutes in `sqlite3_step`) | **1.014s** |
-| 30k synthetic wall | V1 N+1: minutes–hours at scale | **V2 1.903s** (under_2_min=True) |
+| Wall time (this run) | (N× queries → minutes in `sqlite3_step`) | **15.79s** |
 
 Target: 30k CLOSED trades under 2 minutes on Apple Silicon.
 
@@ -38,82 +37,130 @@ Target: 30k CLOSED trades under 2 minutes on Apple Silicon.
 
 ## Top 20 slow SQL
 
-1. **0.9622s** rows=61220 params=``
+1. **1.119s** rows=63420 params=``
 
 ```sql
 SELECT id, symbol, direction, market_score, confidence, created_at FROM market_candidate_g31
 ```
 
-2. **0.0014s** rows=50 params=``
+2. **0.403s** rows=19110 params=``
 
 ```sql
-SELECT * FROM market_events_trade_features_s55 WHERE paper_trade_id IS NOT NULL ORDER BY id ASC
+-- materialize_closed_from_s40_reviews
 ```
 
-3. **0.0007s** rows=50 params=`(0, 1000)`
+3. **0.0108s** rows=1000 params=`(10000, 1000)`
 
 ```sql
 SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
 ```
 
-4. **0.0003s** rows=50 params=``
+4. **0.0104s** rows=1000 params=`(18000, 1000)`
 
 ```sql
-SELECT trade_id, row_hash FROM market_events_research_lake_v1
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
 ```
 
-5. **0.0003s** rows=1 params=`()`
+5. **0.0103s** rows=1000 params=`(13000, 1000)`
 
 ```sql
-SELECT COUNT(*) FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
 ```
 
-6. **0.0003s** rows=0 params=``
+6. **0.0101s** rows=1000 params=`(16000, 1000)`
 
 ```sql
-SELECT * FROM market_events_trade_snapshots_s56 WHERE paper_trade_id IS NOT NULL ORDER BY id ASC
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
 ```
 
-7. **0.0002s** rows=6 params=``
+7. **0.01s** rows=1000 params=`(14000, 1000)`
 
 ```sql
--- ensure_research_lake_join_indexes
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
 ```
 
-8. **0.0001s** rows=0 params=``
+8. **0.0099s** rows=1000 params=`(7000, 1000)`
 
 ```sql
-SELECT trade_id, paper_trade_id, validation_status, score, rule_id FROM market_events_alpha_validations_v2
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
 ```
 
-9. **0.0s** rows=0 params=``
+9. **0.0098s** rows=1000 params=`(12000, 1000)`
 
 ```sql
-SELECT key, value FROM market_events_ops_state WHERE key LIKE 'optimizer%' OR key LIKE 'g42%' LIMIT 20
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
 ```
 
-10. **0.0s** rows=0 params=``
+10. **0.0098s** rows=1000 params=`(6000, 1000)`
 
 ```sql
--- ensure_research_lake_schema
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
 ```
 
-11. **0.0s** rows=0 params=``
+11. **0.0097s** rows=1000 params=`(15000, 1000)`
 
 ```sql
-SELECT id, name, status FROM market_events_experiments_v1 ORDER BY id DESC LIMIT 5
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
 ```
 
-12. **0.0s** rows=0 params=``
+12. **0.0094s** rows=1000 params=`(11000, 1000)`
 
 ```sql
-SELECT trade_id, cluster, edge_score, status FROM market_events_alpha_labels_v1
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
+```
+
+13. **0.0093s** rows=1000 params=`(9000, 1000)`
+
+```sql
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
+```
+
+14. **0.0091s** rows=1000 params=`(17000, 1000)`
+
+```sql
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
+```
+
+15. **0.0088s** rows=1000 params=`(8000, 1000)`
+
+```sql
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
+```
+
+16. **0.0087s** rows=1000 params=`(0, 1000)`
+
+```sql
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
+```
+
+17. **0.0082s** rows=1000 params=`(5000, 1000)`
+
+```sql
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
+```
+
+18. **0.0079s** rows=1000 params=`(4000, 1000)`
+
+```sql
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
+```
+
+19. **0.0078s** rows=1000 params=`(1000, 1000)`
+
+```sql
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
+```
+
+20. **0.0077s** rows=1000 params=`(3000, 1000)`
+
+```sql
+SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
 ```
 
 
 ## EXPLAIN QUERY PLAN (slow >= 1s, else top wall-time)
 
-### #1 — 0.9622s (rows=61220)
+### #1 — 1.119s (rows=63420)
 
 ```sql
 SELECT id, symbol, direction, market_score, confidence, created_at FROM market_candidate_g31
@@ -122,82 +169,4 @@ SELECT id, symbol, direction, market_score, confidence, created_at FROM market_c
 Plan:
 
 - `2 | 0 | 0 | SCAN market_candidate_g31`
-
-### #2 — 0.0014s (rows=50)
-
-```sql
-SELECT * FROM market_events_trade_features_s55 WHERE paper_trade_id IS NOT NULL ORDER BY id ASC
-```
-
-Plan:
-
-- `3 | 0 | 0 | SCAN market_events_trade_features_s55`
-
-### #3 — 0.0007s (rows=50)
-
-```sql
-SELECT * FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ? ORDER BY id ASC LIMIT ?
-```
-
-Plan:
-
-- `7 | 0 | 0 | SEARCH market_events_paper_trades_s42 USING INDEX idx_s42_closed_pnl_id (status=? AND id>?)`
-
-### #4 — 0.0003s (rows=50)
-
-```sql
-SELECT trade_id, row_hash FROM market_events_research_lake_v1
-```
-
-Plan:
-
-- `2 | 0 | 0 | SCAN market_events_research_lake_v1 USING COVERING INDEX idx_rlake_v1_row_hash`
-
-### #5 — 0.0003s (rows=1)
-
-```sql
-SELECT COUNT(*) FROM market_events_paper_trades_s42 WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL
-```
-
-Plan:
-
-- `4 | 0 | 0 | SEARCH market_events_paper_trades_s42 USING INDEX idx_s42_closed_pnl_id (status=?)`
-
-### #6 — 0.0003s (rows=0)
-
-```sql
-SELECT * FROM market_events_trade_snapshots_s56 WHERE paper_trade_id IS NOT NULL ORDER BY id ASC
-```
-
-Plan:
-
-- `3 | 0 | 0 | SCAN market_events_trade_snapshots_s56`
-
-### #7 — 0.0001s (rows=0)
-
-```sql
-SELECT trade_id, paper_trade_id, validation_status, score, rule_id FROM market_events_alpha_validations_v2
-```
-
-Plan:
-
-- `(explain failed: no such table: market_events_alpha_validations_v2; retry: no such table: market_events_alpha_validations_v2)`
-
-### #8 — 0.0s (rows=0)
-
-```sql
-SELECT key, value FROM market_events_ops_state WHERE key LIKE 'optimizer%' OR key LIKE 'g42%' LIMIT 20
-```
-
-Plan:
-
-- `(explain failed: no such table: market_events_ops_state; retry: no such table: market_events_ops_state)`
-
-
-## Synthetic 30k benchmark
-
-- rows: 30000
-- elapsed_sec: 1.903
-- under_2_min: True
-- v1_estimated_sec (N+1 G31/S55): N+1 (S55+S56+G31 per trade); ~61k G31 rows ⇒ minutes–hours at 30k trades
 

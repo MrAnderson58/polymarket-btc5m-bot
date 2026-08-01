@@ -28,27 +28,24 @@ from bot.research.market_events.signal_intelligence.shadow_live_v1.report import
 
 
 def _load_candidates(conn: Any, *, limit: int | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Prefer Research Lake exclusively. Never silently fall back to market_math."""
     stats: dict[str, Any] = {"source": "empty"}
-    try:
-        from bot.research.market_events.signal_intelligence.market_replay_v1.dataset import (
-            load_replay_trades,
-        )
-
-        rows, stats = load_replay_trades(conn, limit=limit)
-        if rows:
-            return rows, stats
-    except Exception as exc:
-        stats["replay_error"] = str(exc)
     try:
         from bot.research.market_events.signal_intelligence.research_lake_v1 import (
             load_research_lake_rows,
             research_lake_row_count,
         )
 
-        if research_lake_row_count(conn) > 0:
-            return load_research_lake_rows(conn, limit=limit), {"source": "research_lake_v1"}
-    except Exception as exc2:
-        stats["lake_error"] = str(exc2)
+        n = research_lake_row_count(conn)
+        stats["n_lake"] = n
+        if n > 0:
+            rows = load_research_lake_rows(conn, limit=limit)
+            stats["source"] = "research_lake"
+            stats["n_raw"] = len(rows)
+            return rows, stats
+        stats["error"] = "research_lake_empty"
+    except Exception as exc:
+        stats["lake_error"] = str(exc)
     return [], stats
 
 

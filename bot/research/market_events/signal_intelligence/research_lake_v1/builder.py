@@ -502,11 +502,12 @@ def _row_params(row: dict[str, Any]) -> tuple[Any, ...]:
 def build_research_lake_v1(
     conn: Any,
     *,
-    full: bool = False,
+    full: bool = True,
     write_reports: bool = True,
     batch_size: int = BATCH_SIZE,
     print_fn: Callable[..., None] | None = print,
     profile: bool = True,
+    materialize_s40: bool = True,
 ) -> dict[str, Any]:
     """Stream S42 in batches; join via preloaded dicts; commit every batch."""
     t0 = time.time()
@@ -526,6 +527,30 @@ def build_research_lake_v1(
         rows=len(indexes_added),
         elapsed_sec=time.perf_counter() - t_idx,
     )
+
+    materialize_stats: dict[str, Any] = {"skipped": True}
+    if materialize_s40:
+        from bot.research.market_events.signal_intelligence.research_lake_v1.materialize import (
+            materialize_closed_from_s40_reviews,
+        )
+
+        print_fn("Materializing missing CLOSED S42 rows from S40 reviews…")
+        t_mat = time.perf_counter()
+        materialize_stats = materialize_closed_from_s40_reviews(conn)
+        profiler.record(
+            "-- materialize_closed_from_s40_reviews",
+            rows=int(materialize_stats.get("inserted") or 0),
+            elapsed_sec=time.perf_counter() - t_mat,
+        )
+        print_fn(
+            f"Materialize done: inserted={materialize_stats.get('inserted')} "
+            f"closed {materialize_stats.get('before_closed')}→{materialize_stats.get('after_closed')} "
+            f"({materialize_stats.get('elapsed_sec')}s)"
+        )
+        # After expanding S42, always do a full lake pass for coverage.
+        if int(materialize_stats.get("inserted") or 0) > 0:
+            full = True
+
     now = int(time.time())
     mode = "full" if full else "incremental"
 
@@ -674,6 +699,9 @@ def build_research_lake_v1(
         "rows_joined": joined,
         "batch_size": batch_size,
         "indexes_ensured": indexes_added,
+        "materialize": materialize_stats,
+        "n_s42_closed": (health or {}).get("n_s42_closed"),
+        "coverage_pct": (health or {}).get("coverage_pct"),
         "dataset_version": DATASET_VERSION,
         "feature_version": FEATURE_VERSION,
         "schema_version": SCHEMA_VERSION_LAKE,
@@ -684,7 +712,7 @@ def build_research_lake_v1(
         "read_only_sources": True,
         "gate_unchanged": True,
         "optimizer_unchanged": True,
-        "paper_unchanged": True,
+        "paper_live_path_unchanged": True,
         "execution_unchanged": True,
         "no_select_in_trade_loop": True,
     }

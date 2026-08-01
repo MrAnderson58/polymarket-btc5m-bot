@@ -388,7 +388,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--full",
         action="store_true",
-        help="build-research-lake: rebuild all CLOSED trades (default is incremental)",
+        default=True,
+        help="build-research-lake: rebuild all CLOSED trades (default: full)",
+    )
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="build-research-lake: incremental mode (only id > max lake trade_id)",
     )
     parser.add_argument(
         "--universe",
@@ -1578,7 +1584,6 @@ def main(argv: list[str] | None = None) -> int:
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
         )
-        from bot.research.market_events.event_schema import apply_migrations
         from bot.research.market_events.signal_intelligence.edge_discovery_v3 import (
             run_edge_discovery_v3,
         )
@@ -1650,7 +1655,6 @@ def main(argv: list[str] | None = None) -> int:
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
         )
-        from bot.research.market_events.event_schema import apply_migrations
         from bot.research.market_events.signal_intelligence.market_replay_v1 import (
             run_market_replay_v1,
         )
@@ -1709,7 +1713,6 @@ def main(argv: list[str] | None = None) -> int:
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
         )
-        from bot.research.market_events.event_schema import apply_migrations
         from bot.research.market_events.signal_intelligence.market_causality_v1 import (
             run_market_causality_v1,
         )
@@ -1768,7 +1771,6 @@ def main(argv: list[str] | None = None) -> int:
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
         )
-        from bot.research.market_events.event_schema import apply_migrations
         from bot.research.market_events.signal_intelligence.market_brain_v1 import (
             run_market_brain_v1,
         )
@@ -1832,7 +1834,6 @@ def main(argv: list[str] | None = None) -> int:
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
         )
-        from bot.research.market_events.event_schema import apply_migrations
         from bot.research.market_events.signal_intelligence.shadow_live_v1 import (
             run_shadow_live_v1,
         )
@@ -1892,7 +1893,6 @@ def main(argv: list[str] | None = None) -> int:
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
         )
-        from bot.research.market_events.event_schema import apply_migrations
         from bot.research.market_events.signal_intelligence.signal_evolution_v1 import (
             run_signal_evolution_v1,
         )
@@ -2286,12 +2286,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"build-research-lake failed: {exc}", file=sys.stderr)
                 return 1
 
-            full = bool(getattr(args, "full", False))
+            full = not bool(getattr(args, "incremental", False))
 
             def _build() -> dict:
                 with research_write_connection(db_path) as conn:
                     apply_migrations(conn)
-                    return build_research_lake_v1(conn, full=full, write_reports=True)
+                    return build_research_lake_v1(
+                        conn, full=full, write_reports=True, materialize_s40=True
+                    )
 
             out = retry_on_db_locked(_build)
             print(out.get("report_markdown") or "")
@@ -2308,6 +2310,9 @@ def main(argv: list[str] | None = None) -> int:
                     "rows_skipped": out.get("rows_skipped"),
                     "elapsed_sec": out.get("elapsed_sec"),
                     "indexes_ensured": out.get("indexes_ensured"),
+                    "materialize": out.get("materialize"),
+                    "n_s42_closed": out.get("n_s42_closed"),
+                    "coverage_pct": out.get("coverage_pct"),
                     "profile": {
                         "n_queries": (out.get("profile") or {}).get("n_queries"),
                         "total_sql_sec": (out.get("profile") or {}).get("total_sql_sec"),
