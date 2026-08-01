@@ -377,6 +377,14 @@ def main(argv: list[str] | None = None) -> int:
         help="research-sync-import: copy snapshot into configured SQLite analytics path",
     )
     parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "research-sync-import --activate: bypass Safety V2 preflight abort "
+            "(older/smaller/fewer CLOSED). Auto-rollback still runs if CLOSED drops."
+        ),
+    )
+    parser.add_argument(
         "--universe",
         default=None,
         help="shock-paper: core|tradfi-liquid|multi-paper | observe: tradfi-observe|all-observe|crypto-observe",
@@ -3940,6 +3948,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "research-sync-import":
         from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncActivateAborted,
             ResearchSyncError,
             format_import_result,
             import_research_snapshot,
@@ -3952,8 +3961,12 @@ def main(argv: list[str] | None = None) -> int:
             result = import_research_snapshot(
                 Path(args.file),
                 activate=bool(getattr(args, "activate", False)),
+                force=bool(getattr(args, "force", False)),
             )
             print(format_import_result(result))
+        except ResearchSyncActivateAborted as exc:
+            print(f"research-sync-import aborted: {exc}")
+            return 2
         except ResearchSyncError as exc:
             print(f"research-sync-import failed: {exc}")
             return 1

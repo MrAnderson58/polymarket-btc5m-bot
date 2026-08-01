@@ -78,8 +78,16 @@ class ResearchSyncError(Exception):
     pass
 
 
+class ResearchSyncActivateAborted(ResearchSyncError):
+    """Raised when --activate fails Research Sync Safety V2 guards."""
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _utc_backup_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
 
 def sha256_file(path: Path, *, chunk: int = 1024 * 1024) -> str:
@@ -123,6 +131,10 @@ def _snapshot_counts(db_path: Path) -> dict[str, int]:
                 "paper_trades_s42_closed",
                 "SELECT COUNT(*) AS n FROM market_events_paper_trades_s42 WHERE status = 'CLOSED'",
             ),
+            (
+                "paper_trades_s42_open",
+                "SELECT COUNT(*) AS n FROM market_events_paper_trades_s42 WHERE status = 'OPEN'",
+            ),
             ("paper_trades_s42_all", "SELECT COUNT(*) AS n FROM market_events_paper_trades_s42"),
         )
         for table, sql in queries:
@@ -152,6 +164,99 @@ def _file_meta(path: Path) -> dict[str, Any]:
         "sha256": sha256_file(path),
         "counts": _snapshot_counts(path),
     }
+
+
+def collect_activate_db_stats(path: Path) -> dict[str, Any]:
+    """Fingerprint used by Research Sync Safety V2 (preflight + post-check)."""
+    if not path.exists():
+        return {
+            "exists": False,
+            "path": str(path),
+            "size": 0,
+            "sha": None,
+            "mtime": None,
+            "inode": None,
+            "closed": 0,
+            "open": 0,
+            "trades": 0,
+        }
+    st = path.stat()
+    counts = _snapshot_counts(path)
+    return {
+        "exists": True,
+        "path": str(path.resolve()),
+        "size": int(st.st_size),
+        "sha": sha256_file(path),
+        "mtime": float(st.st_mtime),
+        "mtime_iso": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+        "inode": int(st.st_ino),
+        "closed": int(counts.get("paper_trades_s42_closed") or 0),
+        "open": int(counts.get("paper_trades_s42_open") or 0),
+        "trades": int(counts.get("paper_trades_s42_all") or 0),
+    }
+
+
+def assess_activate_safety(
+    production: dict[str, Any],
+    snapshot: dict[str, Any],
+) -> list[str]:
+    """Return abort reasons. Empty list => activate allowed (without --force)."""
+    if not production.get("exists"):
+        return []
+    reasons: list[str] = []
+    prod_closed = int(production.get("closed") or 0)
+    snap_closed = int(snapshot.get("closed") or 0)
+    if prod_closed > snap_closed:
+        reasons.append(
+            f"production.closed ({prod_closed}) > snapshot.closed ({snap_closed})"
+        )
+    if snap_closed < prod_closed:
+        reasons.append(
+            f"snapshot has fewer CLOSED trades ({snap_closed} < {prod_closed})"
+        )
+    prod_mtime = production.get("mtime")
+    snap_mtime = snapshot.get("mtime")
+    if prod_mtime is not None and snap_mtime is not None and float(snap_mtime) < float(prod_mtime):
+        reasons.append("snapshot older than production (mtime)")
+    prod_size = int(production.get("size") or 0)
+    snap_size = int(snapshot.get("size") or 0)
+    if snap_size < prod_size:
+        reasons.append(f"snapshot smaller than production ({snap_size} < {prod_size} bytes)")
+    # Deduplicate while preserving order.
+    seen: set[str] = set()
+    out: list[str] = []
+    for r in reasons:
+        if r in seen:
+            continue
+        seen.add(r)
+        out.append(r)
+    return out
+
+
+def format_activate_preflight(
+    production: dict[str, Any],
+    snapshot: dict[str, Any],
+) -> str:
+    lines = [
+        "RESEARCH SYNC ACTIVATE PREFLIGHT",
+        f"production trades: {production.get('trades')} (CLOSED={production.get('closed')} OPEN={production.get('open')})",
+        f"snapshot trades: {snapshot.get('trades')} (CLOSED={snapshot.get('closed')} OPEN={snapshot.get('open')})",
+        f"production size: {production.get('size')}",
+        f"snapshot size: {snapshot.get('size')}",
+        f"production sha: {production.get('sha')}",
+        f"snapshot sha: {snapshot.get('sha')}",
+        f"production mtime: {production.get('mtime_iso') or production.get('mtime')}",
+        f"snapshot mtime: {snapshot.get('mtime_iso') or snapshot.get('mtime')}",
+        f"production inode: {production.get('inode')}",
+        f"snapshot inode: {snapshot.get('inode')}",
+    ]
+    return "\n".join(lines)
+
+
+def auto_backup_path_for(target: Path, *, stamp: str | None = None) -> Path:
+    """``market_events.db.auto_backup.YYYYMMDD_HHMMSS`` next to the live DB."""
+    ts = stamp or _utc_backup_stamp()
+    return target.with_name(f"{target.name}.auto_backup.{ts}")
 
 
 def build_manifest(db_path: Path, *, snapshot_id: str, created_at: str) -> dict[str, Any]:
@@ -214,9 +319,13 @@ def import_research_snapshot(
     archive: Path,
     *,
     activate: bool = False,
+    force: bool = False,
+    print_fn: Any | None = print,
 ) -> dict[str, Any]:
     if not archive.exists():
         raise ResearchSyncError(f"snapshot not found: {archive}")
+    if force and not activate:
+        raise ResearchSyncError("--force requires --activate")
 
     RESEARCH_SYNC_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
@@ -245,22 +354,116 @@ def import_research_snapshot(
     result["synced"] = (
         sha256_file(analytics_path) == manifest["db_sha256"] if analytics_path.exists() else False
     )
+    result["force"] = bool(force)
 
     if activate:
-        cfg = resolve_market_events_db_config()
-        if cfg.backend != "sqlite":
-            raise ResearchSyncError("--activate requires SQLite backend")
-        target = analytics_path
-        _checkpoint_sqlite(target)
-        if target.exists() and target.resolve() != INSTALLED_DB.resolve():
-            bak = target.with_suffix(f".db.pre_sync_{int(time.time())}")
-            shutil.copy2(target, bak)
-            result["replaced_backup"] = str(bak)
-        shutil.copy2(INSTALLED_DB, target)
-        result["activated_path"] = str(target)
-        result["synced"] = True
+        _activate_research_snapshot_into_analytics(
+            result,
+            analytics_path=analytics_path,
+            force=bool(force),
+            print_fn=print_fn if print_fn is not None else (lambda *_a, **_k: None),
+        )
 
     return result
+
+
+def _activate_research_snapshot_into_analytics(
+    result: dict[str, Any],
+    *,
+    analytics_path: Path,
+    force: bool,
+    print_fn: Any,
+) -> None:
+    """Safety V2: preflight → backup → overwrite → verify → optional rollback."""
+    cfg = resolve_market_events_db_config()
+    if cfg.backend != "sqlite":
+        raise ResearchSyncError("--activate requires SQLite backend")
+
+    target = Path(analytics_path)
+    snapshot_path = Path(INSTALLED_DB)
+    if not snapshot_path.exists():
+        raise ResearchSyncError(f"installed snapshot DB missing: {snapshot_path}")
+
+    _checkpoint_sqlite(target)
+    _checkpoint_sqlite(snapshot_path)
+
+    production = collect_activate_db_stats(target)
+    snapshot = collect_activate_db_stats(snapshot_path)
+    result["production_pre"] = production
+    result["snapshot_pre"] = snapshot
+
+    preflight = format_activate_preflight(production, snapshot)
+    result["activate_preflight"] = preflight
+    print_fn(preflight)
+
+    reasons = assess_activate_safety(production, snapshot)
+    result["activate_abort_reasons"] = reasons
+    if reasons and not force:
+        msg = "ACTIVATE ABORTED (Research Sync Safety V2):\n  - " + "\n  - ".join(reasons)
+        result["activated"] = False
+        result["aborted"] = True
+        print_fn(msg)
+        raise ResearchSyncActivateAborted(msg)
+    if reasons and force:
+        print_fn(
+            "WARNING: --force bypassing Safety V2 guards:\n  - " + "\n  - ".join(reasons)
+        )
+        result["force_bypass_reasons"] = reasons
+
+    auto_bak: Path | None = None
+    if target.exists() and target.resolve() != snapshot_path.resolve():
+        auto_bak = auto_backup_path_for(target)
+        shutil.copy2(target, auto_bak)
+        result["auto_backup"] = str(auto_bak)
+        # Keep legacy key for older tooling.
+        result["replaced_backup"] = str(auto_bak)
+        print_fn(f"auto_backup: {auto_bak}")
+
+    before_closed = int(production.get("closed") or 0)
+    shutil.copy2(snapshot_path, target)
+    result["activated_path"] = str(target.resolve())
+    result["activated"] = True
+    result["synced"] = True
+    result["aborted"] = False
+
+    post = collect_activate_db_stats(target)
+    result["production_post"] = post
+    post_lines = [
+        "RESEARCH SYNC ACTIVATE POST-CHECK",
+        f"CLOSED: {post.get('closed')}",
+        f"OPEN: {post.get('open')}",
+        f"sha: {post.get('sha')}",
+        f"inode: {post.get('inode')}",
+        f"size: {post.get('size')}",
+    ]
+    result["activate_postcheck"] = "\n".join(post_lines)
+    print_fn(result["activate_postcheck"])
+
+    after_closed = int(post.get("closed") or 0)
+    if after_closed < before_closed:
+        if auto_bak is None or not auto_bak.exists():
+            raise ResearchSyncError(
+                f"CLOSED decreased ({before_closed} → {after_closed}) but auto-backup missing"
+            )
+        shutil.copy2(auto_bak, target)
+        restored = collect_activate_db_stats(target)
+        result["rolled_back"] = True
+        result["rollback_from"] = str(auto_bak)
+        result["production_post_rollback"] = restored
+        result["synced"] = False
+        print_fn(
+            f"ROLLBACK: CLOSED decreased ({before_closed} → {after_closed}); "
+            f"restored from {auto_bak}"
+        )
+        print_fn(
+            "RESEARCH SYNC ACTIVATE POST-ROLLBACK\n"
+            f"CLOSED: {restored.get('closed')}\n"
+            f"OPEN: {restored.get('open')}\n"
+            f"sha: {restored.get('sha')}\n"
+            f"inode: {restored.get('inode')}"
+        )
+    else:
+        result["rolled_back"] = False
 
 
 def research_sync_status() -> dict[str, Any]:
@@ -492,12 +695,20 @@ def format_import_result(result: dict[str, Any]) -> str:
         f"  sync_db={result.get('sync_db_path')}",
         f"  analytics_db={result.get('analytics_db_path')}",
         f"  synced={result.get('synced')}",
+        f"  force={result.get('force')}",
+        f"  aborted={result.get('aborted')}",
+        f"  rolled_back={result.get('rolled_back')}",
     ]
+    if result.get("auto_backup"):
+        lines.append(f"  auto_backup={result['auto_backup']}")
     if result.get("activated_path"):
         lines.append(f"  activated={result['activated_path']}")
+    if result.get("activate_abort_reasons"):
+        lines.append(f"  abort_reasons={result['activate_abort_reasons']}")
     if result.get("hint") or not result.get("synced"):
         lines.append(
             f"  hint=export MARKET_EVENTS_DATABASE_PATH={INSTALLED_DB} "
-            "or re-run import with --activate (SQLite only)",
+            "or re-run import with --activate (SQLite only; Safety V2 guards apply; "
+            "--force to bypass)",
         )
     return "\n".join(lines)
