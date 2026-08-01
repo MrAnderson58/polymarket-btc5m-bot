@@ -1,4 +1,7 @@
-"""Incremental Research Lake builder (S42 hub + joins)."""
+"""Research Lake Builder V2 — streaming batches, preloaded joins, SQL profiling.
+
+Eliminates per-trade SELECT loops (N×N). Research-only.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +9,8 @@ import hashlib
 import json
 import logging
 import time
-from typing import Any
+from collections import defaultdict
+from typing import Any, Callable
 
 from bot.research.market_events.signal_intelligence.feature_store import extract_sample
 from bot.research.market_events.signal_intelligence.lib.feature_utils import (
@@ -15,8 +19,15 @@ from bot.research.market_events.signal_intelligence.lib.feature_utils import (
 from bot.research.market_events.signal_intelligence.research_lake_v1.health import (
     research_lake_health_v1,
 )
+from bot.research.market_events.signal_intelligence.research_lake_v1.indexes import (
+    ensure_research_lake_join_indexes,
+)
+from bot.research.market_events.signal_intelligence.research_lake_v1.profiler import (
+    SqlProfiler,
+)
 from bot.research.market_events.signal_intelligence.research_lake_v1.report import (
     write_lake_artifacts,
+    write_lake_profile_report,
 )
 from bot.research.market_events.signal_intelligence.research_lake_v1.schema import (
     BUILD_TABLE,
@@ -33,6 +44,8 @@ logger = logging.getLogger(__name__)
 _S42 = "market_events_paper_trades_s42"
 _S55 = "market_events_trade_features_s55"
 _S56 = "market_events_trade_snapshots_s56"
+
+BATCH_SIZE = 1000
 
 
 def _row(r: Any) -> dict[str, Any]:
@@ -72,123 +85,245 @@ def _set_meta(conn: Any, key: str, value: str, *, now: int) -> None:
     )
 
 
-def _fetch_s42_closed(conn: Any, *, since_id: int | None = None) -> list[dict[str, Any]]:
-    sql = f"""
-        SELECT * FROM {_S42}
-        WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL
-    """
-    params: tuple[Any, ...] = ()
-    if since_id is not None:
-        sql += " AND id > ?"
-        params = (int(since_id),)
-    sql += " ORDER BY id ASC"
+def _print_progress(
+    print_fn: Callable[..., None],
+    *,
+    loaded: int,
+    joined: int,
+    inserted: int,
+    updated: int,
+    skipped: int,
+    total: int | None,
+    t0: float,
+) -> None:
+    elapsed = max(1e-6, time.time() - t0)
+    rate = loaded / elapsed
+    eta = "—"
+    if total and rate > 0 and loaded < total:
+        eta = f"{(total - loaded) / rate:.1f}s"
+    print_fn(
+        f"Loaded={loaded} Joined={joined} Inserted={inserted} "
+        f"Updated={updated} Skipped={skipped} ETA={eta} "
+        f"({elapsed:.1f}s elapsed, {rate:.0f} rows/s)"
+    )
+
+
+def _preload_s55(conn: Any, profiler: SqlProfiler) -> dict[int, dict[str, Any]]:
+    """paper_trade_id -> latest S55 row (highest id wins)."""
+    sql = f"SELECT * FROM {_S55} WHERE paper_trade_id IS NOT NULL ORDER BY id ASC"
+    t0 = time.perf_counter()
+    out: dict[int, dict[str, Any]] = {}
     try:
-        return [_row(r) for r in conn.execute(sql, params).fetchall()]
+        rows = conn.execute(sql).fetchall()
+        for r in rows:
+            d = _row(r)
+            tid = d.get("paper_trade_id")
+            if tid is None:
+                continue
+            out[int(tid)] = d
     except Exception as exc:
-        logger.warning("research_lake: S42 load failed: %s", exc)
-        return []
-
-
-def _fetch_s55_by_trade(conn: Any, trade_id: int) -> dict[str, Any] | None:
-    try:
-        r = conn.execute(
-            f"SELECT * FROM {_S55} WHERE paper_trade_id = ? ORDER BY id DESC LIMIT 1",
-            (trade_id,),
-        ).fetchone()
-        return _row(r) if r else None
-    except Exception:
-        return None
-
-
-def _fetch_s56_by_trade(conn: Any, trade_id: int) -> dict[str, Any] | None:
-    try:
-        r = conn.execute(
-            f"SELECT * FROM {_S56} WHERE paper_trade_id = ? ORDER BY id DESC LIMIT 1",
-            (trade_id,),
-        ).fetchone()
-        return _row(r) if r else None
-    except Exception:
-        return None
-
-
-def _fetch_g31_candidate(conn: Any, symbol: str, opened_at: int | None) -> dict[str, Any] | None:
-    if not symbol or not opened_at:
-        return None
-    try:
-        r = conn.execute(
-            """
-            SELECT id, symbol, direction, market_score, confidence, created_at
-            FROM market_candidate_g31
-            WHERE UPPER(symbol) = UPPER(?)
-              AND created_at BETWEEN ? AND ?
-            ORDER BY ABS(created_at - ?) ASC
-            LIMIT 1
-            """,
-            (symbol, int(opened_at) - 3600, int(opened_at) + 3600, int(opened_at)),
-        ).fetchone()
-        return _row(r) if r else None
-    except Exception:
-        return None
-
-
-def _fetch_alpha_labels(conn: Any, trade_id: int) -> dict[str, Any]:
-    """Best-effort labels from Alpha Validation / Discovery tables if present."""
-    out: dict[str, Any] = {}
-    for sql, key in (
-        (
-            """
-            SELECT validation_status, score, rule_id
-            FROM market_events_alpha_validations_v2
-            WHERE trade_id = ? OR paper_trade_id = ?
-            ORDER BY id DESC LIMIT 1
-            """,
-            "validation",
-        ),
-        (
-            """
-            SELECT cluster, edge_score, status
-            FROM market_events_alpha_labels_v1
-            WHERE trade_id = ?
-            ORDER BY id DESC LIMIT 1
-            """,
-            "discovery",
-        ),
-    ):
-        try:
-            params = (trade_id, trade_id) if "paper_trade_id" in sql else (trade_id,)
-            r = conn.execute(sql, params).fetchone()
-            if r:
-                out[key] = _row(r)
-        except Exception:
-            continue
+        logger.warning("research_lake: S55 preload failed: %s", exc)
+    profiler.record(sql, rows=len(out), elapsed_sec=time.perf_counter() - t0)
     return out
 
 
-def _fetch_optimizer_state(conn: Any) -> dict[str, Any]:
+def _preload_s56(conn: Any, profiler: SqlProfiler) -> dict[int, dict[str, Any]]:
+    sql = f"SELECT * FROM {_S56} WHERE paper_trade_id IS NOT NULL ORDER BY id ASC"
+    t0 = time.perf_counter()
+    out: dict[int, dict[str, Any]] = {}
     try:
-        r = conn.execute(
-            """
-            SELECT key, value FROM market_events_ops_state
-            WHERE key LIKE 'optimizer%' OR key LIKE 'g42%'
-            LIMIT 20
-            """
-        ).fetchall()
-        return {str(x[0]): x[1] for x in r} if r else {}
-    except Exception:
-        return {}
+        rows = conn.execute(sql).fetchall()
+        for r in rows:
+            d = _row(r)
+            tid = d.get("paper_trade_id")
+            if tid is None:
+                continue
+            out[int(tid)] = d
+    except Exception as exc:
+        logger.debug("research_lake: S56 preload skipped: %s", exc)
+    profiler.record(sql, rows=len(out), elapsed_sec=time.perf_counter() - t0)
+    return out
 
 
-def _fetch_experiment_state(conn: Any) -> dict[str, Any]:
+def _preload_g31_by_symbol(conn: Any, profiler: SqlProfiler) -> dict[str, list[dict[str, Any]]]:
+    """symbol(upper) -> candidates sorted by created_at."""
+    sql = """
+        SELECT id, symbol, direction, market_score, confidence, created_at
+        FROM market_candidate_g31
+    """
+    t0 = time.perf_counter()
+    by_sym: dict[str, list[dict[str, Any]]] = defaultdict(list)
     try:
-        r = conn.execute(
+        rows = conn.execute(sql).fetchall()
+        for r in rows:
+            d = _row(r)
+            sym = str(d.get("symbol") or "").upper()
+            if not sym:
+                continue
+            by_sym[sym].append(d)
+    except Exception as exc:
+        logger.debug("research_lake: G31 preload skipped: %s", exc)
+    profiler.record(sql, rows=sum(len(v) for v in by_sym.values()), elapsed_sec=time.perf_counter() - t0)
+    return by_sym
+
+
+def _lookup_g31(
+    by_sym: dict[str, list[dict[str, Any]]],
+    symbol: str,
+    opened_at: int | None,
+) -> dict[str, Any] | None:
+    if not symbol or not opened_at:
+        return None
+    cands = by_sym.get(str(symbol).upper()) or []
+    if not cands:
+        return None
+    lo, hi = int(opened_at) - 3600, int(opened_at) + 3600
+    best = None
+    best_abs = None
+    for c in cands:
+        ts = c.get("created_at")
+        if ts is None:
+            continue
+        ts = int(ts)
+        if ts < lo or ts > hi:
+            continue
+        d = abs(ts - int(opened_at))
+        if best_abs is None or d < best_abs:
+            best_abs = d
+            best = c
+    return best
+
+
+def _preload_alpha_labels(conn: Any, profiler: SqlProfiler) -> dict[int, dict[str, Any]]:
+    out: dict[int, dict[str, Any]] = defaultdict(dict)
+    queries = (
+        (
             """
-            SELECT id, name, status FROM market_events_experiments_v1
-            ORDER BY id DESC LIMIT 5
+            SELECT trade_id, paper_trade_id, validation_status, score, rule_id
+            FROM market_events_alpha_validations_v2
+            """,
+            "validation",
+            ("trade_id", "paper_trade_id"),
+        ),
+        (
             """
-        ).fetchall()
-        return {"recent": [_row(x) for x in r]} if r else {}
+            SELECT trade_id, cluster, edge_score, status
+            FROM market_events_alpha_labels_v1
+            """,
+            "discovery",
+            ("trade_id",),
+        ),
+    )
+    for sql, key, id_cols in queries:
+        t0 = time.perf_counter()
+        n = 0
+        try:
+            rows = conn.execute(sql).fetchall()
+            for r in rows:
+                d = _row(r)
+                tid = None
+                for col in id_cols:
+                    if d.get(col) is not None:
+                        tid = int(d[col])
+                        break
+                if tid is None:
+                    continue
+                out[tid][key] = d
+                n += 1
+        except Exception:
+            profiler.record(sql, rows=0, elapsed_sec=time.perf_counter() - t0)
+            continue
+        profiler.record(sql, rows=n, elapsed_sec=time.perf_counter() - t0)
+    return dict(out)
+
+
+def _preload_lake_hashes(conn: Any, profiler: SqlProfiler) -> dict[int, str]:
+    sql = f"SELECT trade_id, row_hash FROM {LAKE_TABLE}"
+    t0 = time.perf_counter()
+    out: dict[int, str] = {}
+    try:
+        for r in conn.execute(sql).fetchall():
+            out[int(r[0])] = str(r[1] or "")
     except Exception:
-        return {}
+        pass
+    profiler.record(sql, rows=len(out), elapsed_sec=time.perf_counter() - t0)
+    return out
+
+
+def _fetch_optimizer_state(conn: Any, profiler: SqlProfiler) -> dict[str, Any]:
+    sql = """
+        SELECT key, value FROM market_events_ops_state
+        WHERE key LIKE 'optimizer%' OR key LIKE 'g42%'
+        LIMIT 20
+    """
+    t0 = time.perf_counter()
+    try:
+        r = conn.execute(sql).fetchall()
+        out = {str(x[0]): x[1] for x in r} if r else {}
+    except Exception:
+        out = {}
+    profiler.record(sql, rows=len(out), elapsed_sec=time.perf_counter() - t0)
+    return out
+
+
+def _fetch_experiment_state(conn: Any, profiler: SqlProfiler) -> dict[str, Any]:
+    sql = """
+        SELECT id, name, status FROM market_events_experiments_v1
+        ORDER BY id DESC LIMIT 5
+    """
+    t0 = time.perf_counter()
+    try:
+        r = conn.execute(sql).fetchall()
+        out = {"recent": [_row(x) for x in r]} if r else {}
+    except Exception:
+        out = {}
+    profiler.record(sql, rows=len(out.get("recent") or []), elapsed_sec=time.perf_counter() - t0)
+    return out
+
+
+def _count_closed(conn: Any, profiler: SqlProfiler, *, after_id: int | None = None) -> int:
+    sql = f"""
+        SELECT COUNT(*) FROM {_S42}
+        WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL
+    """
+    params: tuple[Any, ...] = ()
+    if after_id is not None:
+        sql += " AND id > ?"
+        params = (int(after_id),)
+    t0 = time.perf_counter()
+    try:
+        n = int(conn.execute(sql, params).fetchone()[0])
+    except Exception:
+        n = 0
+    profiler.record(sql, rows=1, elapsed_sec=time.perf_counter() - t0, params=params)
+    return n
+
+
+def _iter_s42_batches(
+    conn: Any,
+    profiler: SqlProfiler,
+    *,
+    after_id: int,
+    batch_size: int = BATCH_SIZE,
+):
+    """Stream CLOSED S42 rows with WHERE id > last_id LIMIT batch."""
+    last_id = int(after_id)
+    sql = f"""
+        SELECT * FROM {_S42}
+        WHERE status = 'CLOSED' AND pnl_pct IS NOT NULL AND id > ?
+        ORDER BY id ASC
+        LIMIT ?
+    """
+    while True:
+        t0 = time.perf_counter()
+        rows = [_row(r) for r in conn.execute(sql, (last_id, batch_size)).fetchall()]
+        profiler.record(sql, rows=len(rows), elapsed_sec=time.perf_counter() - t0, params=(last_id, batch_size))
+        if not rows:
+            break
+        yield rows
+        last_id = int(rows[-1]["id"])
+        if len(rows) < batch_size:
+            break
 
 
 def _compose_lake_row(
@@ -299,78 +434,69 @@ def _compose_lake_row(
     return payload
 
 
-def _upsert_lake_row(conn: Any, row: dict[str, Any]) -> str:
-    """Insert or update; return 'inserted'|'updated'|'skipped'."""
-    existing = conn.execute(
-        f"SELECT row_hash, updated_at FROM {LAKE_TABLE} WHERE trade_id = ?",
-        (row["trade_id"],),
-    ).fetchone()
-    if existing and str(existing[0] or "") == str(row["row_hash"]):
-        return "skipped"
+_UPSERT_SQL = f"""
+INSERT INTO {LAKE_TABLE} (
+  trade_id, symbol, direction, entry, exit, result, pnl, pnl_pct,
+  gate, confidence, regime,
+  features_json, macro_json, news_json, patterns_json,
+  alpha_labels_json, optimizer_state_json, experiment_state_json,
+  feature_version, dataset_version, schema_version,
+  s55_id, s56_id, g31_candidate_id, status, closed_at, opened_at,
+  updated_at, built_at, row_hash
+) VALUES (
+  ?,?,?,?,?,?,?,?,
+  ?,?,?,
+  ?,?,?,?,
+  ?,?,?,
+  ?,?,?,
+  ?,?,?,?,?,?,
+  ?,?,?
+)
+ON CONFLICT(trade_id) DO UPDATE SET
+  symbol=excluded.symbol,
+  direction=excluded.direction,
+  entry=excluded.entry,
+  exit=excluded.exit,
+  result=excluded.result,
+  pnl=excluded.pnl,
+  pnl_pct=excluded.pnl_pct,
+  gate=excluded.gate,
+  confidence=excluded.confidence,
+  regime=excluded.regime,
+  features_json=excluded.features_json,
+  macro_json=excluded.macro_json,
+  news_json=excluded.news_json,
+  patterns_json=excluded.patterns_json,
+  alpha_labels_json=excluded.alpha_labels_json,
+  optimizer_state_json=excluded.optimizer_state_json,
+  experiment_state_json=excluded.experiment_state_json,
+  feature_version=excluded.feature_version,
+  dataset_version=excluded.dataset_version,
+  schema_version=excluded.schema_version,
+  s55_id=excluded.s55_id,
+  s56_id=excluded.s56_id,
+  g31_candidate_id=excluded.g31_candidate_id,
+  status=excluded.status,
+  closed_at=excluded.closed_at,
+  opened_at=excluded.opened_at,
+  updated_at=excluded.updated_at,
+  built_at=excluded.built_at,
+  row_hash=excluded.row_hash
+"""
 
-    conn.execute(
-        f"""
-        INSERT INTO {LAKE_TABLE} (
-          trade_id, symbol, direction, entry, exit, result, pnl, pnl_pct,
-          gate, confidence, regime,
-          features_json, macro_json, news_json, patterns_json,
-          alpha_labels_json, optimizer_state_json, experiment_state_json,
-          feature_version, dataset_version, schema_version,
-          s55_id, s56_id, g31_candidate_id, status, closed_at, opened_at,
-          updated_at, built_at, row_hash
-        ) VALUES (
-          ?,?,?,?,?,?,?,?,
-          ?,?,?,
-          ?,?,?,?,
-          ?,?,?,
-          ?,?,?,
-          ?,?,?,?,?,?,
-          ?,?,?
-        )
-        ON CONFLICT(trade_id) DO UPDATE SET
-          symbol=excluded.symbol,
-          direction=excluded.direction,
-          entry=excluded.entry,
-          exit=excluded.exit,
-          result=excluded.result,
-          pnl=excluded.pnl,
-          pnl_pct=excluded.pnl_pct,
-          gate=excluded.gate,
-          confidence=excluded.confidence,
-          regime=excluded.regime,
-          features_json=excluded.features_json,
-          macro_json=excluded.macro_json,
-          news_json=excluded.news_json,
-          patterns_json=excluded.patterns_json,
-          alpha_labels_json=excluded.alpha_labels_json,
-          optimizer_state_json=excluded.optimizer_state_json,
-          experiment_state_json=excluded.experiment_state_json,
-          feature_version=excluded.feature_version,
-          dataset_version=excluded.dataset_version,
-          schema_version=excluded.schema_version,
-          s55_id=excluded.s55_id,
-          s56_id=excluded.s56_id,
-          g31_candidate_id=excluded.g31_candidate_id,
-          status=excluded.status,
-          closed_at=excluded.closed_at,
-          opened_at=excluded.opened_at,
-          updated_at=excluded.updated_at,
-          built_at=excluded.built_at,
-          row_hash=excluded.row_hash
-        """,
-        (
-            row["trade_id"], row["symbol"], row["direction"], row["entry"], row["exit"],
-            row["result"], row["pnl"], row["pnl_pct"],
-            row["gate"], row["confidence"], row["regime"],
-            _dumps(row["features"]), _dumps(row["macro"]), _dumps(row["news"]), _dumps(row["patterns"]),
-            _dumps(row["alpha_labels"]), _dumps(row["optimizer_state"]), _dumps(row["experiment_state"]),
-            row["feature_version"], row["dataset_version"], row["schema_version"],
-            row["s55_id"], row["s56_id"], row["g31_candidate_id"], row["status"],
-            row["closed_at"], row["opened_at"],
-            row["updated_at"], row["built_at"], row["row_hash"],
-        ),
+
+def _row_params(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        row["trade_id"], row["symbol"], row["direction"], row["entry"], row["exit"],
+        row["result"], row["pnl"], row["pnl_pct"],
+        row["gate"], row["confidence"], row["regime"],
+        _dumps(row["features"]), _dumps(row["macro"]), _dumps(row["news"]), _dumps(row["patterns"]),
+        _dumps(row["alpha_labels"]), _dumps(row["optimizer_state"]), _dumps(row["experiment_state"]),
+        row["feature_version"], row["dataset_version"], row["schema_version"],
+        row["s55_id"], row["s56_id"], row["g31_candidate_id"], row["status"],
+        row["closed_at"], row["opened_at"],
+        row["updated_at"], row["built_at"], row["row_hash"],
     )
-    return "updated" if existing else "inserted"
 
 
 def build_research_lake_v1(
@@ -378,79 +504,139 @@ def build_research_lake_v1(
     *,
     full: bool = False,
     write_reports: bool = True,
+    batch_size: int = BATCH_SIZE,
+    print_fn: Callable[..., None] | None = print,
+    profile: bool = True,
 ) -> dict[str, Any]:
-    """Incrementally (or fully) rebuild the canonical Research Lake."""
+    """Stream S42 in batches; join via preloaded dicts; commit every batch."""
     t0 = time.time()
-    ensure_research_lake_schema(conn)
-    now = int(time.time())
+    print_fn = print_fn or (lambda *_a, **_k: None)
+    profiler = SqlProfiler(slow_threshold_sec=1.0, print_each=bool(profile), _print_fn=print_fn)
+    # Do not wrap conn.execute: SELECT cost is in fetch/iteration; we time
+    # execute+fetchall together in preload/stream helpers (accurate rows+ms).
 
-    since_id: int | None = None
+    t_schema = time.perf_counter()
+    ensure_research_lake_schema(conn)
+    profiler.record("-- ensure_research_lake_schema", rows=0, elapsed_sec=time.perf_counter() - t_schema)
+
+    t_idx = time.perf_counter()
+    indexes_added = ensure_research_lake_join_indexes(conn)
+    profiler.record(
+        "-- ensure_research_lake_join_indexes",
+        rows=len(indexes_added),
+        elapsed_sec=time.perf_counter() - t_idx,
+    )
+    now = int(time.time())
     mode = "full" if full else "incremental"
+
+    after_id = 0
     if not full:
+        t_max = time.perf_counter()
         try:
             row = conn.execute(f"SELECT MAX(trade_id) FROM {LAKE_TABLE}").fetchone()
-            since_id = int(row[0]) if row and row[0] is not None else None
-            # Re-scan last few for updates: drop since_id and filter by missing/outdated instead
+            after_id = int(row[0]) if row and row[0] is not None else 0
         except Exception:
-            since_id = None
+            after_id = 0
+        profiler.record(
+            f"SELECT MAX(trade_id) FROM {LAKE_TABLE}",
+            rows=1,
+            elapsed_sec=time.perf_counter() - t_max,
+        )
 
-    if full:
-        trades = _fetch_s42_closed(conn)
-    else:
-        # Incremental: new ids OR not present in lake
-        all_closed = _fetch_s42_closed(conn)
-        existing_ids = {
-            int(r[0])
-            for r in conn.execute(f"SELECT trade_id FROM {LAKE_TABLE}").fetchall()
-        }
-        trades = [t for t in all_closed if int(t["id"]) not in existing_ids]
-        # Also refresh recently updated closed trades (by s42.updated_at)
-        try:
-            recent = conn.execute(
-                f"""
-                SELECT p.* FROM {_S42} p
-                JOIN {LAKE_TABLE} l ON l.trade_id = p.id
-                WHERE p.status='CLOSED' AND p.pnl_pct IS NOT NULL
-                  AND COALESCE(p.updated_at, p.closed_at, 0) > COALESCE(l.updated_at, 0)
-                """
-            ).fetchall()
-            seen = {int(t["id"]) for t in trades}
-            for r in recent:
-                d = _row(r)
-                if int(d["id"]) not in seen:
-                    trades.append(d)
-        except Exception:
-            pass
-
-    optimizer = _fetch_optimizer_state(conn)
-    experiment = _fetch_experiment_state(conn)
+    # --- Preload lookup tables (no SELECT inside trade loop) ---
+    print_fn("Preloading join tables into memory…")
+    t_pre = time.time()
+    s55_by_tid = _preload_s55(conn, profiler)
+    s56_by_tid = _preload_s56(conn, profiler)
+    g31_by_sym = _preload_g31_by_symbol(conn, profiler)
+    alpha_by_tid = _preload_alpha_labels(conn, profiler)
+    # Full: hash-compare all rows. Incremental: only id > last_id (hashes unused).
+    lake_hashes = _preload_lake_hashes(conn, profiler) if full else {}
+    optimizer = _fetch_optimizer_state(conn, profiler)
+    experiment = _fetch_experiment_state(conn, profiler)
+    total = _count_closed(conn, profiler, after_id=None if full else after_id)
+    print_fn(
+        f"Preload done in {time.time() - t_pre:.2f}s "
+        f"(s55={len(s55_by_tid)} s56={len(s56_by_tid)} "
+        f"g31_syms={len(g31_by_sym)} alpha={len(alpha_by_tid)} "
+        f"lake_hashes={len(lake_hashes)} total_closed≈{total})"
+    )
 
     inserted = updated = skipped = 0
-    for trade in trades:
-        tid = int(trade["id"])
-        s55 = _fetch_s55_by_trade(conn, tid)
-        s56 = _fetch_s56_by_trade(conn, tid)
-        opened = trade.get("created_at") or trade.get("opened_at")
-        g31 = _fetch_g31_candidate(conn, str(trade.get("symbol") or ""), opened)
-        alpha = _fetch_alpha_labels(conn, tid)
-        composed = _compose_lake_row(
-            trade,
-            s55=s55,
-            s56=s56,
-            g31=g31,
-            alpha=alpha,
-            optimizer=optimizer,
-            experiment=experiment,
-            now=now,
-        )
-        action = _upsert_lake_row(conn, composed)
-        if action == "inserted":
-            inserted += 1
-        elif action == "updated":
-            updated += 1
-        else:
-            skipped += 1
+    loaded = joined = 0
+    pending_params: list[tuple[Any, ...]] = []
+    pending_actions: list[str] = []
 
+    def _flush() -> None:
+        nonlocal inserted, updated, skipped, pending_params, pending_actions
+        if not pending_params:
+            return
+        t_ins = time.perf_counter()
+        conn.executemany(_UPSERT_SQL, pending_params)
+        profiler.record(
+            _UPSERT_SQL,
+            rows=len(pending_params),
+            elapsed_sec=time.perf_counter() - t_ins,
+            params=f"batch[{len(pending_params)}]",
+        )
+        for a in pending_actions:
+            if a == "inserted":
+                inserted += 1
+            elif a == "updated":
+                updated += 1
+            else:
+                skipped += 1
+        try:
+            conn.commit()
+        except Exception:
+            pass
+        pending_params = []
+        pending_actions = []
+
+    for batch in _iter_s42_batches(conn, profiler, after_id=after_id, batch_size=batch_size):
+        for trade in batch:
+            loaded += 1
+            tid = int(trade["id"])
+            s55 = s55_by_tid.get(tid)
+            s56 = s56_by_tid.get(tid)
+            opened = trade.get("created_at") or trade.get("opened_at")
+            g31 = _lookup_g31(g31_by_sym, str(trade.get("symbol") or ""), opened)
+            alpha = alpha_by_tid.get(tid) or {}
+            joined += 1
+            composed = _compose_lake_row(
+                trade,
+                s55=s55,
+                s56=s56,
+                g31=g31,
+                alpha=alpha,
+                optimizer=optimizer,
+                experiment=experiment,
+                now=now,
+            )
+            prev_hash = lake_hashes.get(tid)
+            if prev_hash is not None and prev_hash == composed["row_hash"]:
+                skipped += 1
+                continue
+            action = "updated" if prev_hash is not None else "inserted"
+            pending_params.append(_row_params(composed))
+            pending_actions.append(action)
+            lake_hashes[tid] = composed["row_hash"]
+
+        _flush()
+        _print_progress(
+            print_fn,
+            loaded=loaded,
+            joined=joined,
+            inserted=inserted,
+            updated=updated,
+            skipped=skipped,
+            total=total,
+            t0=t0,
+        )
+
+    _flush()
+
+    # Lightweight health (still profiled)
     health = research_lake_health_v1(conn)
     conn.execute(
         f"""
@@ -460,7 +646,7 @@ def build_research_lake_v1(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            now, mode, len(trades), inserted, updated, skipped,
+            now, mode, loaded, inserted, updated, skipped,
             _dumps(health), DATASET_VERSION, FEATURE_VERSION, SCHEMA_VERSION_LAKE, now,
         ),
     )
@@ -468,38 +654,53 @@ def build_research_lake_v1(
     _set_meta(conn, "feature_version", FEATURE_VERSION, now=now)
     _set_meta(conn, "schema_version", SCHEMA_VERSION_LAKE, now=now)
     _set_meta(conn, "last_build_ts", str(now), now=now)
+    _set_meta(conn, "builder_version", "v2-streaming", now=now)
     try:
         conn.commit()
     except Exception:
         pass
 
+    elapsed = round(time.time() - t0, 3)
+    explain = profiler.explain_slow(conn)
+    profile_summary = profiler.summary()
     result = {
         "ok": True,
         "mode": mode,
-        "rows_seen": len(trades),
+        "builder_version": "v2-streaming",
+        "rows_seen": loaded,
         "rows_inserted": inserted,
         "rows_updated": updated,
         "rows_skipped": skipped,
+        "rows_joined": joined,
+        "batch_size": batch_size,
+        "indexes_ensured": indexes_added,
         "dataset_version": DATASET_VERSION,
         "feature_version": FEATURE_VERSION,
         "schema_version": SCHEMA_VERSION_LAKE,
         "health": health,
-        "elapsed_sec": round(time.time() - t0, 3),
+        "elapsed_sec": elapsed,
+        "profile": profile_summary,
+        "explain_slow": explain,
         "read_only_sources": True,
         "gate_unchanged": True,
         "optimizer_unchanged": True,
         "paper_unchanged": True,
         "execution_unchanged": True,
+        "no_select_in_trade_loop": True,
     }
     if write_reports:
-        result["paths"] = write_lake_artifacts(result)
+        paths = write_lake_artifacts(result)
+        paths.update(write_lake_profile_report(result))
+        result["paths"] = paths
         try:
             from pathlib import Path
 
-            result["report_markdown"] = Path(result["paths"]["report_md"]).read_text(encoding="utf-8")
+            result["report_markdown"] = Path(paths["report_md"]).read_text(encoding="utf-8")
+            result["profile_markdown"] = Path(paths["profile_md"]).read_text(encoding="utf-8")
         except Exception:
             result["report_markdown"] = ""
+            result["profile_markdown"] = ""
     return result
 
 
-__all__ = ["build_research_lake_v1"]
+__all__ = ["BATCH_SIZE", "build_research_lake_v1"]

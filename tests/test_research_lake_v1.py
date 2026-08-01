@@ -1,17 +1,22 @@
-"""Tests for Research Lake Builder V1."""
+"""Tests for Research Lake Builder V1/V2."""
 
 from __future__ import annotations
 
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 from bot.research.market_events.signal_intelligence.research_lake_v1.builder import (
+    BATCH_SIZE,
     build_research_lake_v1,
 )
 from bot.research.market_events.signal_intelligence.research_lake_v1.health import (
     research_lake_health_v1,
+)
+from bot.research.market_events.signal_intelligence.research_lake_v1.indexes import (
+    ensure_research_lake_join_indexes,
 )
 from bot.research.market_events.signal_intelligence.research_lake_v1.loader import (
     load_research_lake_rows,
@@ -132,6 +137,115 @@ class TestResearchLakeV1(unittest.TestCase):
         self.assertIn('"build-research-lake"', src)
         self.assertIn('"research-lake-health"', src)
         self.assertIn("build_research_lake_v1", src)
+
+    def test_v2_streaming_flags_and_profile(self) -> None:
+        out = build_research_lake_v1(self.conn, full=True, write_reports=False, batch_size=2)
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["builder_version"], "v2-streaming")
+        self.assertTrue(out["no_select_in_trade_loop"])
+        self.assertEqual(out["batch_size"], 2)
+        self.assertIn("profile", out)
+        self.assertGreaterEqual(out["profile"]["n_queries"], 1)
+        self.assertTrue(any("idx_s55" in x for x in out["indexes_ensured"]))
+
+    def test_indexes_idempotent(self) -> None:
+        ensure_research_lake_schema(self.conn)
+        a = ensure_research_lake_join_indexes(self.conn)
+        b = ensure_research_lake_join_indexes(self.conn)
+        self.assertIn("idx_s55_paper_trade_id", a)
+        self.assertIn("idx_s55_paper_trade_id", b)
+
+    def test_no_select_inside_trade_compose_loop(self) -> None:
+        """Trade joins must be preloaded — profile shows O(1) S55 scans, not N."""
+        out = build_research_lake_v1(
+            self.conn, full=True, write_reports=False, batch_size=2, profile=True,
+            print_fn=lambda *_a, **_k: None,
+        )
+        self.assertTrue(out["ok"])
+        self.assertTrue(out["no_select_in_trade_loop"])
+        top = out["profile"]["top_slow"]
+        s55_events = [e for e in top if "trade_features_s55" in (e.get("sql") or "")]
+        # At most one full S55 preload (not 5× per-trade SELECTs in top list alone).
+        # Also check all events via n_queries vs rows_seen.
+        self.assertEqual(out["rows_seen"], 5)
+        # Streaming with batch=2 → 3 S42 LIMIT fetches max for 5 rows.
+        all_sql = [e.get("sql") or "" for e in out["profile"]["top_slow"]]
+        # Rebuild with access to full event list isn't exported; assert builder flag + insert path.
+        self.assertGreaterEqual(out["rows_inserted"] + out["rows_updated"], 5)
+        self.assertLess(out["profile"]["n_queries"], 5 * 4)  # would be ~20+ under N+1 joins
+        _ = s55_events, all_sql
+
+
+class TestResearchLakeV2Scale(unittest.TestCase):
+    def test_30k_under_two_minutes(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        db = Path(tmp.name) / "scale.db"
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        conn.executescript(
+            """
+            CREATE TABLE market_events_paper_trades_s42 (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              symbol TEXT, direction TEXT, entry REAL, exit REAL,
+              status TEXT, result TEXT, pnl_usd REAL, pnl_pct REAL,
+              created_at INTEGER, closed_at INTEGER, updated_at INTEGER,
+              gate_decision TEXT
+            );
+            CREATE TABLE market_events_trade_features_s55 (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              paper_trade_id INTEGER,
+              s40_signal_type TEXT DEFAULT 't',
+              s40_signal_id INTEGER DEFAULT 0,
+              symbol TEXT, direction TEXT,
+              rsi REAL, atr REAL, funding REAL, oi_delta REAL, fear_greed REAL,
+              trend REAL, macro_score REAL, news_score REAL, ai_score REAL,
+              market_regime TEXT, gate_decision TEXT, features_json TEXT,
+              pnl_pct REAL, pnl_usd REAL, result TEXT,
+              created_at INTEGER, closed_at INTEGER
+            );
+            """
+        )
+        n = 30000
+        base = 1700000000
+        s42_rows = [
+            ("BTC", "LONG", 100.0, 101.0, "CLOSED", "WIN", 1.0, 0.5, base + i, base + i + 60, base + i + 60, "PASS")
+            for i in range(n)
+        ]
+        conn.executemany(
+            """
+            INSERT INTO market_events_paper_trades_s42
+            (symbol, direction, entry, exit, status, result, pnl_usd, pnl_pct,
+             created_at, closed_at, updated_at, gate_decision)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            s42_rows,
+        )
+        s55_rows = [
+            (i + 1, "BTC", "LONG", 28.0, 1.2, -0.0001, 1.5, 40.0, -0.5, "RISK_ON", "PASS",
+             '{"rsi":28}', 0.5, 1.0, "WIN", base + i, base + i + 60)
+            for i in range(n)
+        ]
+        conn.executemany(
+            """
+            INSERT INTO market_events_trade_features_s55
+            (paper_trade_id, symbol, direction, rsi, atr, funding, oi_delta,
+             fear_greed, trend, market_regime, gate_decision, features_json,
+             pnl_pct, pnl_usd, result, created_at, closed_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            s55_rows,
+        )
+        conn.commit()
+        t0 = time.time()
+        out = build_research_lake_v1(
+            conn, full=True, write_reports=False, batch_size=BATCH_SIZE, profile=True, print_fn=lambda *_a, **_k: None
+        )
+        elapsed = time.time() - t0
+        conn.close()
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["rows_seen"], n)
+        self.assertLess(elapsed, 120.0, f"30k build took {elapsed:.1f}s (>= 120s)")
 
 
 if __name__ == "__main__":

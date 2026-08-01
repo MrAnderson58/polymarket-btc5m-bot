@@ -1897,14 +1897,24 @@ def main(argv: list[str] | None = None) -> int:
 
             out = retry_on_db_locked(_build)
             print(out.get("report_markdown") or "")
+            if out.get("profile_markdown"):
+                print(out.get("profile_markdown"))
             print(
                 json.dumps({
                     "ok": out.get("ok"),
                     "mode": out.get("mode"),
+                    "builder_version": out.get("builder_version"),
                     "rows_seen": out.get("rows_seen"),
                     "rows_inserted": out.get("rows_inserted"),
                     "rows_updated": out.get("rows_updated"),
                     "rows_skipped": out.get("rows_skipped"),
+                    "elapsed_sec": out.get("elapsed_sec"),
+                    "indexes_ensured": out.get("indexes_ensured"),
+                    "profile": {
+                        "n_queries": (out.get("profile") or {}).get("n_queries"),
+                        "total_sql_sec": (out.get("profile") or {}).get("total_sql_sec"),
+                        "n_slow": (out.get("profile") or {}).get("n_slow"),
+                    },
                     "health": out.get("health"),
                     "paths": out.get("paths"),
                     "dataset_version": out.get("dataset_version"),

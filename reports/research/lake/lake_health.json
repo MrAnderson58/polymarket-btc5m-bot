@@ -18,5 +18,11 @@
   "dataset_version": "rlake-v1",
   "feature_version": "v1",
   "schema_version": "1.0.0",
-  "meta": {}
+  "meta": {
+    "dataset_version": "rlake-v1",
+    "feature_version": "v1",
+    "schema_version": "1.0.0",
+    "last_build_ts": "1785606734",
+    "builder_version": "v2-streaming"
+  }
 }

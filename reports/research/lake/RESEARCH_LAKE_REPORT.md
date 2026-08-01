@@ -1,14 +1,16 @@
 # RESEARCH_LAKE_REPORT
 
-_Research Lake Builder V1 — canonical trade-centric research store. No Gate / Optimizer / Strategy / Paper / Execution changes._
+_Research Lake Builder V2 — streaming batches, preloaded joins, SQL profiling. No Gate / Optimizer / Strategy / Paper / Execution changes._
 
-- Mode: **incremental**
-- Rows seen/inserted/updated/skipped: 50/50/0/0
+- Mode: **full**
+- Builder: `v2-streaming`
+- Rows seen/inserted/updated/skipped: 50/0/0/50
 - dataset_version: `rlake-v1`
 - feature_version: `v1`
 - schema_version: `1.0.0`
 - Health: **FAIL** (lake=50 s42_closed=50 coverage=100.0%)
-- Elapsed: 1.431s
+- Elapsed: 1.014s
+- no_select_in_trade_loop: True
 
 ## Integrity
 
