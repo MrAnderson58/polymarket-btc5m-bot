@@ -255,6 +255,7 @@ def main(argv: list[str] | None = None) -> int:
             "edge-discovery",
             "edge-discovery-v3",
             "market-replay",
+            "market-causality",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1696,6 +1697,65 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"market-replay failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "market-causality":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.event_schema import apply_migrations
+        from bot.research.market_events.signal_intelligence.market_causality_v1 import (
+            run_market_causality_v1,
+        )
+
+        try:
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"market-causality failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_causality() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    return run_market_causality_v1(
+                        conn, write_reports=True, persist_library=True
+                    )
+
+            out = retry_on_db_locked(_run_causality)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "ok": out.get("ok"),
+                    "n_rows": out.get("n_rows"),
+                    "n_causal": out.get("n_causal"),
+                    "n_causal_relations": out.get("n_causal_relations"),
+                    "coverage_pct": out.get("coverage_pct"),
+                    "elapsed_sec": out.get("elapsed_sec"),
+                    "dominant_causes": out.get("dominant_causes"),
+                    "stability": {
+                        "stable": (out.get("stability") or {}).get("stable"),
+                        "n_checks_passed": (out.get("stability") or {}).get("n_checks_passed"),
+                    },
+                    "top_clusters": (out.get("top_clusters") or [])[:7],
+                    "library_upserted": out.get("library_upserted"),
+                    "paths": out.get("paths"),
+                    "analytics_db": str(db_path),
+                    "source": source,
+                    "gate_unchanged": True,
+                    "optimizer_unchanged": True,
+                    "strategy_unchanged": True,
+                    "paper_unchanged": True,
+                    "execution_unchanged": True,
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"market-causality failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-engine":
