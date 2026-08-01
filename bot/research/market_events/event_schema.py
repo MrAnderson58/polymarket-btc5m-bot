@@ -1062,6 +1062,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_hypothesis_engine_v1(conn)
     _ensure_experiment_engine_v1(conn)
     _ensure_alpha_validation_v2(conn)
+    _ensure_research_lake_v1(conn)
 
     if not applied:
         conn.commit()
@@ -3589,6 +3590,15 @@ def _ensure_alpha_validation_v2(conn: Any) -> None:
     )
 
     ensure_alpha_validation_schema(conn)
+
+
+def _ensure_research_lake_v1(conn: Any) -> None:
+    """Create Research Lake Builder V1 tables if missing."""
+    from bot.research.market_events.signal_intelligence.research_lake_v1.schema import (
+        ensure_research_lake_schema,
+    )
+
+    ensure_research_lake_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """

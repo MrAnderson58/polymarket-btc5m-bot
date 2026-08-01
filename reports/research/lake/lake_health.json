@@ -1,0 +1,22 @@
+{
+  "ok": false,
+  "status": "FAIL",
+  "n_lake": 50,
+  "n_s42_closed": 50,
+  "coverage_pct": 100.0,
+  "duplicates": 0,
+  "missing_s55_joins": 0,
+  "missing_pnl": 0,
+  "missing_symbol": 0,
+  "null_feature_rows": 0,
+  "broken_feature_rows": 50,
+  "sampled_feature_rows": 50,
+  "schema_drift": [],
+  "issues": [
+    "broken_features=50"
+  ],
+  "dataset_version": "rlake-v1",
+  "feature_version": "v1",
+  "schema_version": "1.0.0",
+  "meta": {}
+}

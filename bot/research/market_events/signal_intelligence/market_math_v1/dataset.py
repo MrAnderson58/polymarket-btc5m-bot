@@ -143,10 +143,30 @@ def load_all_closed_trade_rows(
     limit: int | None = None,
     print_stats: bool = False,
 ) -> list[dict[str, Any]]:
-    """Load ALL CLOSED S42 trades INNER JOINed with S55 (no default LIMIT 50)."""
+    """Load CLOSED trades from Research Lake (canonical); fallback to S42⋈S55."""
     stats = count_corpus(conn)
     if print_stats:
         print_load_stats(stats)
+
+    # Prefer Research Lake V1 when populated.
+    try:
+        from bot.research.market_events.signal_intelligence.research_lake_v1 import (
+            load_research_lake_rows,
+            research_lake_row_count,
+        )
+
+        n_lake = research_lake_row_count(conn)
+        if n_lake > 0:
+            lim = None
+            if limit is not None:
+                lim = int(limit)
+            elif _ENV_LIMIT is not None and str(_ENV_LIMIT).strip() != "":
+                lim = int(_ENV_LIMIT)
+            rows = load_research_lake_rows(conn, limit=lim)
+            if rows:
+                return rows
+    except Exception as exc:
+        logger.warning("market_math: research lake load failed, fallback JOIN: %s", exc)
 
     # Resolve optional limit: explicit arg > env > no limit (full history).
     lim: int | None

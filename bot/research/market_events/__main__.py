@@ -258,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
             "quant-debug",
             "research-data-audit",
             "research-lake-build",
+            "build-research-lake",
+            "research-lake-health",
             "market-memory",
             "signal-discovery",
             "why-not",
@@ -376,6 +378,11 @@ def main(argv: list[str] | None = None) -> int:
         "--activate",
         action="store_true",
         help="research-sync-import: copy snapshot into configured SQLite analytics path",
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="build-research-lake: rebuild all CLOSED trades (default is incremental)",
     )
     parser.add_argument(
         "--universe",
@@ -1862,6 +1869,93 @@ def main(argv: list[str] | None = None) -> int:
             conn.commit()
             print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
         return 0
+
+    if args.command == "build-research-lake":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.research_lake_v1 import (
+            build_research_lake_v1,
+        )
+
+        try:
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"build-research-lake failed: {exc}", file=sys.stderr)
+                return 1
+
+            full = bool(getattr(args, "full", False))
+
+            def _build() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    return build_research_lake_v1(conn, full=full, write_reports=True)
+
+            out = retry_on_db_locked(_build)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "ok": out.get("ok"),
+                    "mode": out.get("mode"),
+                    "rows_seen": out.get("rows_seen"),
+                    "rows_inserted": out.get("rows_inserted"),
+                    "rows_updated": out.get("rows_updated"),
+                    "rows_skipped": out.get("rows_skipped"),
+                    "health": out.get("health"),
+                    "paths": out.get("paths"),
+                    "dataset_version": out.get("dataset_version"),
+                    "feature_version": out.get("feature_version"),
+                    "schema_version": out.get("schema_version"),
+                    "analytics_db": str(db_path),
+                    "source": source,
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"build-research-lake failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "research-lake-health":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import (
+            research_migrate_then_readonly,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.research_lake_v1.health import (
+            format_research_lake_health,
+            research_lake_health_v1,
+        )
+
+        try:
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"research-lake-health failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _health() -> dict:
+                with research_migrate_then_readonly(db_path) as conn:
+                    return research_lake_health_v1(conn)
+
+            health = retry_on_db_locked(_health)
+            print(format_research_lake_health(health))
+            print(
+                json.dumps({"ok": health.get("ok"), "health": health, "source": source,
+                            "analytics_db": str(db_path)}, indent=2, default=str),
+                file=sys.stderr,
+            )
+            return 0 if health.get("ok") else 1
+        except Exception as exc:
+            print(f"research-lake-health failed: {exc}", file=sys.stderr)
+            return 1
 
     if args.command == "market-memory":
         from bot.research.market_events.signal_intelligence.market_memory_g36 import (

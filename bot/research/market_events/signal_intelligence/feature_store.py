@@ -203,8 +203,23 @@ def extract_sample(row: dict[str, Any], *, feature_version: str = FEATURE_VERSIO
 
 
 def load_closed_trade_rows(conn: Any, *, limit: int | None = None) -> list[dict[str, Any]]:
-    """Load CLOSED paper trades joined with S55 feature columns when present."""
+    """Load CLOSED paper trades — prefer Research Lake, else S42⋈S55."""
     limit = int(limit or os.environ.get("ML_STORE_LIMIT", "100000"))
+    try:
+        from bot.research.market_events.signal_intelligence.research_lake_v1 import (
+            load_research_lake_rows,
+            research_lake_row_count,
+        )
+
+        if research_lake_row_count(conn) > 0:
+            rows = load_research_lake_rows(conn, limit=limit)
+            if rows:
+                for r in rows:
+                    r["pattern"] = r.get("pattern") or _pattern_label(r)
+                return rows
+    except Exception as exc:
+        logger.warning("feature_store: research lake load failed: %s", exc)
+
     sql = """
         SELECT p.*,
                f.gate_decision, f.market_regime, f.ai_score, f.macro_score, f.news_score,

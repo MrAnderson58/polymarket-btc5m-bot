@@ -1,0 +1,12 @@
+# Research Lake Statistics
+
+- build mode: incremental
+- rows_seen: 50
+- rows_inserted: 50
+- rows_updated: 0
+- rows_skipped: 0
+- n_lake: 50
+- n_s42_closed: 50
+- coverage_pct: 100.0
+- missing_s55_joins: 0
+- elapsed_sec: 1.431

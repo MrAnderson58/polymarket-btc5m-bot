@@ -32,9 +32,21 @@ ALL_FEATURES: tuple[str, ...] = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
 
 def load_edge_dataset(conn: Any, *, limit: int | None = None) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Full-history CLOSED S42 INNER JOIN S55 + load stats."""
+    """Full-history CLOSED corpus from Research Lake (+ load stats)."""
     stats = count_corpus(conn)
-    rows = load_market_math_dataset(conn, limit=limit, print_stats=True)
+    # Prefer Research Lake; fall back to market-math JOIN loader.
+    try:
+        from bot.research.market_events.signal_intelligence.research_lake_v1 import (
+            load_research_lake_rows,
+            research_lake_row_count,
+        )
+
+        if research_lake_row_count(conn) > 0:
+            rows = load_research_lake_rows(conn, limit=limit)
+        else:
+            rows = load_market_math_dataset(conn, limit=limit, print_stats=True)
+    except Exception:
+        rows = load_market_math_dataset(conn, limit=limit, print_stats=True)
     # Normalize gate / time aliases for mining.
     for r in rows:
         if r.get("gate_decision") is None:
