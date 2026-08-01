@@ -249,6 +249,8 @@ def main(argv: list[str] | None = None) -> int:
             "alpha-engine",
             "alpha-validate",
             "alpha-validation-report",
+            "market-math-research",
+            "market-math-report",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1374,6 +1376,80 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if info.get("ok") else 1
         except Exception as exc:
             print(f"feature-information failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "market-math-research":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import (
+            research_migrate_then_readonly,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.market_math_v1 import (
+            run_market_math_research,
+        )
+
+        try:
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"market-math-research failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_mm() -> dict:
+                with research_migrate_then_readonly(db_path) as conn:
+                    return run_market_math_research(conn, write_reports=True)
+
+            out = retry_on_db_locked(_run_mm)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "n_trades": out.get("n_trades"),
+                    "elapsed_sec": out.get("elapsed_sec"),
+                    "n_top_rules": len(out.get("top_rules") or []),
+                    "n_harmful": (out.get("market_regimes") or {}).get("n_harmful"),
+                    "paths": out.get("paths"),
+                    "top5": [
+                        {
+                            "rule": r.get("rule"),
+                            "n": r.get("n"),
+                            "expectancy": r.get("expectancy"),
+                            "profit_factor": r.get("profit_factor"),
+                            "winrate": r.get("winrate"),
+                        }
+                        for r in (out.get("top_rules") or [])[:5]
+                    ],
+                    "analytics_db": str(db_path),
+                    "source": source,
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"market-math-research failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "market-math-report":
+        from bot.research.market_events.signal_intelligence.market_math_v1 import (
+            run_market_math_report,
+        )
+
+        try:
+            out = run_market_math_report(write_reports=True)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "ok": out.get("ok"),
+                    "n_trades": out.get("n_trades"),
+                    "paths": out.get("paths"),
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"market-math-report failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-engine":

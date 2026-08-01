@@ -1,0 +1,13 @@
+[
+  {
+    "rule": "atr_pct<=8.7767",
+    "source": "tree",
+    "n": 9,
+    "profit_factor": 11.1598,
+    "expectancy": 47.4383,
+    "winrate": 66.67,
+    "ci95": null,
+    "p_value": null,
+    "confidence": 0.3671
+  }
+]

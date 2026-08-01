@@ -1,0 +1,557 @@
+{
+  "can_remove": [
+    {
+      "filter": "atr",
+      "reason": "no meaningful EV/PF lift vs baseline",
+      "evidence": {
+        "filter": "atr",
+        "status": "USELESS",
+        "reason": "insufficient_coverage",
+        "baseline_pf": 0.4379,
+        "baseline_ev": -25.2943
+      }
+    },
+    {
+      "filter": "atr_pct",
+      "reason": "no meaningful EV/PF lift vs baseline",
+      "evidence": {
+        "filter": "atr_pct",
+        "status": "USELESS",
+        "reason": "insufficient_coverage",
+        "baseline_pf": 0.4379,
+        "baseline_ev": -25.2943
+      }
+    },
+    {
+      "filter": "funding",
+      "reason": "no meaningful EV/PF lift vs baseline",
+      "evidence": {
+        "filter": "funding",
+        "status": "USELESS",
+        "reason": "insufficient_coverage",
+        "baseline_pf": 0.4379,
+        "baseline_ev": -25.2943
+      }
+    },
+    {
+      "filter": "fear_greed",
+      "reason": "no meaningful EV/PF lift vs baseline",
+      "evidence": {
+        "filter": "fear_greed",
+        "status": "USELESS",
+        "good_rule": "fear_greed<=22",
+        "with_filter": {
+          "n": 50,
+          "pf": 0.4379,
+          "ev": -25.2943,
+          "wr": 36.0
+        },
+        "without_filter": {
+          "n": 50,
+          "pf": 0.4379,
+          "ev": -25.2943,
+          "wr": 36.0
+        },
+        "opposite_side": {
+          "n": 0,
+          "pf": null,
+          "ev": null,
+          "wr": null
+        },
+        "delta_ev": 0.0,
+        "delta_pf": 0.0
+      }
+    },
+    {
+      "filter": "trend",
+      "reason": "no meaningful EV/PF lift vs baseline",
+      "evidence": {
+        "filter": "trend",
+        "status": "USELESS",
+        "good_rule": "trend<=0",
+        "with_filter": {
+          "n": 50,
+          "pf": 0.4379,
+          "ev": -25.2943,
+          "wr": 36.0
+        },
+        "without_filter": {
+          "n": 50,
+          "pf": 0.4379,
+          "ev": -25.2943,
+          "wr": 36.0
+        },
+        "opposite_side": {
+          "n": 0,
+          "pf": null,
+          "ev": null,
+          "wr": null
+        },
+        "delta_ev": 0.0,
+        "delta_pf": 0.0
+      }
+    },
+    {
+      "filter": "adx",
+      "reason": "no meaningful EV/PF lift vs baseline",
+      "evidence": {
+        "filter": "adx",
+        "status": "USELESS",
+        "reason": "insufficient_coverage",
+        "baseline_pf": 0.4379,
+        "baseline_ev": -25.2943
+      }
+    },
+    {
+      "filter": "rsi",
+      "reason": "no meaningful EV/PF lift vs baseline",
+      "evidence": {
+        "filter": "rsi",
+        "status": "USELESS",
+        "reason": "insufficient_coverage",
+        "baseline_pf": 0.4379,
+        "baseline_ev": -25.2943
+      }
+    }
+  ],
+  "can_strengthen": [
+    {
+      "filter": "oi_delta",
+      "reason": "good_rule=oi_delta<=-26873 delta_ev=2.3255",
+      "evidence": {
+        "filter": "oi_delta",
+        "status": "USEFUL",
+        "good_rule": "oi_delta<=-26873",
+        "with_filter": {
+          "n": 25,
+          "pf": 0.5067,
+          "ev": -22.9688,
+          "wr": 32.0
+        },
+        "without_filter": {
+          "n": 50,
+          "pf": 0.4379,
+          "ev": -25.2943,
+          "wr": 36.0
+        },
+        "opposite_side": {
+          "n": 25,
+          "pf": 0.3643,
+          "ev": -27.6198,
+          "wr": 40.0
+        },
+        "delta_ev": 2.3255,
+        "delta_pf": 0.0688
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta in [-54351.8--54214.4] (EV=-41.9186, PF=0.0)",
+      "evidence": {
+        "rule": "oi_delta in [-54351.8--54214.4]",
+        "source": "feature_bucket",
+        "n": 8,
+        "profit_factor": 0.0,
+        "expectancy": -41.9186,
+        "winrate": 0.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi<=72 AND oi_delta<=-54210.8 (EV=-29.3469, PF=0.3716)",
+      "evidence": {
+        "rule": "oi<=72 AND oi_delta<=-54210.8",
+        "source": "pair",
+        "n": 20,
+        "profit_factor": 0.3716,
+        "expectancy": -29.3469,
+        "winrate": 25.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi<=72 AND oi_delta<=-54210.8 (EV=-29.3469, PF=0.3716)",
+      "evidence": {
+        "rule": "oi<=72 AND oi_delta<=-54210.8",
+        "source": "pair",
+        "n": 20,
+        "profit_factor": 0.3716,
+        "expectancy": -29.3469,
+        "winrate": 25.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi>=72 AND oi_delta<=-54210.8 (EV=-29.3469, PF=0.3716)",
+      "evidence": {
+        "rule": "oi>=72 AND oi_delta<=-54210.8",
+        "source": "pair",
+        "n": 20,
+        "profit_factor": 0.3716,
+        "expectancy": -29.3469,
+        "winrate": 25.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta<=-54210.8 AND fear_greed<=22 (EV=-29.3469, PF=0.3716)",
+      "evidence": {
+        "rule": "oi_delta<=-54210.8 AND fear_greed<=22",
+        "source": "pair",
+        "n": 20,
+        "profit_factor": 0.3716,
+        "expectancy": -29.3469,
+        "winrate": 25.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta<=-54210.8 AND fear_greed<=22 (EV=-29.3469, PF=0.3716)",
+      "evidence": {
+        "rule": "oi_delta<=-54210.8 AND fear_greed<=22",
+        "source": "pair",
+        "n": 20,
+        "profit_factor": 0.3716,
+        "expectancy": -29.3469,
+        "winrate": 25.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta<=-54210.8 AND fear_greed>=22 (EV=-29.3469, PF=0.3716)",
+      "evidence": {
+        "rule": "oi_delta<=-54210.8 AND fear_greed>=22",
+        "source": "pair",
+        "n": 20,
+        "profit_factor": 0.3716,
+        "expectancy": -29.3469,
+        "winrate": 25.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta<=-54210.8 AND trend<=0 (EV=-29.3469, PF=0.3716)",
+      "evidence": {
+        "rule": "oi_delta<=-54210.8 AND trend<=0",
+        "source": "pair",
+        "n": 20,
+        "profit_factor": 0.3716,
+        "expectancy": -29.3469,
+        "winrate": 25.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta<=-54210.8 AND trend<=0 (EV=-29.3469, PF=0.3716)",
+      "evidence": {
+        "rule": "oi_delta<=-54210.8 AND trend<=0",
+        "source": "pair",
+        "n": 20,
+        "profit_factor": 0.3716,
+        "expectancy": -29.3469,
+        "winrate": 25.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta<=-54210.8 AND trend>=0 (EV=-29.3469, PF=0.3716)",
+      "evidence": {
+        "rule": "oi_delta<=-54210.8 AND trend>=0",
+        "source": "pair",
+        "n": 20,
+        "profit_factor": 0.3716,
+        "expectancy": -29.3469,
+        "winrate": 25.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi<=72 AND oi_delta>-26873 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi<=72 AND oi_delta>-26873",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi<=72 AND oi_delta>=72 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi<=72 AND oi_delta>=72",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi<=72 AND oi_delta>-26873 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi<=72 AND oi_delta>-26873",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi<=72 AND oi_delta>=72 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi<=72 AND oi_delta>=72",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi>=72 AND oi_delta>-26873 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi>=72 AND oi_delta>-26873",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi>=72 AND oi_delta>=72 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi>=72 AND oi_delta>=72",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta>-26873 AND fear_greed<=22 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi_delta>-26873 AND fear_greed<=22",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta>-26873 AND fear_greed<=22 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi_delta>-26873 AND fear_greed<=22",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta>-26873 AND fear_greed>=22 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi_delta>-26873 AND fear_greed>=22",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta>=72 AND fear_greed<=22 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi_delta>=72 AND fear_greed<=22",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta>=72 AND fear_greed<=22 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi_delta>=72 AND fear_greed<=22",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta>=72 AND fear_greed>=22 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi_delta>=72 AND fear_greed>=22",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta>-26873 AND trend<=0 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi_delta>-26873 AND trend<=0",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta>-26873 AND trend<=0 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi_delta>-26873 AND trend<=0",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta>-26873 AND trend>=0 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi_delta>-26873 AND trend>=0",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta>=72 AND trend<=0 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi_delta>=72 AND trend<=0",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta>=72 AND trend<=0 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi_delta>=72 AND trend<=0",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK oi_delta>=72 AND trend>=0 (EV=-27.6198, PF=0.3643)",
+      "evidence": {
+        "rule": "oi_delta>=72 AND trend>=0",
+        "source": "pair",
+        "n": 25,
+        "profit_factor": 0.3643,
+        "expectancy": -27.6198,
+        "winrate": 40.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK fear_greed in [20-40] (EV=-25.2943, PF=0.4379)",
+      "evidence": {
+        "rule": "fear_greed in [20-40]",
+        "source": "feature_bucket",
+        "n": 50,
+        "profit_factor": 0.4379,
+        "expectancy": -25.2943,
+        "winrate": 36.0,
+        "action": "BLOCK"
+      }
+    },
+    {
+      "filter": "block_regime",
+      "reason": "BLOCK direction in [LONG] (EV=-25.2943, PF=0.4379)",
+      "evidence": {
+        "rule": "direction in [LONG]",
+        "source": "feature_bucket",
+        "n": 50,
+        "profit_factor": 0.4379,
+        "expectancy": -25.2943,
+        "winrate": 36.0,
+        "action": "BLOCK"
+      }
+    }
+  ],
+  "can_weaken": [],
+  "need_check": [
+    {
+      "filter": "candidate_rule",
+      "reason": "validate OOS: atr_pct<=8.7767",
+      "evidence": {
+        "rule": "atr_pct<=8.7767",
+        "source": "tree",
+        "n": 9,
+        "profit_factor": 11.1598,
+        "expectancy": 47.4383,
+        "winrate": 66.67,
+        "ci95": null,
+        "p_value": null,
+        "confidence": 0.3671
+      }
+    }
+  ],
+  "note": "Recommendations only \u2014 Gate / Strategy / Paper / Optimizer unchanged."
+}

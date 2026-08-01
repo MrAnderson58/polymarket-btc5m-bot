@@ -1,0 +1,42 @@
+{
+  "tree": {
+    "path": [],
+    "n": 50,
+    "expectancy": -25.2943,
+    "profit_factor": 0.4379,
+    "winrate": 36.0,
+    "split": {
+      "feature": "atr_pct",
+      "op": "<=",
+      "threshold": 8.776703119240288,
+      "rule": "atr_pct<=8.7767",
+      "n": 9,
+      "expectancy": 47.4383,
+      "profit_factor": 11.1598,
+      "winrate": 66.67
+    },
+    "child": {
+      "path": [
+        "atr_pct<=8.7767"
+      ],
+      "n": 9,
+      "expectancy": 47.4383,
+      "profit_factor": 11.1598,
+      "winrate": 66.67,
+      "split": null,
+      "child": null
+    }
+  },
+  "leaves": [
+    {
+      "path": [
+        "atr_pct<=8.7767"
+      ],
+      "n": 9,
+      "expectancy": 47.4383,
+      "profit_factor": 11.1598,
+      "winrate": 66.67,
+      "rule": "atr_pct<=8.7767"
+    }
+  ]
+}

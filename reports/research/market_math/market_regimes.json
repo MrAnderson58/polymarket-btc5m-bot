@@ -1,0 +1,617 @@
+{
+  "n_harmful": 68,
+  "regimes": [
+    {
+      "rule": "oi_delta in [-54351.8--54214.4]",
+      "source": "feature_bucket",
+      "n": 8,
+      "profit_factor": 0.0,
+      "expectancy": -41.9186,
+      "winrate": 0.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND oi_delta<=-54210.8",
+      "source": "pair",
+      "n": 20,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "winrate": 25.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND oi_delta<=-54210.8",
+      "source": "pair",
+      "n": 20,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "winrate": 25.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi>=72 AND oi_delta<=-54210.8",
+      "source": "pair",
+      "n": 20,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "winrate": 25.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta<=-54210.8 AND fear_greed<=22",
+      "source": "pair",
+      "n": 20,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "winrate": 25.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta<=-54210.8 AND fear_greed<=22",
+      "source": "pair",
+      "n": 20,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "winrate": 25.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta<=-54210.8 AND fear_greed>=22",
+      "source": "pair",
+      "n": 20,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "winrate": 25.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta<=-54210.8 AND trend<=0",
+      "source": "pair",
+      "n": 20,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "winrate": 25.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta<=-54210.8 AND trend<=0",
+      "source": "pair",
+      "n": 20,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "winrate": 25.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta<=-54210.8 AND trend>=0",
+      "source": "pair",
+      "n": 20,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "winrate": 25.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND oi_delta>-26873",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND oi_delta>=72",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND oi_delta>-26873",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND oi_delta>=72",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi>=72 AND oi_delta>-26873",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi>=72 AND oi_delta>=72",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta>-26873 AND fear_greed<=22",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta>-26873 AND fear_greed<=22",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta>-26873 AND fear_greed>=22",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta>=72 AND fear_greed<=22",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta>=72 AND fear_greed<=22",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta>=72 AND fear_greed>=22",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta>-26873 AND trend<=0",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta>-26873 AND trend<=0",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta>-26873 AND trend>=0",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta>=72 AND trend<=0",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta>=72 AND trend<=0",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta>=72 AND trend>=0",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "winrate": 40.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "fear_greed in [20-40]",
+      "source": "feature_bucket",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "direction in [LONG]",
+      "source": "feature_bucket",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND fear_greed<=22",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND fear_greed<=22",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND fear_greed>=22",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND fear_greed<=22",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND fear_greed<=22",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND fear_greed>=22",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi>=72 AND fear_greed<=22",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi>=72 AND fear_greed<=22",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi>=72 AND fear_greed>=22",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND trend<=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND trend<=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND trend>=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND trend<=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND trend<=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND trend>=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi>=72 AND trend<=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi>=72 AND trend<=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi>=72 AND trend>=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "fear_greed<=22 AND trend<=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "fear_greed<=22 AND trend<=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "fear_greed<=22 AND trend>=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "fear_greed<=22 AND trend<=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "fear_greed<=22 AND trend<=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "fear_greed<=22 AND trend>=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "fear_greed>=22 AND trend<=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "fear_greed>=22 AND trend<=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "fear_greed>=22 AND trend>=0",
+      "source": "pair",
+      "n": 50,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "winrate": 36.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND oi_delta<=-26873",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "winrate": 32.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi<=72 AND oi_delta<=-26873",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "winrate": 32.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi>=72 AND oi_delta<=-26873",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "winrate": 32.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta<=-26873 AND fear_greed<=22",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "winrate": 32.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta<=-26873 AND fear_greed<=22",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "winrate": 32.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta<=-26873 AND fear_greed>=22",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "winrate": 32.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta<=-26873 AND trend<=0",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "winrate": 32.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta<=-26873 AND trend<=0",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "winrate": 32.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta<=-26873 AND trend>=0",
+      "source": "pair",
+      "n": 25,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "winrate": 32.0,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta in [-54004.9-72]",
+      "source": "feature_bucket",
+      "n": 30,
+      "profit_factor": 0.485,
+      "expectancy": -22.5925,
+      "winrate": 43.33,
+      "action": "BLOCK"
+    },
+    {
+      "rule": "oi_delta in [-54214.4--54004.9]",
+      "source": "feature_bucket",
+      "n": 12,
+      "profit_factor": 0.5798,
+      "expectancy": -20.9657,
+      "winrate": 41.67,
+      "action": "BLOCK"
+    }
+  ]
+}

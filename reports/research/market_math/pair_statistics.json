@@ -1,0 +1,1517 @@
+{
+  "n_tested": 63,
+  "pairs": [
+    {
+      "features": [
+        "oi",
+        "oi_delta"
+      ],
+      "rule": "oi<=72 AND oi_delta<=-26873",
+      "confidence": 0.3329,
+      "n": 25,
+      "winrate": 32.0,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "mean_pnl": -22.9688,
+      "median_pnl": -14.0076,
+      "std": 94.1618,
+      "ci95": [
+        -55.4362,
+        5.872
+      ],
+      "sharpe": -0.2439,
+      "kelly": -0.4469,
+      "p_value": 0.836066,
+      "delta_ev": 2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "oi_delta"
+      ],
+      "rule": "oi<=72 AND oi_delta<=-26873",
+      "confidence": 0.3329,
+      "n": 25,
+      "winrate": 32.0,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "mean_pnl": -22.9688,
+      "median_pnl": -14.0076,
+      "std": 94.1618,
+      "ci95": [
+        -55.4362,
+        5.872
+      ],
+      "sharpe": -0.2439,
+      "kelly": -0.4469,
+      "p_value": 0.836066,
+      "delta_ev": 2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "oi_delta"
+      ],
+      "rule": "oi>=72 AND oi_delta<=-26873",
+      "confidence": 0.3227,
+      "n": 25,
+      "winrate": 32.0,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "mean_pnl": -22.9688,
+      "median_pnl": -14.0076,
+      "std": 94.1618,
+      "ci95": [
+        -50.6487,
+        12.904
+      ],
+      "sharpe": -0.2439,
+      "kelly": -0.4469,
+      "p_value": 0.852459,
+      "delta_ev": 2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "fear_greed"
+      ],
+      "rule": "oi_delta<=-26873 AND fear_greed<=22",
+      "confidence": 0.2894,
+      "n": 25,
+      "winrate": 32.0,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "mean_pnl": -22.9688,
+      "median_pnl": -14.0076,
+      "std": 94.1618,
+      "ci95": [
+        -62.0239,
+        10.76
+      ],
+      "sharpe": -0.2439,
+      "kelly": -0.4469,
+      "p_value": 0.885246,
+      "delta_ev": 2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "fear_greed"
+      ],
+      "rule": "oi_delta<=-26873 AND fear_greed<=22",
+      "confidence": 0.2894,
+      "n": 25,
+      "winrate": 32.0,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "mean_pnl": -22.9688,
+      "median_pnl": -14.0076,
+      "std": 94.1618,
+      "ci95": [
+        -62.0239,
+        10.76
+      ],
+      "sharpe": -0.2439,
+      "kelly": -0.4469,
+      "p_value": 0.885246,
+      "delta_ev": 2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "fear_greed"
+      ],
+      "rule": "oi_delta<=-26873 AND fear_greed>=22",
+      "confidence": 0.3175,
+      "n": 25,
+      "winrate": 32.0,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "mean_pnl": -22.9688,
+      "median_pnl": -14.0076,
+      "std": 94.1618,
+      "ci95": [
+        -57.3147,
+        8.1473
+      ],
+      "sharpe": -0.2439,
+      "kelly": -0.4469,
+      "p_value": 0.852459,
+      "delta_ev": 2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta<=-26873 AND trend<=0",
+      "confidence": 0.2724,
+      "n": 25,
+      "winrate": 32.0,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "mean_pnl": -22.9688,
+      "median_pnl": -14.0076,
+      "std": 94.1618,
+      "ci95": [
+        -65.53,
+        13.5206
+      ],
+      "sharpe": -0.2439,
+      "kelly": -0.4469,
+      "p_value": 0.885246,
+      "delta_ev": 2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta<=-26873 AND trend<=0",
+      "confidence": 0.2724,
+      "n": 25,
+      "winrate": 32.0,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "mean_pnl": -22.9688,
+      "median_pnl": -14.0076,
+      "std": 94.1618,
+      "ci95": [
+        -65.53,
+        13.5206
+      ],
+      "sharpe": -0.2439,
+      "kelly": -0.4469,
+      "p_value": 0.885246,
+      "delta_ev": 2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta<=-26873 AND trend>=0",
+      "confidence": 0.2958,
+      "n": 25,
+      "winrate": 32.0,
+      "profit_factor": 0.5067,
+      "expectancy": -22.9688,
+      "mean_pnl": -22.9688,
+      "median_pnl": -14.0076,
+      "std": 94.1618,
+      "ci95": [
+        -55.9529,
+        12.9598
+      ],
+      "sharpe": -0.2439,
+      "kelly": -0.4469,
+      "p_value": 0.901639,
+      "delta_ev": 2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "fear_greed"
+      ],
+      "rule": "oi<=72 AND fear_greed<=22",
+      "confidence": 0.4709,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -45.2816,
+        -0.8264
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "fear_greed"
+      ],
+      "rule": "oi<=72 AND fear_greed<=22",
+      "confidence": 0.4709,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -45.2816,
+        -0.8264
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "fear_greed"
+      ],
+      "rule": "oi<=72 AND fear_greed>=22",
+      "confidence": 0.4757,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -43.7694,
+        -1.2521
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "fear_greed"
+      ],
+      "rule": "oi<=72 AND fear_greed<=22",
+      "confidence": 0.4709,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -45.2816,
+        -0.8264
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "fear_greed"
+      ],
+      "rule": "oi<=72 AND fear_greed<=22",
+      "confidence": 0.4709,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -45.2816,
+        -0.8264
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "fear_greed"
+      ],
+      "rule": "oi<=72 AND fear_greed>=22",
+      "confidence": 0.4757,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -43.7694,
+        -1.2521
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "fear_greed"
+      ],
+      "rule": "oi>=72 AND fear_greed<=22",
+      "confidence": 0.4697,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -50.6562,
+        -5.7284
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "fear_greed"
+      ],
+      "rule": "oi>=72 AND fear_greed<=22",
+      "confidence": 0.4697,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -50.6562,
+        -5.7284
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "fear_greed"
+      ],
+      "rule": "oi>=72 AND fear_greed>=22",
+      "confidence": 0.4748,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -43.6678,
+        -0.773
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "trend"
+      ],
+      "rule": "oi<=72 AND trend<=0",
+      "confidence": 0.4397,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -57.3145,
+        -0.2226
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "trend"
+      ],
+      "rule": "oi<=72 AND trend<=0",
+      "confidence": 0.4397,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -57.3145,
+        -0.2226
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "trend"
+      ],
+      "rule": "oi<=72 AND trend>=0",
+      "confidence": 0.4619,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -45.2327,
+        2.8893
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "trend"
+      ],
+      "rule": "oi<=72 AND trend<=0",
+      "confidence": 0.4397,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -57.3145,
+        -0.2226
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "trend"
+      ],
+      "rule": "oi<=72 AND trend<=0",
+      "confidence": 0.4397,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -57.3145,
+        -0.2226
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "trend"
+      ],
+      "rule": "oi<=72 AND trend>=0",
+      "confidence": 0.4619,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -45.2327,
+        2.8893
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "trend"
+      ],
+      "rule": "oi>=72 AND trend<=0",
+      "confidence": 0.4572,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -57.8728,
+        -7.8832
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "trend"
+      ],
+      "rule": "oi>=72 AND trend<=0",
+      "confidence": 0.4572,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -57.8728,
+        -7.8832
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "trend"
+      ],
+      "rule": "oi>=72 AND trend>=0",
+      "confidence": 0.4689,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -48.5812,
+        -3.2993
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "fear_greed",
+        "trend"
+      ],
+      "rule": "fear_greed<=22 AND trend<=0",
+      "confidence": 0.4448,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -57.5315,
+        -2.507
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "fear_greed",
+        "trend"
+      ],
+      "rule": "fear_greed<=22 AND trend<=0",
+      "confidence": 0.4448,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -57.5315,
+        -2.507
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "fear_greed",
+        "trend"
+      ],
+      "rule": "fear_greed<=22 AND trend>=0",
+      "confidence": 0.4732,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -47.8307,
+        -4.2938
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "fear_greed",
+        "trend"
+      ],
+      "rule": "fear_greed<=22 AND trend<=0",
+      "confidence": 0.4448,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -57.5315,
+        -2.507
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "fear_greed",
+        "trend"
+      ],
+      "rule": "fear_greed<=22 AND trend<=0",
+      "confidence": 0.4448,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -57.5315,
+        -2.507
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "fear_greed",
+        "trend"
+      ],
+      "rule": "fear_greed<=22 AND trend>=0",
+      "confidence": 0.4732,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -47.8307,
+        -4.2938
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "fear_greed",
+        "trend"
+      ],
+      "rule": "fear_greed>=22 AND trend<=0",
+      "confidence": 0.4554,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -50.1817,
+        0.5674
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "fear_greed",
+        "trend"
+      ],
+      "rule": "fear_greed>=22 AND trend<=0",
+      "confidence": 0.4554,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -50.1817,
+        0.5674
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "fear_greed",
+        "trend"
+      ],
+      "rule": "fear_greed>=22 AND trend>=0",
+      "confidence": 0.4693,
+      "n": 50,
+      "winrate": 36.0,
+      "profit_factor": 0.4379,
+      "expectancy": -25.2943,
+      "mean_pnl": -25.2943,
+      "median_pnl": -11.5808,
+      "std": 91.8375,
+      "ci95": [
+        -45.1129,
+        -0.02
+      ],
+      "sharpe": -0.2754,
+      "kelly": -0.6142,
+      "p_value": null,
+      "delta_ev": 0.0,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "oi_delta"
+      ],
+      "rule": "oi<=72 AND oi_delta>-26873",
+      "confidence": 0.348,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -61.8588,
+        -3.3821
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.885246,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "oi_delta"
+      ],
+      "rule": "oi<=72 AND oi_delta>=72",
+      "confidence": 0.3432,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -68.5634,
+        2.9249
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.786885,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "oi_delta"
+      ],
+      "rule": "oi<=72 AND oi_delta>-26873",
+      "confidence": 0.348,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -61.8588,
+        -3.3821
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.885246,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "oi_delta"
+      ],
+      "rule": "oi<=72 AND oi_delta>=72",
+      "confidence": 0.3432,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -68.5634,
+        2.9249
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.786885,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "oi_delta"
+      ],
+      "rule": "oi>=72 AND oi_delta>-26873",
+      "confidence": 0.3303,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -66.529,
+        -3.8473
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.918033,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "oi_delta"
+      ],
+      "rule": "oi>=72 AND oi_delta>=72",
+      "confidence": 0.2999,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -68.4403,
+        5.8531
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.934426,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "fear_greed"
+      ],
+      "rule": "oi_delta>-26873 AND fear_greed<=22",
+      "confidence": 0.3208,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -68.0651,
+        7.8748
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.836066,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "fear_greed"
+      ],
+      "rule": "oi_delta>-26873 AND fear_greed<=22",
+      "confidence": 0.3208,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -68.0651,
+        7.8748
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.836066,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "fear_greed"
+      ],
+      "rule": "oi_delta>-26873 AND fear_greed>=22",
+      "confidence": 0.318,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -65.505,
+        6.2545
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.885246,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "fear_greed"
+      ],
+      "rule": "oi_delta>=72 AND fear_greed<=22",
+      "confidence": 0.3266,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -64.3836,
+        -0.0584
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.918033,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "fear_greed"
+      ],
+      "rule": "oi_delta>=72 AND fear_greed<=22",
+      "confidence": 0.3266,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -64.3836,
+        -0.0584
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.918033,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "fear_greed"
+      ],
+      "rule": "oi_delta>=72 AND fear_greed>=22",
+      "confidence": 0.3373,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -62.0249,
+        12.0631
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.786885,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta>-26873 AND trend<=0",
+      "confidence": 0.3568,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -60.6072,
+        1.2354
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.819672,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta>-26873 AND trend<=0",
+      "confidence": 0.3568,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -60.6072,
+        1.2354
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.819672,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta>-26873 AND trend>=0",
+      "confidence": 0.3378,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -58.2674,
+        2.8965
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.901639,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta>=72 AND trend<=0",
+      "confidence": 0.3608,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -54.4291,
+        5.6504
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.819672,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta>=72 AND trend<=0",
+      "confidence": 0.3608,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -54.4291,
+        5.6504
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.819672,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta>=72 AND trend>=0",
+      "confidence": 0.305,
+      "n": 25,
+      "winrate": 40.0,
+      "profit_factor": 0.3643,
+      "expectancy": -27.6198,
+      "mean_pnl": -27.6198,
+      "median_pnl": -4.4383,
+      "std": 89.3924,
+      "ci95": [
+        -67.5371,
+        9.9656
+      ],
+      "sharpe": -0.309,
+      "kelly": -0.8669,
+      "p_value": 0.885246,
+      "delta_ev": -2.3255,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "oi_delta"
+      ],
+      "rule": "oi<=72 AND oi_delta<=-54210.8",
+      "confidence": 0.308,
+      "n": 20,
+      "winrate": 25.0,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "mean_pnl": -29.3469,
+      "median_pnl": -17.4986,
+      "std": 90.3622,
+      "ci95": [
+        -68.5813,
+        6.8693
+      ],
+      "sharpe": -0.3248,
+      "kelly": -0.5909,
+      "p_value": 0.885246,
+      "delta_ev": -4.0526,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "oi_delta"
+      ],
+      "rule": "oi<=72 AND oi_delta<=-54210.8",
+      "confidence": 0.308,
+      "n": 20,
+      "winrate": 25.0,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "mean_pnl": -29.3469,
+      "median_pnl": -17.4986,
+      "std": 90.3622,
+      "ci95": [
+        -68.5813,
+        6.8693
+      ],
+      "sharpe": -0.3248,
+      "kelly": -0.5909,
+      "p_value": 0.885246,
+      "delta_ev": -4.0526,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi",
+        "oi_delta"
+      ],
+      "rule": "oi>=72 AND oi_delta<=-54210.8",
+      "confidence": 0.3346,
+      "n": 20,
+      "winrate": 25.0,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "mean_pnl": -29.3469,
+      "median_pnl": -17.4986,
+      "std": 90.3622,
+      "ci95": [
+        -67.1558,
+        7.3551
+      ],
+      "sharpe": -0.3248,
+      "kelly": -0.5909,
+      "p_value": 0.786885,
+      "delta_ev": -4.0526,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "fear_greed"
+      ],
+      "rule": "oi_delta<=-54210.8 AND fear_greed<=22",
+      "confidence": 0.3307,
+      "n": 20,
+      "winrate": 25.0,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "mean_pnl": -29.3469,
+      "median_pnl": -17.4986,
+      "std": 90.3622,
+      "ci95": [
+        -65.1692,
+        9.2345
+      ],
+      "sharpe": -0.3248,
+      "kelly": -0.5909,
+      "p_value": 0.803279,
+      "delta_ev": -4.0526,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "fear_greed"
+      ],
+      "rule": "oi_delta<=-54210.8 AND fear_greed<=22",
+      "confidence": 0.3307,
+      "n": 20,
+      "winrate": 25.0,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "mean_pnl": -29.3469,
+      "median_pnl": -17.4986,
+      "std": 90.3622,
+      "ci95": [
+        -65.1692,
+        9.2345
+      ],
+      "sharpe": -0.3248,
+      "kelly": -0.5909,
+      "p_value": 0.803279,
+      "delta_ev": -4.0526,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "fear_greed"
+      ],
+      "rule": "oi_delta<=-54210.8 AND fear_greed>=22",
+      "confidence": 0.3466,
+      "n": 20,
+      "winrate": 25.0,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "mean_pnl": -29.3469,
+      "median_pnl": -17.4986,
+      "std": 90.3622,
+      "ci95": [
+        -68.9494,
+        9.5323
+      ],
+      "sharpe": -0.3248,
+      "kelly": -0.5909,
+      "p_value": 0.704918,
+      "delta_ev": -4.0526,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta<=-54210.8 AND trend<=0",
+      "confidence": 0.3189,
+      "n": 20,
+      "winrate": 25.0,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "mean_pnl": -29.3469,
+      "median_pnl": -17.4986,
+      "std": 90.3622,
+      "ci95": [
+        -75.6407,
+        2.3796
+      ],
+      "sharpe": -0.3248,
+      "kelly": -0.5909,
+      "p_value": 0.819672,
+      "delta_ev": -4.0526,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta<=-54210.8 AND trend<=0",
+      "confidence": 0.3189,
+      "n": 20,
+      "winrate": 25.0,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "mean_pnl": -29.3469,
+      "median_pnl": -17.4986,
+      "std": 90.3622,
+      "ci95": [
+        -75.6407,
+        2.3796
+      ],
+      "sharpe": -0.3248,
+      "kelly": -0.5909,
+      "p_value": 0.819672,
+      "delta_ev": -4.0526,
+      "pf_inf": false
+    },
+    {
+      "features": [
+        "oi_delta",
+        "trend"
+      ],
+      "rule": "oi_delta<=-54210.8 AND trend>=0",
+      "confidence": 0.3094,
+      "n": 20,
+      "winrate": 25.0,
+      "profit_factor": 0.3716,
+      "expectancy": -29.3469,
+      "mean_pnl": -29.3469,
+      "median_pnl": -17.4986,
+      "std": 90.3622,
+      "ci95": [
+        -68.9587,
+        11.5953
+      ],
+      "sharpe": -0.3248,
+      "kelly": -0.5909,
+      "p_value": 0.836066,
+      "delta_ev": -4.0526,
+      "pf_inf": false
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "baseline": {
+    "n": 50,
+    "winrate": 36.0,
+    "profit_factor": 0.4379,
+    "expectancy": -25.2943,
+    "mean_pnl": -25.2943,
+    "median_pnl": -11.5808,
+    "std": 91.8375,
+    "ci95": [
+      -50.2232,
+      0.1681
+    ],
+    "sharpe": -0.2754,
+    "kelly": -0.6142,
+    "p_value": null,
+    "delta_ev": null,
+    "pf_inf": false
+  },
+  "filters": [
+    {
+      "filter": "atr",
+      "status": "USELESS",
+      "reason": "insufficient_coverage",
+      "baseline_pf": 0.4379,
+      "baseline_ev": -25.2943
+    },
+    {
+      "filter": "atr_pct",
+      "status": "USELESS",
+      "reason": "insufficient_coverage",
+      "baseline_pf": 0.4379,
+      "baseline_ev": -25.2943
+    },
+    {
+      "filter": "funding",
+      "status": "USELESS",
+      "reason": "insufficient_coverage",
+      "baseline_pf": 0.4379,
+      "baseline_ev": -25.2943
+    },
+    {
+      "filter": "fear_greed",
+      "status": "USELESS",
+      "good_rule": "fear_greed<=22",
+      "with_filter": {
+        "n": 50,
+        "pf": 0.4379,
+        "ev": -25.2943,
+        "wr": 36.0
+      },
+      "without_filter": {
+        "n": 50,
+        "pf": 0.4379,
+        "ev": -25.2943,
+        "wr": 36.0
+      },
+      "opposite_side": {
+        "n": 0,
+        "pf": null,
+        "ev": null,
+        "wr": null
+      },
+      "delta_ev": 0.0,
+      "delta_pf": 0.0
+    },
+    {
+      "filter": "trend",
+      "status": "USELESS",
+      "good_rule": "trend<=0",
+      "with_filter": {
+        "n": 50,
+        "pf": 0.4379,
+        "ev": -25.2943,
+        "wr": 36.0
+      },
+      "without_filter": {
+        "n": 50,
+        "pf": 0.4379,
+        "ev": -25.2943,
+        "wr": 36.0
+      },
+      "opposite_side": {
+        "n": 0,
+        "pf": null,
+        "ev": null,
+        "wr": null
+      },
+      "delta_ev": 0.0,
+      "delta_pf": 0.0
+    },
+    {
+      "filter": "adx",
+      "status": "USELESS",
+      "reason": "insufficient_coverage",
+      "baseline_pf": 0.4379,
+      "baseline_ev": -25.2943
+    },
+    {
+      "filter": "rsi",
+      "status": "USELESS",
+      "reason": "insufficient_coverage",
+      "baseline_pf": 0.4379,
+      "baseline_ev": -25.2943
+    },
+    {
+      "filter": "oi_delta",
+      "status": "USEFUL",
+      "good_rule": "oi_delta<=-26873",
+      "with_filter": {
+        "n": 25,
+        "pf": 0.5067,
+        "ev": -22.9688,
+        "wr": 32.0
+      },
+      "without_filter": {
+        "n": 50,
+        "pf": 0.4379,
+        "ev": -25.2943,
+        "wr": 36.0
+      },
+      "opposite_side": {
+        "n": 25,
+        "pf": 0.3643,
+        "ev": -27.6198,
+        "wr": 40.0
+      },
+      "delta_ev": 2.3255,
+      "delta_pf": 0.0688
+    }
+  ]
+}
