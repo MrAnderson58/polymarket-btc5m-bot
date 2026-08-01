@@ -253,6 +253,7 @@ def main(argv: list[str] | None = None) -> int:
             "market-math-report",
             "market-math-debug",
             "edge-discovery",
+            "edge-discovery-v3",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1563,6 +1564,78 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"edge-discovery failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "edge-discovery-v3":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.event_schema import apply_migrations
+        from bot.research.market_events.signal_intelligence.edge_discovery_v3 import (
+            run_edge_discovery_v3,
+        )
+
+        try:
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"edge-discovery-v3 failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_edge_v3() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    return run_edge_discovery_v3(
+                        conn, write_reports=True, persist_library=True
+                    )
+
+            out = retry_on_db_locked(_run_edge_v3)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "ok": out.get("ok"),
+                    "n_rows": out.get("n_rows"),
+                    "n_edges_tested": out.get("n_edges_tested"),
+                    "n_surviving": out.get("n_surviving"),
+                    "n_ready": out.get("n_ready"),
+                    "n_test": out.get("n_test"),
+                    "elapsed_sec": out.get("elapsed_sec"),
+                    "top20": [
+                        {
+                            "rank": i + 1,
+                            "quality_score": c.get("quality_score"),
+                            "rule": c.get("rule"),
+                            "n": c.get("n"),
+                            "pf": c.get("pf"),
+                            "ev": c.get("expectancy"),
+                            "prob_edge_gt_0": c.get("prob_edge_gt_0"),
+                            "status": c.get("status"),
+                        }
+                        for i, c in enumerate((out.get("top20") or out.get("candidates") or [])[:20])
+                    ],
+                    "feature_ranking": (out.get("feature_ranking") or [])[:15],
+                    "regime_summary": {
+                        "n_regimes": (out.get("regimes") or {}).get("n_regimes"),
+                        "method": (out.get("regimes") or {}).get("method"),
+                        "regimes": (out.get("regimes") or {}).get("regimes"),
+                    },
+                    "paths": out.get("paths"),
+                    "analytics_db": str(db_path),
+                    "source": source,
+                    "gate_unchanged": True,
+                    "optimizer_unchanged": True,
+                    "strategy_unchanged": True,
+                    "paper_unchanged": True,
+                    "execution_unchanged": True,
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"edge-discovery-v3 failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-engine":
