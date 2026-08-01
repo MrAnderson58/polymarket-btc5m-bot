@@ -295,6 +295,7 @@ def main(argv: list[str] | None = None) -> int:
             "learning-worker",
             "paper-performance",
             "db-identity",
+            "workspace-db-identity-audit",
             "paper-gate-funnel",
             "gate-funnel",
             "regime-report",
@@ -2804,6 +2805,18 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except AssertionError as exc:
             print(f"FAIL: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "workspace-db-identity-audit":
+        from bot.research.market_events.workspace_db_identity_audit import (
+            run_workspace_db_identity_audit,
+        )
+
+        try:
+            print(run_workspace_db_identity_audit(search_disk=True))
+            return 0
+        except Exception as exc:
+            print(f"workspace-db-identity-audit failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "paper-performance":
