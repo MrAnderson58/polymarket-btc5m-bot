@@ -257,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
             "market-replay",
             "market-causality",
             "market-brain",
+            "market-shadow-live",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1821,6 +1822,66 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"market-brain failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "market-shadow-live":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.event_schema import apply_migrations
+        from bot.research.market_events.signal_intelligence.shadow_live_v1 import (
+            run_shadow_live_v1,
+        )
+
+        try:
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"market-shadow-live failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_shadow() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    return run_shadow_live_v1(
+                        conn, write_reports=True, persist_library=True
+                    )
+
+            out = retry_on_db_locked(_run_shadow)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "ok": out.get("ok"),
+                    "n_candidates": out.get("n_candidates"),
+                    "n_decisions": out.get("n_decisions"),
+                    "n_evaluated": out.get("n_evaluated"),
+                    "elapsed_sec": out.get("elapsed_sec"),
+                    "mean_decision_ms": out.get("mean_decision_ms"),
+                    "p95_decision_ms": out.get("p95_decision_ms"),
+                    "rolling": out.get("rolling"),
+                    "calibration": out.get("calibration"),
+                    "confidence_curve": out.get("confidence_curve"),
+                    "promotion": out.get("promotion"),
+                    "scorecard": out.get("scorecard"),
+                    "library_upserted": out.get("library_upserted"),
+                    "paths": out.get("paths"),
+                    "analytics_db": str(db_path),
+                    "source": source,
+                    "no_execution": True,
+                    "gate_unchanged": True,
+                    "strategy_unchanged": True,
+                    "paper_unchanged": True,
+                    "execution_unchanged": True,
+                    "optimizer_unchanged": True,
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"market-shadow-live failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-engine":
