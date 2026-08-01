@@ -256,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
             "edge-discovery-v3",
             "market-replay",
             "market-causality",
+            "market-brain",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1756,6 +1757,70 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"market-causality failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "market-brain":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.event_schema import apply_migrations
+        from bot.research.market_events.signal_intelligence.market_brain_v1 import (
+            run_market_brain_v1,
+        )
+
+        try:
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"market-brain failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_brain() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    return run_market_brain_v1(
+                        conn, write_reports=True, persist_library=True
+                    )
+
+            out = retry_on_db_locked(_run_brain)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "ok": out.get("ok"),
+                    "n_rows": out.get("n_rows"),
+                    "n_decisions": out.get("n_decisions"),
+                    "n_no_trade": out.get("n_no_trade"),
+                    "elapsed_sec": out.get("elapsed_sec"),
+                    "module_weights": out.get("module_weights"),
+                    "conflict_stats": out.get("conflict_stats"),
+                    "mean_confidence_calibrated": out.get("mean_confidence_calibrated"),
+                    "replay_performance": out.get("replay_performance"),
+                    "explanation_examples": [
+                        {
+                            "trade_id": e.get("trade_id"),
+                            "decision": e.get("decision"),
+                            "confidence_calibrated": e.get("confidence_calibrated"),
+                            "headline": (e.get("explanation") or {}).get("headline"),
+                        }
+                        for e in (out.get("explanation_examples") or [])[:5]
+                    ],
+                    "library_upserted": out.get("library_upserted"),
+                    "paths": out.get("paths"),
+                    "analytics_db": str(db_path),
+                    "source": source,
+                    "gate_unchanged": True,
+                    "strategy_unchanged": True,
+                    "paper_unchanged": True,
+                    "execution_unchanged": True,
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"market-brain failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-engine":
