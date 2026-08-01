@@ -252,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
             "market-math-research",
             "market-math-report",
             "market-math-debug",
+            "edge-discovery",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1494,6 +1495,67 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except Exception as exc:
             print(f"market-math-debug failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "edge-discovery":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import (
+            research_migrate_then_readonly,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.edge_discovery_v1 import (
+            run_edge_discovery_v1,
+        )
+
+        try:
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"edge-discovery failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_edge() -> dict:
+                with research_migrate_then_readonly(db_path) as conn:
+                    return run_edge_discovery_v1(conn, write_reports=True)
+
+            out = retry_on_db_locked(_run_edge)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "ok": out.get("ok"),
+                    "n_rows": out.get("n_rows"),
+                    "n_combos_tested": out.get("n_combos_tested"),
+                    "n_ready": out.get("n_ready"),
+                    "n_test": out.get("n_test"),
+                    "top5": [
+                        {
+                            "rank": i + 1,
+                            "edge_score": c.get("edge_score"),
+                            "rule": c.get("rule"),
+                            "n": c.get("n"),
+                            "pf": c.get("pf"),
+                            "ev": c.get("expectancy"),
+                            "status": c.get("status"),
+                        }
+                        for i, c in enumerate((out.get("candidates") or [])[:5])
+                    ],
+                    "paths": out.get("paths"),
+                    "elapsed_sec": out.get("elapsed_sec"),
+                    "analytics_db": str(db_path),
+                    "source": source,
+                    "gate_unchanged": True,
+                    "optimizer_unchanged": True,
+                    "paper_unchanged": True,
+                    "execution_unchanged": True,
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"edge-discovery failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-engine":
