@@ -259,6 +259,7 @@ def main(argv: list[str] | None = None) -> int:
             "market-brain",
             "market-shadow-live",
             "market-signal-evolution",
+            "edge-reality-audit",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -1961,6 +1962,72 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"market-signal-evolution failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "edge-reality-audit":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.edge_reality_v1 import (
+            run_edge_reality_audit_v1,
+        )
+
+        try:
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"edge-reality-audit failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_era() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    return run_edge_reality_audit_v1(
+                        conn, write_reports=True, persist_library=True
+                    )
+
+            out = retry_on_db_locked(_run_era)
+            print(out.get("report_markdown") or "")
+            print(
+                json.dumps({
+                    "ok": out.get("ok"),
+                    "run_id": out.get("run_id"),
+                    "n_trades": out.get("n_trades"),
+                    "elapsed_sec": out.get("elapsed_sec"),
+                    "hurts_most": out.get("hurts_most"),
+                    "brain_hurts_most": out.get("brain_hurts_most"),
+                    "pareto": out.get("pareto"),
+                    "simplification": out.get("simplification"),
+                    "ranked": [
+                        {
+                            "module": r.get("module"),
+                            "grade": r.get("grade"),
+                            "score": r.get("score"),
+                            "delta_ev": r.get("delta_ev"),
+                            "keep": r.get("keep"),
+                        }
+                        for r in (out.get("ranked") or [])
+                    ],
+                    "library_upserted": out.get("library_upserted"),
+                    "paths": out.get("paths"),
+                    "analytics_db": str(db_path),
+                    "source": source,
+                    "research_only": True,
+                    "gate_unchanged": True,
+                    "strategy_unchanged": True,
+                    "paper_unchanged": True,
+                    "execution_unchanged": True,
+                    "optimizer_unchanged": True,
+                    "brain_unchanged": True,
+                }, indent=2, default=str),
+                file=sys.stderr,
+            )
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"edge-reality-audit failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-engine":
