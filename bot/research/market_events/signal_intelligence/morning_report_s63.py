@@ -42,6 +42,81 @@ logger = logging.getLogger(__name__)
 
 OVERNIGHT_SECONDS = 12 * 3600  # previous night ≈ last 12h
 
+# Same analytics DB contract as rule-health / research-lake-health.
+_REQUIRED_ANALYTICS_TABLES = (
+    "market_events_paper_trades_s42",
+    "market_events_research_lake_v1",
+)
+
+
+def morning_db_self_check(
+    conn: Any,
+    *,
+    db_path: Path | str | None = None,
+    source: str | None = None,
+) -> dict[str, Any]:
+    """Verify morning-report is on the research analytics SQLite (not sibling S60)."""
+    path = str(Path(db_path).resolve()) if db_path else None
+    missing: list[str] = []
+    for table in _REQUIRED_ANALYTICS_TABLES:
+        try:
+            conn.execute(f"SELECT 1 FROM {table} LIMIT 1")
+        except Exception:
+            missing.append(table)
+
+    if missing:
+        return {
+            "ok": False,
+            "status": "ERROR",
+            "error": "wrong database",
+            "path": path,
+            "source": source,
+            "missing_tables": missing,
+            "rows": None,
+        }
+
+    rows = 0
+    try:
+        rows = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM market_events_research_lake_v1"
+            ).fetchone()[0]
+        )
+    except Exception:
+        try:
+            rows = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM market_events_paper_trades_s42 "
+                    "WHERE status='CLOSED' AND pnl_pct IS NOT NULL"
+                ).fetchone()[0]
+            )
+        except Exception:
+            rows = 0
+
+    return {
+        "ok": True,
+        "status": "OK",
+        "error": None,
+        "path": path,
+        "source": source,
+        "missing_tables": [],
+        "rows": rows,
+    }
+
+
+def format_db_self_check(check: dict[str, Any]) -> str:
+    lines = ["DB", str(check.get("status") or "ERROR")]
+    if not check.get("ok"):
+        lines.append(str(check.get("error") or "wrong database"))
+    lines.extend(["path", str(check.get("path") or "—")])
+    if check.get("ok"):
+        lines.extend(["rows", str(check.get("rows") if check.get("rows") is not None else "—")])
+    else:
+        missing = check.get("missing_tables") or []
+        if missing:
+            lines.extend(["missing", ", ".join(str(t) for t in missing)])
+    return "\n".join(lines)
+
 
 def _repo_root() -> Path:
     here = Path(__file__).resolve()
@@ -143,17 +218,27 @@ def _load_json_if_fresh(path: Path, *, max_age_sec: int = 36 * 3600) -> dict[str
         return None
 
 
-def _collect_system(root: Path) -> dict[str, Any]:
+def _collect_system(root: Path, *, analytics_db_path: Path | str | None = None) -> dict[str, Any]:
     from bot.research.market_events.db_config import resolve_market_events_db_config
-    from bot.research.market_events.signal_intelligence.research_repository_s60 import (
-        resolve_research_db_config,
+    from bot.research.market_events.research_sync_v1 import (
+        resolve_research_analytics_sqlite_path,
     )
 
     git = _git_info(root)
     live = resolve_market_events_db_config()
-    research = resolve_research_db_config()
     live_size = _file_size_mb(live.sqlite_path) if live.backend == "sqlite" else None
-    research_size = _file_size_mb(research.sqlite_path) if research.backend == "sqlite" else None
+
+    analytics_path: Path | None = None
+    analytics_source = None
+    if analytics_db_path is not None:
+        analytics_path = Path(analytics_db_path)
+        analytics_source = "caller"
+    else:
+        try:
+            analytics_path, analytics_source, _ = resolve_research_analytics_sqlite_path()
+        except Exception as exc:
+            analytics_source = f"err:{exc}"[:80]
+    research_size = _file_size_mb(analytics_path) if analytics_path else None
 
     scanner_uptime = None
     collector_uptime = None
@@ -203,9 +288,15 @@ def _collect_system(root: Path) -> dict[str, Any]:
         "git_error": git.get("error"),
         "live_db_backend": live.backend,
         "live_db_size_mb": live_size,
-        "research_db_backend": research.backend,
+        "research_db_backend": "sqlite" if analytics_path else None,
         "research_db_size_mb": research_size,
-        "research_separated": research.separated,
+        "research_db_path": str(analytics_path) if analytics_path else None,
+        "research_db_source": analytics_source,
+        "research_separated": (
+            str(analytics_path.resolve()) != str(live.sqlite_path.resolve())
+            if analytics_path and live.sqlite_path
+            else None
+        ),
         "scanner": scanner_uptime or {"running": False},
         "collector": collector_uptime or {"running": False},
         "markets_scanned_overnight": markets_scanned,
@@ -615,11 +706,25 @@ def run_morning_report(
     now: int | None = None,
     report_dir: Path | None = None,
     root: Path | None = None,
+    db_path: Path | str | None = None,
+    db_source: str | None = None,
 ) -> dict[str, Any]:
     t0 = time.time()
     root = root or _repo_root()
     wall_now = int(now if now is not None else time.time())
     overnight_start = wall_now - OVERNIGHT_SECONDS
+
+    db_check = morning_db_self_check(conn, db_path=db_path, source=db_source)
+    if not db_check.get("ok"):
+        return {
+            "ok": False,
+            "stage": "S63",
+            "generated_at": wall_now,
+            "generated_at_iso": datetime.fromtimestamp(wall_now, tz=timezone.utc).isoformat(),
+            "db": db_check,
+            "error": "wrong database",
+            "elapsed_sec": round(time.time() - t0, 3),
+        }
 
     rows = load_lab_trades(conn)
     _enrich_decisions(conn, rows)
@@ -632,7 +737,7 @@ def run_morning_report(
     if not overnight_wall and as_of_info.get("as_of_mode") == "latest_trade":
         as_of = int(as_of_info["as_of"])
 
-    system = _collect_system(root)
+    system = _collect_system(root, analytics_db_path=db_path or db_check.get("path"))
     system["trades_collected_overnight"] = len(
         _filter_since(rows, now=as_of, seconds=OVERNIGHT_SECONDS),
     )
@@ -744,6 +849,7 @@ def run_morning_report(
         "as_of_mode": as_of_info.get("as_of_mode"),
         "overnight_seconds": OVERNIGHT_SECONDS,
         "n_trades_loaded": len(rows),
+        "db": db_check,
         "system": system,
         "trading": trading,
         "market": market,
@@ -967,6 +1073,16 @@ def format_morning_markdown(report: dict[str, Any]) -> str:
 
 def format_morning_summary(report: dict[str, Any]) -> str:
     """One-screen plain text (no Markdown / no JSON)."""
+    db = report.get("db") or {}
+    lines = [
+        "MORNING REPORT",
+        "",
+        format_db_self_check(db),
+        "",
+    ]
+    if not report.get("ok") or not db.get("ok"):
+        return "\n".join(lines).rstrip() + "\n"
+
     t = (report.get("trading") or {}).get("performance") or {}
     lake = report.get("lake") or {}
     s55 = report.get("s55") or {}
@@ -975,9 +1091,7 @@ def format_morning_summary(report: dict[str, Any]) -> str:
     worst = (report.get("trading") or {}).get("worst_strategy") or {}
     alerts = report.get("alerts") or report.get("top_action_items") or []
 
-    lines = [
-        "MORNING REPORT",
-        "",
+    lines.extend([
         "Trades",
         f"  n={t.get('trades')} window={(report.get('trading') or {}).get('window')}",
         "",
@@ -988,7 +1102,7 @@ def format_morning_summary(report: dict[str, Any]) -> str:
         f"  {t.get('expectancy')}",
         "",
         "Best Rules",
-    ]
+    ])
     for i, r in enumerate((report.get("best_rules") or [])[:5], 1):
         cond = r.get("rule") or r.get("strategy") or "—"
         lines.append(f"  {i}. {cond} PF={r.get('pf') or r.get('profit_factor')} EV={r.get('ev')}")
@@ -1029,8 +1143,10 @@ def format_morning_summary(report: dict[str, Any]) -> str:
 
 
 __all__ = [
+    "format_db_self_check",
     "format_morning_markdown",
     "format_morning_summary",
+    "morning_db_self_check",
     "morning_report_dir",
     "run_morning_report",
 ]

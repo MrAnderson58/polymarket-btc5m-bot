@@ -3066,25 +3066,43 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     if args.command == "morning-report":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import (
+            research_migrate_then_readonly,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
         from bot.research.market_events.signal_intelligence.morning_report_s63 import (
             format_morning_summary,
             run_morning_report,
         )
-        from bot.research.market_events.signal_intelligence.research_repository_s60 import (
-            research_connection,
-        )
+
         try:
-            with research_connection() as conn:
-                out = run_morning_report(conn)
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"morning-report failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run() -> dict:
+                with research_migrate_then_readonly(db_path) as conn:
+                    return run_morning_report(
+                        conn,
+                        db_path=db_path,
+                        db_source=source,
+                    )
+
+            out = retry_on_db_locked(_run)
             if args.json:
                 slim = dict(out)
-                # keep actionable payload; patterns lists already capped
                 print(json.dumps(slim, indent=2, default=str))
             else:
                 print(format_morning_summary(out))
             return 0 if out.get("ok") else 1
         except Exception as exc:
-            print(f"morning-report failed: {exc}")
+            print(f"morning-report failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "pnl-killers":
