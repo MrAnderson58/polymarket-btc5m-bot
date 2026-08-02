@@ -261,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
             "market-signal-evolution",
             "edge-reality-audit",
             "trading-dna",
+            "trading-rules",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -2060,6 +2061,36 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"trading-dna failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "trading-rules":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.trading_rules_v1 import (
+            run_trading_rules_v1,
+        )
+
+        try:
+            try:
+                db_path, _source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"trading-rules failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_rules() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    return run_trading_rules_v1(conn, write_reports=True)
+
+            out = retry_on_db_locked(_run_rules)
+            print(out.get("terminal") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"trading-rules failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-engine":
