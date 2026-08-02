@@ -220,12 +220,20 @@ class TestResearchLakeV1(unittest.TestCase):
         self.conn.commit()
         before = diagnose_missing_s55_joins(self.conn)
         self.assertEqual(before["n_missing"], 5)
-        self.assertEqual(before["reasons"].get("NO_S55_ROW"), 5)
+        self.assertEqual(before["reasons"].get("NO_S55_RECORD"), 5)
         repair = repair_s55_joins(self.conn)
         self.assertTrue(repair["ok"])
         after = diagnose_missing_s55_joins(self.conn)
-        self.assertLess(after["missing_pct"], 1.0)
-        self.assertEqual(after["n_missing"], 0)
+        self.assertEqual(after.get("missing_unexpected"), 0)
+        self.assertEqual(after.get("verdict"), "normal")
+        # Stubs are expected effective-misses, not raw nulls
+        self.assertLess(after.get("n_missing_raw_null"), 1)
+        # After stub repair without research_s40_review exit → EXPECTED_NO_S55
+        self.assertGreaterEqual(
+            int(after.get("reasons", {}).get("EXPECTED_NO_S55") or 0)
+            + int(after.get("reasons", {}).get("MATERIALIZED_S40") or 0),
+            5,
+        )
 
 
 class TestResearchLakeV2Scale(unittest.TestCase):

@@ -20,6 +20,7 @@ from bot.research.market_events.signal_intelligence.research_lake_v1.materialize
 )
 from bot.research.market_events.signal_intelligence.research_lake_v1.s55_join import (
     diagnose_missing_s55_joins,
+    format_s55_join_audit,
     repair_s55_joins,
 )
 from bot.research.market_events.signal_intelligence.research_lake_v1.schema import (
@@ -41,6 +42,7 @@ __all__ = [
     "build_research_lake_v1",
     "diagnose_missing_s55_joins",
     "ensure_research_lake_schema",
+    "format_s55_join_audit",
     "lake_lag",
     "load_research_lake_rows",
     "materialize_closed_from_s40_reviews",
