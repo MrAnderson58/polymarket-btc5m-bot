@@ -262,6 +262,7 @@ def main(argv: list[str] | None = None) -> int:
             "edge-reality-audit",
             "trading-dna",
             "trading-rules",
+            "rule-health",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -269,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
             "research-lake-build",
             "build-research-lake",
             "research-lake-health",
+            "research-lake-sync",
             "market-memory",
             "signal-discovery",
             "why-not",
@@ -2093,6 +2095,38 @@ def main(argv: list[str] | None = None) -> int:
             print(f"trading-rules failed: {exc}", file=sys.stderr)
             return 1
 
+    if args.command == "rule-health":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import (
+            research_migrate_then_readonly,
+        )
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.trading_rules_v1 import (
+            format_rule_health,
+            run_rule_health,
+        )
+
+        try:
+            try:
+                db_path, _source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"rule-health failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run() -> dict:
+                with research_migrate_then_readonly(db_path) as conn:
+                    return run_rule_health(conn)
+
+            out = retry_on_db_locked(_run)
+            print(format_rule_health(out))
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"rule-health failed: {exc}", file=sys.stderr)
+            return 1
+
     if args.command == "alpha-engine":
         from bot.research.market_events.db import is_database_locked, retry_on_db_locked
         from bot.research.market_events.research_db_session import (
@@ -2498,6 +2532,65 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if health.get("ok") else 1
         except Exception as exc:
             print(f"research-lake-health failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "research-lake-sync":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.research_lake_v1 import (
+            diagnose_missing_s55_joins,
+            repair_s55_joins,
+            sync_research_lake_incremental,
+        )
+
+        try:
+            try:
+                db_path, source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"research-lake-sync failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _sync() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    before_s55 = diagnose_missing_s55_joins(conn)
+                    sync = sync_research_lake_incremental(conn, write_reports=False)
+                    repair = repair_s55_joins(conn)
+                    # Re-sync lake hashes/features after S55 repair
+                    sync2 = sync_research_lake_incremental(conn, write_reports=False)
+                    after_s55 = diagnose_missing_s55_joins(conn)
+                    return {
+                        "ok": sync.get("ok") and repair.get("ok"),
+                        "sync": sync,
+                        "sync_after_repair": sync2,
+                        "repair": repair,
+                        "s55_before": before_s55,
+                        "s55_after": after_s55,
+                        "source": source,
+                        "analytics_db": str(db_path),
+                    }
+
+            out = retry_on_db_locked(_sync)
+            print("RESEARCH LAKE SYNC")
+            print(
+                f"lag before={((out.get('sync') or {}).get('lag_before'))} "
+                f"after={((out.get('sync_after_repair') or {}).get('lag_after') or (out.get('sync') or {}).get('lag_after'))}"
+            )
+            sb, sa = out.get("s55_before") or {}, out.get("s55_after") or {}
+            print(
+                f"missing_s55 before={sb.get('n_missing')} ({sb.get('missing_pct')}%) "
+                f"after={sa.get('n_missing')} ({sa.get('missing_pct')}%)"
+            )
+            print(f"reasons: {sa.get('reasons')}")
+            print(f"repair inserted={((out.get('repair') or {}).get('inserted'))} "
+                  f"relinked={((out.get('repair') or {}).get('relinked'))}")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"research-lake-sync failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "market-memory":

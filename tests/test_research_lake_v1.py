@@ -36,7 +36,10 @@ def _seed(conn: sqlite3.Connection) -> None:
           symbol TEXT, direction TEXT, entry REAL, exit REAL,
           status TEXT, result TEXT, pnl_usd REAL, pnl_pct REAL,
           created_at INTEGER, closed_at INTEGER, updated_at INTEGER,
-          gate_decision TEXT
+          gate_decision TEXT, decision_confidence REAL,
+          s40_signal_type TEXT, s40_signal_id INTEGER,
+          mae_pct REAL, mfe_pct REAL, exit_reason TEXT, holding_seconds INTEGER,
+          pattern_json TEXT, news_category TEXT
         );
         CREATE TABLE market_events_trade_features_s55 (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,11 +47,14 @@ def _seed(conn: sqlite3.Connection) -> None:
           s40_signal_type TEXT DEFAULT 't',
           s40_signal_id INTEGER DEFAULT 0,
           symbol TEXT, direction TEXT,
+          hour INTEGER, weekday INTEGER,
           rsi REAL, atr REAL, funding REAL, oi_delta REAL, fear_greed REAL,
-          trend REAL, macro_score REAL, news_score REAL, ai_score REAL,
+          trend REAL, volume REAL, macro_score REAL, news_score REAL, ai_score REAL,
           market_regime TEXT, gate_decision TEXT, features_json TEXT,
           pnl_pct REAL, pnl_usd REAL, result TEXT,
-          created_at INTEGER, closed_at INTEGER
+          mae_pct REAL, mfe_pct REAL, duration_sec INTEGER, exit_reason TEXT,
+          created_at INTEGER, closed_at INTEGER,
+          UNIQUE(s40_signal_type, s40_signal_id)
         );
         """
     )
@@ -57,23 +63,25 @@ def _seed(conn: sqlite3.Connection) -> None:
             """
             INSERT INTO market_events_paper_trades_s42
             (symbol, direction, entry, exit, status, result, pnl_usd, pnl_pct,
-             created_at, closed_at, updated_at, gate_decision)
+             created_at, closed_at, updated_at, gate_decision,
+             s40_signal_type, s40_signal_id, mae_pct, mfe_pct, exit_reason, holding_seconds)
             VALUES ('BTC', 'LONG', 100, 101, 'CLOSED', 'WIN', ?, ?,
-                    1700000000, 1700001000, 1700001000, 'PASS')
+                    1700000000, 1700001000, 1700001000, 'PASS',
+                    ?, ?, -0.1, 0.8, 'TP1', 1000)
             """,
-            (1.0 * i, 0.5 * i),
+            (1.0 * i, 0.5 * i, f"t{i}", i),
         )
         conn.execute(
             """
             INSERT INTO market_events_trade_features_s55
-            (paper_trade_id, symbol, direction, rsi, atr, funding, oi_delta,
-             fear_greed, trend, market_regime, gate_decision, features_json,
-             pnl_pct, pnl_usd, result, created_at, closed_at)
-            VALUES (?, 'BTC', 'LONG', 28, 1.2, -0.0001, 1.5, 40, -0.5,
+            (paper_trade_id, s40_signal_type, s40_signal_id, symbol, direction,
+             rsi, atr, funding, oi_delta, fear_greed, trend, market_regime,
+             gate_decision, features_json, pnl_pct, pnl_usd, result, created_at, closed_at)
+            VALUES (?, ?, ?, 'BTC', 'LONG', 28, 1.2, -0.0001, 1.5, 40, -0.5,
                     'RISK_ON', 'PASS', '{"rsi":28,"atr_pct":1.1}',
                     ?, ?, 'WIN', 1700000000, 1700001000)
             """,
-            (i, 0.5 * i, 1.0 * i),
+            (i, f"t{i}", i, 0.5 * i, 1.0 * i),
         )
     conn.commit()
 
@@ -136,6 +144,7 @@ class TestResearchLakeV1(unittest.TestCase):
         src = Path(m.__file__).read_text(encoding="utf-8")
         self.assertIn('"build-research-lake"', src)
         self.assertIn('"research-lake-health"', src)
+        self.assertIn('"research-lake-sync"', src)
         self.assertIn("build_research_lake_v1", src)
 
     def test_v2_streaming_flags_and_profile(self) -> None:
@@ -174,6 +183,49 @@ class TestResearchLakeV1(unittest.TestCase):
         self.assertGreaterEqual(out["rows_inserted"] + out["rows_updated"], 5)
         self.assertLess(out["profile"]["n_queries"], 5 * 4)  # would be ~20+ under N+1 joins
         _ = s55_events, all_sql
+
+    def test_incremental_sync_clears_lag(self) -> None:
+        from bot.research.market_events.signal_intelligence.research_lake_v1.sync import (
+            lake_lag,
+            sync_research_lake_incremental,
+        )
+
+        build_research_lake_v1(self.conn, full=True, write_reports=False)
+        self.conn.execute(
+            """
+            INSERT INTO market_events_paper_trades_s42
+            (symbol, direction, entry, status, result, pnl_usd, pnl_pct,
+             created_at, closed_at, updated_at)
+            VALUES ('SOL', 'LONG', 10, 'CLOSED', 'WIN', 1, 1,
+                    1700004000, 1700005000, 1700005000)
+            """
+        )
+        self.conn.commit()
+        before = lake_lag(self.conn)
+        self.assertGreaterEqual(before["lag"], 1)
+        out = sync_research_lake_incremental(self.conn)
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["lag_after"], 0)
+
+    def test_s55_join_diagnose_and_repair(self) -> None:
+        from bot.research.market_events.signal_intelligence.research_lake_v1.s55_join import (
+            diagnose_missing_s55_joins,
+            repair_s55_joins,
+        )
+
+        # Build lake with S55, then delete S55 rows → missing joins
+        build_research_lake_v1(self.conn, full=True, write_reports=False)
+        self.conn.execute("DELETE FROM market_events_trade_features_s55")
+        self.conn.execute(f"UPDATE {LAKE_TABLE} SET s55_id = NULL")
+        self.conn.commit()
+        before = diagnose_missing_s55_joins(self.conn)
+        self.assertEqual(before["n_missing"], 5)
+        self.assertEqual(before["reasons"].get("NO_S55_ROW"), 5)
+        repair = repair_s55_joins(self.conn)
+        self.assertTrue(repair["ok"])
+        after = diagnose_missing_s55_joins(self.conn)
+        self.assertLess(after["missing_pct"], 1.0)
+        self.assertEqual(after["n_missing"], 0)
 
 
 class TestResearchLakeV2Scale(unittest.TestCase):

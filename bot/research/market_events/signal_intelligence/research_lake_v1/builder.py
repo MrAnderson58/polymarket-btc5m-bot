@@ -108,23 +108,28 @@ def _print_progress(
     )
 
 
-def _preload_s55(conn: Any, profiler: SqlProfiler) -> dict[int, dict[str, Any]]:
-    """paper_trade_id -> latest S55 row (highest id wins)."""
-    sql = f"SELECT * FROM {_S55} WHERE paper_trade_id IS NOT NULL ORDER BY id ASC"
+def _preload_s55(
+    conn: Any, profiler: SqlProfiler
+) -> tuple[dict[int, dict[str, Any]], dict[tuple[str, int], dict[str, Any]]]:
+    """paper_trade_id -> S55; also (s40_type, s40_id) fallback index."""
+    sql = f"SELECT * FROM {_S55} ORDER BY id ASC"
     t0 = time.perf_counter()
-    out: dict[int, dict[str, Any]] = {}
+    by_tid: dict[int, dict[str, Any]] = {}
+    by_s40: dict[tuple[str, int], dict[str, Any]] = {}
     try:
         rows = conn.execute(sql).fetchall()
         for r in rows:
             d = _row(r)
             tid = d.get("paper_trade_id")
-            if tid is None:
-                continue
-            out[int(tid)] = d
+            if tid is not None:
+                by_tid[int(tid)] = d
+            st, sid = d.get("s40_signal_type"), d.get("s40_signal_id")
+            if st is not None and sid is not None:
+                by_s40[(str(st), int(sid))] = d
     except Exception as exc:
         logger.warning("research_lake: S55 preload failed: %s", exc)
-    profiler.record(sql, rows=len(out), elapsed_sec=time.perf_counter() - t0)
-    return out
+    profiler.record(sql, rows=len(by_tid), elapsed_sec=time.perf_counter() - t0)
+    return by_tid, by_s40
 
 
 def _preload_s56(conn: Any, profiler: SqlProfiler) -> dict[int, dict[str, Any]]:
@@ -571,7 +576,7 @@ def build_research_lake_v1(
     # --- Preload lookup tables (no SELECT inside trade loop) ---
     print_fn("Preloading join tables into memory…")
     t_pre = time.time()
-    s55_by_tid = _preload_s55(conn, profiler)
+    s55_by_tid, s55_by_s40 = _preload_s55(conn, profiler)
     s56_by_tid = _preload_s56(conn, profiler)
     g31_by_sym = _preload_g31_by_symbol(conn, profiler)
     alpha_by_tid = _preload_alpha_labels(conn, profiler)
@@ -623,6 +628,10 @@ def build_research_lake_v1(
             loaded += 1
             tid = int(trade["id"])
             s55 = s55_by_tid.get(tid)
+            if s55 is None:
+                st, sid = trade.get("s40_signal_type"), trade.get("s40_signal_id")
+                if st is not None and sid is not None:
+                    s55 = s55_by_s40.get((str(st), int(sid)))
             s56 = s56_by_tid.get(tid)
             opened = trade.get("created_at") or trade.get("opened_at")
             g31 = _lookup_g31(g31_by_sym, str(trade.get("symbol") or ""), opened)

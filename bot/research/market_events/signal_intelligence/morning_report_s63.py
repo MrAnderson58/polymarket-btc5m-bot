@@ -655,6 +655,86 @@ def run_morning_report(
         system=system,
     )
 
+    lake_info: dict[str, Any] = {"n_lake": 0, "lag": None, "status": "n/a"}
+    s55_info: dict[str, Any] = {"missing": None, "missing_pct": None}
+    brain_info: dict[str, Any] = {"status": "n/a", "notes": None}
+    best_rules: list[dict[str, Any]] = []
+    worst_rules: list[dict[str, Any]] = []
+    try:
+        from bot.research.market_events.signal_intelligence.research_lake_v1 import (
+            diagnose_missing_s55_joins,
+            lake_lag,
+            research_lake_health_v1,
+        )
+
+        lag = lake_lag(conn)
+        lh = research_lake_health_v1(conn)
+        diag = diagnose_missing_s55_joins(conn)
+        lake_info = {
+            "n_lake": lag.get("n_lake"),
+            "lag": lag.get("lag"),
+            "status": lh.get("status"),
+            "n_s42_closed": lag.get("n_s42_closed"),
+        }
+        s55_info = {
+            "missing": diag.get("n_missing"),
+            "missing_pct": diag.get("missing_pct"),
+            "reasons": diag.get("reasons"),
+        }
+    except Exception as exc:
+        lake_info["status"] = f"err:{exc}"[:80]
+
+    try:
+        from bot.research.market_events.signal_intelligence.trading_rules_v1 import (
+            run_trading_rules_v1,
+        )
+
+        rules = run_trading_rules_v1(conn, write_reports=False)
+        ready = rules.get("ready_for_paper") or []
+        hard = rules.get("hard_block") or []
+        best_rules = [
+            {
+                "rule": " + ".join(r.get("conditions") or []),
+                "pf": r.get("pf"),
+                "ev": r.get("ev"),
+                "n": r.get("n"),
+                "status": r.get("stability_status"),
+            }
+            for r in ready[:5]
+        ]
+        worst_rules = [
+            {
+                "rule": " + ".join(r.get("conditions") or []),
+                "pf": r.get("pf"),
+                "ev": r.get("ev"),
+                "n": r.get("n"),
+            }
+            for r in hard[:5]
+        ]
+    except Exception as exc:
+        logger.debug("morning-report rules failed: %s", exc)
+
+    try:
+        # Lightweight brain probe — no mutation
+        brain_info = {
+            "status": "observe",
+            "notes": f"actions={len(actions)} overnight={system.get('trades_collected_overnight')}",
+        }
+    except Exception:
+        pass
+
+    alerts = list(actions)
+    if lake_info.get("lag"):
+        alerts.insert(0, {"priority": "HIGH", "title": f"lake lag={lake_info.get('lag')}"})
+    if s55_info.get("missing_pct") is not None and float(s55_info["missing_pct"] or 0) >= 1.0:
+        alerts.insert(
+            0,
+            {
+                "priority": "HIGH",
+                "title": f"missing_s55={s55_info.get('missing')} ({s55_info.get('missing_pct')}%)",
+            },
+        )
+
     report = {
         "ok": True,
         "stage": "S63",
@@ -672,6 +752,12 @@ def run_morning_report(
         "telegram": telegram,
         "system_health": health,
         "top_action_items": actions,
+        "lake": lake_info,
+        "s55": s55_info,
+        "brain": brain_info,
+        "best_rules": best_rules,
+        "worst_rules": worst_rules,
+        "alerts": alerts,
         "elapsed_sec": round(time.time() - t0, 3),
     }
 
@@ -880,20 +966,65 @@ def format_morning_markdown(report: dict[str, Any]) -> str:
 
 
 def format_morning_summary(report: dict[str, Any]) -> str:
+    """One-screen plain text (no Markdown / no JSON)."""
     t = (report.get("trading") or {}).get("performance") or {}
-    actions = report.get("top_action_items") or []
+    lake = report.get("lake") or {}
+    s55 = report.get("s55") or {}
+    brain = report.get("brain") or {}
+    best = (report.get("trading") or {}).get("best_strategy") or {}
+    worst = (report.get("trading") or {}).get("worst_strategy") or {}
+    alerts = report.get("alerts") or report.get("top_action_items") or []
+
     lines = [
-        "S63 Morning Trading Report",
-        f"  generated={report.get('generated_at_iso')} elapsed={report.get('elapsed_sec')}s",
-        f"  overnight trades={report.get('system', {}).get('trades_collected_overnight')} "
-        f"PnL={_fmt(t.get('pnl'))} PF={_fmt(t.get('profit_factor'))} WR={_fmt(t.get('winrate'))}",
-        f"  telegram={report.get('telegram', {}).get('collector_status')} "
-        f"actions={len(actions)}",
+        "MORNING REPORT",
+        "",
+        "Trades",
+        f"  n={t.get('trades')} window={(report.get('trading') or {}).get('window')}",
+        "",
+        "PF",
+        f"  {t.get('profit_factor')}",
+        "",
+        "EV",
+        f"  {t.get('expectancy')}",
+        "",
+        "Best Rules",
     ]
-    for a in actions[:5]:
-        lines.append(f"  - [{a.get('priority')}] {a.get('title')}")
-    for k, p in (report.get("export_paths") or {}).items():
-        lines.append(f"  {k}: {p}")
+    for i, r in enumerate((report.get("best_rules") or [])[:5], 1):
+        cond = r.get("rule") or r.get("strategy") or "—"
+        lines.append(f"  {i}. {cond} PF={r.get('pf') or r.get('profit_factor')} EV={r.get('ev')}")
+    if not (report.get("best_rules") or []):
+        name = best.get("strategy") or "—"
+        lines.append(f"  1. {name} PF={best.get('profit_factor')} PnL={best.get('pnl')}")
+
+    lines.extend(["", "Worst Rules"])
+    for i, r in enumerate((report.get("worst_rules") or [])[:5], 1):
+        cond = r.get("rule") or r.get("strategy") or "—"
+        lines.append(f"  {i}. {cond} PF={r.get('pf') or r.get('profit_factor')} EV={r.get('ev')}")
+    if not (report.get("worst_rules") or []):
+        name = worst.get("strategy") or "—"
+        lines.append(f"  1. {name} PF={worst.get('profit_factor')} PnL={worst.get('pnl')}")
+
+    lines.extend([
+        "",
+        "Lake",
+        f"  n={lake.get('n_lake')} lag={lake.get('lag')} status={lake.get('status')}",
+        "",
+        "S55 joins",
+        f"  missing={s55.get('missing')} pct={s55.get('missing_pct')}%",
+        "",
+        "Brain",
+        f"  {brain.get('status') or 'n/a'} notes={brain.get('notes') or '—'}",
+        "",
+        "Alerts",
+    ])
+    if not alerts:
+        lines.append("  (none)")
+    else:
+        for a in alerts[:6]:
+            if isinstance(a, dict):
+                lines.append(f"  - [{a.get('priority') or 'INFO'}] {a.get('title') or a}")
+            else:
+                lines.append(f"  - {a}")
     return "\n".join(lines)
 
 

@@ -757,6 +757,16 @@ def _close_trade(
     except Exception as exc:
         logger.warning("s55 finalize on close failed: %s", exc)
 
+    # Research Freeze: best-effort incremental lake sync after each CLOSED trade.
+    try:
+        from bot.research.market_events.signal_intelligence.research_lake_v1 import (
+            sync_closed_trade_to_lake,
+        )
+
+        sync_closed_trade_to_lake(conn, int(row["id"]))
+    except Exception as exc:
+        logger.debug("research lake sync on close failed: %s", exc)
+
     try:
         from bot.research.market_events.expectancy_intelligence.knowledge_record import (
             record_paper_trade_knowledge,

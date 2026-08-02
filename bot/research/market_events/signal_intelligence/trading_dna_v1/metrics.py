@@ -34,12 +34,18 @@ def trade_metrics(pnls: Sequence[float]) -> dict[str, Any]:
     conf = min(0.99, max(0.05, 0.5 * (1.0 - math.exp(-len(nonzero) / 80.0)) + 0.5 * abs(wr - 0.5) * 2))
     if pf is not None:
         conf = min(0.99, conf * (0.7 + 0.3 * min(3.0, pf) / 3.0))
+    avg_win = round(sum(wins) / len(wins), 4) if wins else None
+    avg_loss = round(sum(losses) / len(losses), 4) if losses else None
     return {
         "n": n,
         "wr": round(100.0 * wr, 2),
         "ev": round(mean, 4),
         "pf": pf,
         "pf_inf": pf is None and gw > 0,
+        "gross_profit": round(gw, 4),
+        "gross_loss": round(gl, 4),
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
         "total": round(sum(xs), 4),
         "confidence": round(conf, 4),
         "n_nonzero": len(nonzero),

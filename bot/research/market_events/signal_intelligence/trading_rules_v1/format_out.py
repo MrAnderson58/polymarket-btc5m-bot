@@ -38,8 +38,36 @@ def format_terminal(result: dict[str, Any]) -> str:
         lines.append("PF:")
         lines.append(_pf(r.get("pf"), bool(r.get("pf_inf"))))
         lines.append("")
+        lines.append("Gross Profit:")
+        lines.append(str(r.get("gross_profit")))
+        lines.append("")
+        lines.append("Gross Loss:")
+        lines.append(str(r.get("gross_loss")))
+        lines.append("")
+        lines.append("Avg Win:")
+        lines.append(str(r.get("avg_win")))
+        lines.append("")
+        lines.append("Avg Loss:")
+        lines.append(str(r.get("avg_loss")))
+        lines.append("")
         lines.append("EV:")
         lines.append(str(r.get("ev")))
+        lines.append("")
+        pv = r.get("pf_verify") or {}
+        lines.append("PF check:")
+        lines.append(
+            f"{'OK' if pv.get('ok') else 'FAIL'} "
+            f"(PF={pv.get('pf')} = GP/GL, dupes={pv.get('duplicates', 0)})"
+        )
+        lines.append("")
+        lines.append("Stability:")
+        lines.append(str(r.get("stability_status") or "RESEARCH_ONLY"))
+        stab = (r.get("stability") or {}).get("months") or []
+        for m in stab[-6:]:
+            lines.append(
+                f"  {m.get('month')} WR={m.get('wr')} PF={m.get('pf')} "
+                f"EV={m.get('ev')} n={m.get('n')}"
+            )
         lines.append("")
         lines.append("CI:")
         lines.append(_ci(r.get("ci_lo"), r.get("ci_hi")))

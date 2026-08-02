@@ -20,8 +20,15 @@ from bot.research.market_events.signal_intelligence.trading_rules_v1.minimize im
     extract_blocks,
     extract_candidates,
 )
+from bot.research.market_events.signal_intelligence.trading_rules_v1.pf_verify import (
+    verify_rule_pf,
+)
+from bot.research.market_events.signal_intelligence.trading_rules_v1.stability import (
+    attach_stability,
+)
 from bot.research.market_events.signal_intelligence.trading_rules_v1.validate import (
     MIN_N_READY,
+    build_predicate,
 )
 
 REPORT_MD = BASE_DIR / "TRADING_RULES_REPORT.md"
@@ -50,6 +57,23 @@ def _load_trades(conn: Any, *, limit: int | None = None) -> tuple[list[dict[str,
     return [], {"source": "empty"}
 
 
+def _enrich_ready(
+    rules: list[dict[str, Any]],
+    enriched: list[dict[str, Any]],
+    atomics: list[Any],
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for r in rules:
+        pred = build_predicate(r.get("conditions") or [], atomics=atomics)
+        row = attach_stability(r, enriched, pred)
+        if pred is not None:
+            row["pf_verify"] = verify_rule_pf(enriched, pred)
+        else:
+            row["pf_verify"] = {"ok": False, "reason": "no_predicate"}
+        out.append(row)
+    return out
+
+
 def run_trading_rules_v1(
     conn: Any,
     *,
@@ -70,15 +94,21 @@ def run_trading_rules_v1(
     candidates = extract_candidates(
         enriched, profitable, atomics=atomics, min_n=min_n, limit=40
     )
-    ready = candidates[:10]
+    ready = _enrich_ready(candidates[:10], enriched, atomics)
 
     blocks = extract_blocks(enriched, losing, atomics=atomics, limit=20)
-    # Prefer universal-ish blocks; always keep gate blocks first
-    hard = []
+    hard: list[dict[str, Any]] = []
     for b in blocks:
-        hard.append(b)
+        pred = build_predicate(b.get("conditions") or [], atomics=atomics)
+        row = attach_stability(b, enriched, pred)
+        if pred is not None:
+            row["pf_verify"] = verify_rule_pf(enriched, pred)
+        hard.append(row)
         if len(hard) >= 10:
             break
+
+    n_paper = sum(1 for r in ready if r.get("stability_status") == "PAPER_READY")
+    pf_all_ok = all((r.get("pf_verify") or {}).get("ok", False) for r in ready) if ready else True
 
     elapsed = round(time.time() - t0, 3)
     result: dict[str, Any] = {
@@ -90,6 +120,8 @@ def run_trading_rules_v1(
         "n_candidates": len(candidates),
         "ready_for_paper": ready,
         "hard_block": hard,
+        "n_paper_ready": n_paper,
+        "pf_verified": pf_all_ok,
         "min_n": min_n,
         "research_only": True,
         "paper_unchanged": True,

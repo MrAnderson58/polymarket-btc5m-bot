@@ -238,6 +238,47 @@ class TestCli(unittest.TestCase):
         )
         self.assertEqual(r.returncode, 0)
         self.assertIn("trading-rules", r.stdout + r.stderr)
+        self.assertIn("rule-health", r.stdout + r.stderr)
+
+
+class TestPfAndStability(unittest.TestCase):
+    def test_pf_formula(self) -> None:
+        from bot.research.market_events.signal_intelligence.trading_rules_v1.pf_verify import (
+            verify_profit_factor,
+        )
+
+        out = verify_profit_factor([1.0, 2.0, -1.0, -0.5, 0.0])
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["gross_profit"], 3.0)
+        self.assertEqual(out["gross_loss"], 1.5)
+        self.assertEqual(out["pf"], 2.0)
+        self.assertEqual(out["duplicates"], 0)
+
+    def test_stability_paper_ready(self) -> None:
+        from bot.research.market_events.signal_intelligence.trading_rules_v1.stability import (
+            monthly_stability,
+        )
+
+        rows = []
+        # 4 consecutive months of stable edge
+        for mi, month_base in enumerate([1_700_000_000, 1_702_800_000, 1_705_400_000, 1_708_000_000]):
+            for i in range(50):
+                rows.append({
+                    "pnl": 1.0 if i % 3 else -0.4,
+                    "closed_at": month_base + i * 60,
+                })
+        stab = monthly_stability(rows, pred=lambda r: True, min_n=40, min_pf=1.1)
+        self.assertEqual(stab["status"], "PAPER_READY")
+        self.assertGreaterEqual(stab["stable_streak"], 3)
+
+    def test_stability_research_only(self) -> None:
+        from bot.research.market_events.signal_intelligence.trading_rules_v1.stability import (
+            monthly_stability,
+        )
+
+        rows = [{"pnl": -1.0, "closed_at": 1_700_000_000 + i} for i in range(100)]
+        stab = monthly_stability(rows, pred=lambda r: True, min_n=40, min_pf=1.1)
+        self.assertEqual(stab["status"], "RESEARCH_ONLY")
 
 
 if __name__ == "__main__":

@@ -117,9 +117,12 @@ def research_lake_health_v1(conn: Any) -> dict[str, Any]:
         issues.append(f"lake_behind_s42 lake={n_lake} closed={n_closed}")
     if n_closed and coverage < 99.0:
         issues.append(f"coverage_below_99={coverage}")
-    # Feature join sparsity is expected for research S40 backfill — note only when covered.
-    if n_closed and missing_s55 > n_lake * 0.5:
-        (notes if coverage >= 99.0 else issues).append(f"missing_s55_joins={missing_s55}")
+    missing_s55_pct = round(100.0 * missing_s55 / n_lake, 4) if n_lake else 0.0
+    # Research Freeze: missing S55 joins must stay under 1%.
+    if n_lake and missing_s55_pct >= 1.0:
+        issues.append(f"missing_s55_joins={missing_s55} ({missing_s55_pct}%)")
+    elif missing_s55:
+        notes.append(f"missing_s55_joins={missing_s55} ({missing_s55_pct}%)")
     if sampled and null_feature_hits > sampled * 0.5:
         (notes if coverage >= 99.0 else issues).append(
             f"null_explosion={null_feature_hits}/{sampled}"
@@ -127,10 +130,15 @@ def research_lake_health_v1(conn: Any) -> dict[str, Any]:
     if broken_features:
         (notes if coverage >= 99.0 else issues).append(f"broken_features={broken_features}")
 
-    # Coverage / duplicates are hard failures.
+    # Coverage / duplicates / S55 join budget are hard failures.
     if n_lake == 0 and n_closed == 0:
         status = "EMPTY"
-    elif duplicates or (n_closed and coverage < 99.0) or (n_closed and n_lake < n_closed):
+    elif (
+        duplicates
+        or (n_closed and coverage < 99.0)
+        or (n_closed and n_lake < n_closed)
+        or (n_lake and missing_s55_pct >= 1.0)
+    ):
         status = "FAIL"
     elif issues:
         status = "WARN"
@@ -145,6 +153,7 @@ def research_lake_health_v1(conn: Any) -> dict[str, Any]:
         "coverage_pct": coverage,
         "duplicates": duplicates,
         "missing_s55_joins": missing_s55,
+        "missing_s55_pct": missing_s55_pct,
         "missing_pnl": missing_pnl,
         "missing_symbol": missing_symbol,
         "null_feature_rows": null_feature_hits,
