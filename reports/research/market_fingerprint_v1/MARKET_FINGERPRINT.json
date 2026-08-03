@@ -1,0 +1,3995 @@
+{
+  "ok": true,
+  "n_trades": 19205,
+  "n_snapshots": 18247,
+  "elapsed_sec": 19.039,
+  "win_fingerprints": [
+    {
+      "id": "UNK_SHORT_W07",
+      "result_bucket": "WIN",
+      "n": 1202,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 3.1836,
+      "sharpe": 0.5927,
+      "max_dd": 0.0,
+      "ci_lo": 2.8647,
+      "ci_hi": 3.5185,
+      "avg_mae": null,
+      "avg_mfe": 2.7848,
+      "avg_hold": 1340.0,
+      "center": {
+        "chg_24h": -2.482108,
+        "chg_12h": -2.102265,
+        "chg_8h": -1.703604,
+        "chg_4h": -0.813927,
+        "chg_2h": -0.125686,
+        "chg_1h": 0.180206,
+        "chg_30m": 0.204753,
+        "chg_15m": 0.161934,
+        "chg_5m": 0.091769,
+        "range_4h": 2.503653,
+        "range_1h": 0.926788,
+        "vol_4h": 0.212448,
+        "vol_1h": 0.166093,
+        "atr_pct": 0.288343,
+        "bb_width": 0.009682,
+        "bb_pos": 0.674238,
+        "rvol_1h": 1.003963,
+        "vol_spike_1h": 0.901692,
+        "dvol_1h": -1763671627.779184,
+        "ema20_dist": 0.086677,
+        "ema50_dist": -0.187897,
+        "ema200_dist": -1.161318,
+        "ema_cross_20_50": -0.915368,
+        "adx": 0.0,
+        "slope_4h": -0.047446,
+        "accel_1h": 0.022595,
+        "rsi": 51.109516,
+        "macd": -0.138494,
+        "macd_hist": 0.066869,
+        "stoch_k": 70.031797,
+        "roc_1h": 0.189464,
+        "mom_4h": -0.825938,
+        "funding": 54.068358,
+        "funding_delta": 0.0,
+        "oi_delta": -56043.55066,
+        "fear_greed": 22.027789,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.829945
+      }
+    },
+    {
+      "id": "UNK_SHORT_W06",
+      "result_bucket": "WIN",
+      "n": 222,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 2.9137,
+      "sharpe": 1.8703,
+      "max_dd": 0.0,
+      "ci_lo": 2.6934,
+      "ci_hi": 3.0967,
+      "avg_mae": null,
+      "avg_mfe": 2.9137,
+      "avg_hold": 543.1,
+      "center": {
+        "chg_24h": -2.428729,
+        "chg_12h": -2.169811,
+        "chg_8h": -1.895696,
+        "chg_4h": -1.591575,
+        "chg_2h": -2.095664,
+        "chg_1h": -1.426751,
+        "chg_30m": -0.900232,
+        "chg_15m": -0.411153,
+        "chg_5m": -0.09415,
+        "range_4h": 3.364199,
+        "range_1h": 2.297224,
+        "vol_4h": 0.230473,
+        "vol_1h": 0.305698,
+        "atr_pct": 0.379772,
+        "bb_width": 0.027517,
+        "bb_pos": 0.080626,
+        "rvol_1h": 7.031845,
+        "vol_spike_1h": 1.435745,
+        "dvol_1h": -410612610.157923,
+        "ema20_dist": -0.937347,
+        "ema50_dist": -1.395027,
+        "ema200_dist": -1.86483,
+        "ema_cross_20_50": -0.889807,
+        "adx": 0.0,
+        "slope_4h": -0.278252,
+        "accel_1h": -2.304651,
+        "rsi": 28.987352,
+        "macd": -4.734153,
+        "macd_hist": -2.163046,
+        "stoch_k": 23.740094,
+        "roc_1h": -1.426751,
+        "mom_4h": -1.613418,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54212.6195,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.83
+      }
+    },
+    {
+      "id": "UNK_SHORT_W02",
+      "result_bucket": "WIN",
+      "n": 1041,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 2.5802,
+      "sharpe": 0.8477,
+      "max_dd": 0.0,
+      "ci_lo": 2.4361,
+      "ci_hi": 2.7575,
+      "avg_mae": null,
+      "avg_mfe": 2.4067,
+      "avg_hold": 722.4,
+      "center": {
+        "chg_24h": -1.727571,
+        "chg_12h": -1.504948,
+        "chg_8h": -1.244422,
+        "chg_4h": -1.072821,
+        "chg_2h": -0.895401,
+        "chg_1h": -0.59632,
+        "chg_30m": -0.317675,
+        "chg_15m": -0.174501,
+        "chg_5m": -0.100781,
+        "range_4h": 2.889025,
+        "range_1h": 1.397013,
+        "vol_4h": 0.239068,
+        "vol_1h": 0.237357,
+        "atr_pct": 0.371197,
+        "bb_width": 0.01565,
+        "bb_pos": 0.211654,
+        "rvol_1h": 1.401714,
+        "vol_spike_1h": 0.936703,
+        "dvol_1h": -147968134.614453,
+        "ema20_dist": -0.387742,
+        "ema50_dist": -0.675769,
+        "ema200_dist": -1.139472,
+        "ema_cross_20_50": -0.63559,
+        "adx": 0.0,
+        "slope_4h": -0.014355,
+        "accel_1h": 0.02228,
+        "rsi": 39.179121,
+        "macd": -0.137966,
+        "macd_hist": -0.012515,
+        "stoch_k": 28.56529,
+        "roc_1h": -0.59071,
+        "mom_4h": -1.06483,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54050.852958,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.83093
+      }
+    },
+    {
+      "id": "UNK_LONG_W03",
+      "result_bucket": "WIN",
+      "n": 782,
+      "direction_mode": "LONG",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.8696,
+      "sharpe": 1.1226,
+      "max_dd": 0.0,
+      "ci_lo": 1.7519,
+      "ci_hi": 1.99,
+      "avg_mae": null,
+      "avg_mfe": 1.8661,
+      "avg_hold": 649.7,
+      "center": {
+        "chg_24h": 0.486397,
+        "chg_12h": 1.073897,
+        "chg_8h": 1.190576,
+        "chg_4h": 1.007096,
+        "chg_2h": 0.790285,
+        "chg_1h": 0.670777,
+        "chg_30m": 0.405381,
+        "chg_15m": 0.18827,
+        "chg_5m": 0.064566,
+        "range_4h": 2.47453,
+        "range_1h": 1.439993,
+        "vol_4h": 0.218136,
+        "vol_1h": 0.20899,
+        "atr_pct": 0.34444,
+        "bb_width": 0.015333,
+        "bb_pos": 0.830516,
+        "rvol_1h": 1.885247,
+        "vol_spike_1h": 1.286972,
+        "dvol_1h": 977627448.237872,
+        "ema20_dist": 0.406807,
+        "ema50_dist": 0.650412,
+        "ema200_dist": 0.892134,
+        "ema_cross_20_50": 0.795578,
+        "adx": 0.0,
+        "slope_4h": 0.013699,
+        "accel_1h": 0.042807,
+        "rsi": 61.955916,
+        "macd": 0.11347,
+        "macd_hist": 0.052545,
+        "stoch_k": 76.267546,
+        "roc_1h": 0.643059,
+        "mom_4h": 1.029566,
+        "funding": 54.096732,
+        "funding_delta": 0.0,
+        "oi_delta": -54216.986371,
+        "fear_greed": 22.002884,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.83
+      }
+    },
+    {
+      "id": "UNK_SHORT_W01",
+      "result_bucket": "WIN",
+      "n": 2651,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.843,
+      "sharpe": 0.3816,
+      "max_dd": 0.0,
+      "ci_lo": 1.6672,
+      "ci_hi": 2.0228,
+      "avg_mae": null,
+      "avg_mfe": 1.6548,
+      "avg_hold": 1227.3,
+      "center": {
+        "chg_24h": -1.132811,
+        "chg_12h": -0.841796,
+        "chg_8h": -0.706511,
+        "chg_4h": -0.370749,
+        "chg_2h": -0.274108,
+        "chg_1h": -0.207337,
+        "chg_30m": -0.156503,
+        "chg_15m": -0.103063,
+        "chg_5m": -0.032683,
+        "range_4h": 1.237636,
+        "range_1h": 0.578057,
+        "vol_4h": 0.114199,
+        "vol_1h": 0.098827,
+        "atr_pct": 0.158748,
+        "bb_width": 0.006196,
+        "bb_pos": 0.222677,
+        "rvol_1h": 1.139683,
+        "vol_spike_1h": 1.035036,
+        "dvol_1h": 24851137.072773,
+        "ema20_dist": -0.156159,
+        "ema50_dist": -0.254726,
+        "ema200_dist": -0.554948,
+        "ema_cross_20_50": -0.633974,
+        "adx": 0.0,
+        "slope_4h": 0.042088,
+        "accel_1h": -0.340849,
+        "rsi": 41.177066,
+        "macd": -0.412769,
+        "macd_hist": -0.362769,
+        "stoch_k": 27.445685,
+        "roc_1h": -0.20893,
+        "mom_4h": -0.36761,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54165.068726,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.830115
+      }
+    },
+    {
+      "id": "UNK_SHORT_W04",
+      "result_bucket": "WIN",
+      "n": 114,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.8018,
+      "sharpe": 0.7901,
+      "max_dd": 0.0,
+      "ci_lo": 1.4182,
+      "ci_hi": 2.2155,
+      "avg_mae": null,
+      "avg_mfe": 1.8018,
+      "avg_hold": 495.5,
+      "center": {
+        "chg_24h": -1.548987,
+        "chg_12h": -1.215778,
+        "chg_8h": -1.114968,
+        "chg_4h": -0.28461,
+        "chg_2h": -0.351962,
+        "chg_1h": -0.341403,
+        "chg_30m": -0.309312,
+        "chg_15m": -0.254136,
+        "chg_5m": -0.104794,
+        "range_4h": 1.561184,
+        "range_1h": 0.856666,
+        "vol_4h": 0.158195,
+        "vol_1h": 0.122844,
+        "atr_pct": 0.209915,
+        "bb_width": 0.008264,
+        "bb_pos": 0.174275,
+        "rvol_1h": 1.744977,
+        "vol_spike_1h": 13.373444,
+        "dvol_1h": 1265063316.231216,
+        "ema20_dist": -0.259502,
+        "ema50_dist": -0.376216,
+        "ema200_dist": -0.646018,
+        "ema_cross_20_50": -0.592955,
+        "adx": 0.0,
+        "slope_4h": -0.041075,
+        "accel_1h": -0.059481,
+        "rsi": 40.164007,
+        "macd": -0.410956,
+        "macd_hist": -0.091028,
+        "stoch_k": 31.78183,
+        "roc_1h": -0.34574,
+        "mom_4h": -0.233847,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54212.6195,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.83
+      }
+    },
+    {
+      "id": "UNK_SHORT_W05",
+      "result_bucket": "WIN",
+      "n": 69,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.6409,
+      "sharpe": 1.6515,
+      "max_dd": 0.0,
+      "ci_lo": 1.3947,
+      "ci_hi": 1.8618,
+      "avg_mae": null,
+      "avg_mfe": 1.6409,
+      "avg_hold": 570.8,
+      "center": {
+        "chg_24h": -1.366307,
+        "chg_12h": -1.494738,
+        "chg_8h": -1.320313,
+        "chg_4h": -1.04848,
+        "chg_2h": -0.733509,
+        "chg_1h": -0.112742,
+        "chg_30m": -0.040467,
+        "chg_15m": -0.003528,
+        "chg_5m": 0.00474,
+        "range_4h": 1.58904,
+        "range_1h": 0.540622,
+        "vol_4h": 0.099517,
+        "vol_1h": 0.096325,
+        "atr_pct": 0.162524,
+        "bb_width": 0.008615,
+        "bb_pos": 0.407168,
+        "rvol_1h": 1.178392,
+        "vol_spike_1h": 0.610809,
+        "dvol_1h": -409.757101,
+        "ema20_dist": -0.157087,
+        "ema50_dist": -0.470615,
+        "ema200_dist": -1.063509,
+        "ema_cross_20_50": -1.0,
+        "adx": 0.0,
+        "slope_4h": -16.694101,
+        "accel_1h": 4.041066,
+        "rsi": 38.189587,
+        "macd": -108.300677,
+        "macd_hist": 9.894643,
+        "stoch_k": 47.170859,
+        "roc_1h": -0.114613,
+        "mom_4h": -1.048755,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54212.6195,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.83
+      }
+    },
+    {
+      "id": "UNK_SHORT_W00",
+      "result_bucket": "WIN",
+      "n": 2639,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.5536,
+      "sharpe": 0.9271,
+      "max_dd": 0.0,
+      "ci_lo": 1.494,
+      "ci_hi": 1.6127,
+      "avg_mae": null,
+      "avg_mfe": 1.5121,
+      "avg_hold": 846.5,
+      "center": {
+        "chg_24h": -0.611502,
+        "chg_12h": 0.092225,
+        "chg_8h": 0.145003,
+        "chg_4h": 0.232156,
+        "chg_2h": 0.150625,
+        "chg_1h": 0.158842,
+        "chg_30m": 0.084841,
+        "chg_15m": 0.041036,
+        "chg_5m": 0.014974,
+        "range_4h": 1.183516,
+        "range_1h": 0.555035,
+        "vol_4h": 0.117352,
+        "vol_1h": 0.098865,
+        "atr_pct": 0.156334,
+        "bb_width": 0.006182,
+        "bb_pos": 0.688677,
+        "rvol_1h": 1.265282,
+        "vol_spike_1h": 0.953192,
+        "dvol_1h": -21997433.470355,
+        "ema20_dist": 0.091374,
+        "ema50_dist": 0.13821,
+        "ema200_dist": 0.074924,
+        "ema_cross_20_50": 0.316292,
+        "adx": 0.0,
+        "slope_4h": 0.223799,
+        "accel_1h": 0.417618,
+        "rsi": 55.298845,
+        "macd": 2.432062,
+        "macd_hist": 0.556392,
+        "stoch_k": 66.442092,
+        "roc_1h": 0.158542,
+        "mom_4h": 0.234667,
+        "funding": 54.098196,
+        "funding_delta": 0.0,
+        "oi_delta": -54181.267449,
+        "fear_greed": 22.001592,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.830129
+      }
+    }
+  ],
+  "loss_fingerprints": [
+    {
+      "id": "RANGE_SHORT_L01",
+      "result_bucket": "LOSS",
+      "n": 32,
+      "direction_mode": "SHORT",
+      "regime_mode": "RANGE",
+      "wr": 0.0,
+      "pf": 0.0,
+      "ev": -27.3102,
+      "sharpe": -1.4559,
+      "max_dd": -859.9201,
+      "ci_lo": -34.4717,
+      "ci_hi": -20.8423,
+      "avg_mae": -1.3655,
+      "avg_mfe": 1.4954,
+      "avg_hold": 23736.1,
+      "center": {
+        "chg_24h": -0.377842,
+        "chg_12h": -0.708095,
+        "chg_8h": -0.92412,
+        "chg_4h": -0.418322,
+        "chg_2h": 0.72528,
+        "chg_1h": 0.586955,
+        "chg_30m": 0.269793,
+        "chg_15m": 0.076819,
+        "chg_5m": 0.087448,
+        "range_4h": 2.471072,
+        "range_1h": 0.906453,
+        "vol_4h": 0.217599,
+        "vol_1h": 0.124016,
+        "atr_pct": 0.223462,
+        "bb_width": 0.010352,
+        "bb_pos": 0.904865,
+        "rvol_1h": 1.19894,
+        "vol_spike_1h": 0.649123,
+        "dvol_1h": 40603.438953,
+        "ema20_dist": 0.331561,
+        "ema50_dist": 0.236521,
+        "ema200_dist": -0.31719,
+        "ema_cross_20_50": -0.420719,
+        "adx": 0.0,
+        "slope_4h": -0.022253,
+        "accel_1h": 0.402223,
+        "rsi": 62.167928,
+        "macd": 3.776479,
+        "macd_hist": 1.89933,
+        "stoch_k": 89.201538,
+        "roc_1h": 0.595634,
+        "mom_4h": -0.409743,
+        "funding": 50.890275,
+        "funding_delta": 0.0,
+        "oi_delta": -393110.82251,
+        "fear_greed": 24.79704,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.68167
+      }
+    },
+    {
+      "id": "RANGE_LONG_L00",
+      "result_bucket": "LOSS",
+      "n": 24,
+      "direction_mode": "LONG",
+      "regime_mode": "RANGE",
+      "wr": 0.0,
+      "pf": 0.0,
+      "ev": -92.0061,
+      "sharpe": -1.1127,
+      "max_dd": -1995.0705,
+      "ci_lo": -119.9313,
+      "ci_hi": -60.7244,
+      "avg_mae": -4.6003,
+      "avg_mfe": 2.0474,
+      "avg_hold": 25203.7,
+      "center": {
+        "chg_24h": -2.389875,
+        "chg_12h": -2.808898,
+        "chg_8h": -2.153218,
+        "chg_4h": -1.940944,
+        "chg_2h": 0.344128,
+        "chg_1h": -0.303386,
+        "chg_30m": -0.211111,
+        "chg_15m": -0.115808,
+        "chg_5m": -0.075307,
+        "range_4h": 3.167439,
+        "range_1h": 0.635641,
+        "vol_4h": 0.244463,
+        "vol_1h": 0.100229,
+        "atr_pct": 0.225773,
+        "bb_width": 0.006875,
+        "bb_pos": 0.194787,
+        "rvol_1h": 0.60303,
+        "vol_spike_1h": 0.340525,
+        "dvol_1h": -216918.937548,
+        "ema20_dist": -0.151956,
+        "ema50_dist": -0.411596,
+        "ema200_dist": -1.746236,
+        "ema_cross_20_50": -0.825613,
+        "adx": 0.0,
+        "slope_4h": 0.000137,
+        "accel_1h": -0.002433,
+        "rsi": 43.950173,
+        "macd": 4.5e-05,
+        "macd_hist": -0.001176,
+        "stoch_k": 17.772809,
+        "roc_1h": -0.303386,
+        "mom_4h": -1.940944,
+        "funding": 54.052861,
+        "funding_delta": 0.0,
+        "oi_delta": -30011.075828,
+        "fear_greed": 22.040872,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 50.027302
+      }
+    }
+  ],
+  "clusters": [
+    {
+      "id": "UNK_SHORT_W07",
+      "result_bucket": "WIN",
+      "n": 1202,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 3.1836,
+      "sharpe": 0.5927,
+      "max_dd": 0.0,
+      "ci_lo": 2.8647,
+      "ci_hi": 3.5185,
+      "avg_mae": null,
+      "avg_mfe": 2.7848,
+      "avg_hold": 1340.0,
+      "center": {
+        "chg_24h": -2.482108,
+        "chg_12h": -2.102265,
+        "chg_8h": -1.703604,
+        "chg_4h": -0.813927,
+        "chg_2h": -0.125686,
+        "chg_1h": 0.180206,
+        "chg_30m": 0.204753,
+        "chg_15m": 0.161934,
+        "chg_5m": 0.091769,
+        "range_4h": 2.503653,
+        "range_1h": 0.926788,
+        "vol_4h": 0.212448,
+        "vol_1h": 0.166093,
+        "atr_pct": 0.288343,
+        "bb_width": 0.009682,
+        "bb_pos": 0.674238,
+        "rvol_1h": 1.003963,
+        "vol_spike_1h": 0.901692,
+        "dvol_1h": -1763671627.779184,
+        "ema20_dist": 0.086677,
+        "ema50_dist": -0.187897,
+        "ema200_dist": -1.161318,
+        "ema_cross_20_50": -0.915368,
+        "adx": 0.0,
+        "slope_4h": -0.047446,
+        "accel_1h": 0.022595,
+        "rsi": 51.109516,
+        "macd": -0.138494,
+        "macd_hist": 0.066869,
+        "stoch_k": 70.031797,
+        "roc_1h": 0.189464,
+        "mom_4h": -0.825938,
+        "funding": 54.068358,
+        "funding_delta": 0.0,
+        "oi_delta": -56043.55066,
+        "fear_greed": 22.027789,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.829945
+      }
+    },
+    {
+      "id": "UNK_SHORT_W06",
+      "result_bucket": "WIN",
+      "n": 222,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 2.9137,
+      "sharpe": 1.8703,
+      "max_dd": 0.0,
+      "ci_lo": 2.6934,
+      "ci_hi": 3.0967,
+      "avg_mae": null,
+      "avg_mfe": 2.9137,
+      "avg_hold": 543.1,
+      "center": {
+        "chg_24h": -2.428729,
+        "chg_12h": -2.169811,
+        "chg_8h": -1.895696,
+        "chg_4h": -1.591575,
+        "chg_2h": -2.095664,
+        "chg_1h": -1.426751,
+        "chg_30m": -0.900232,
+        "chg_15m": -0.411153,
+        "chg_5m": -0.09415,
+        "range_4h": 3.364199,
+        "range_1h": 2.297224,
+        "vol_4h": 0.230473,
+        "vol_1h": 0.305698,
+        "atr_pct": 0.379772,
+        "bb_width": 0.027517,
+        "bb_pos": 0.080626,
+        "rvol_1h": 7.031845,
+        "vol_spike_1h": 1.435745,
+        "dvol_1h": -410612610.157923,
+        "ema20_dist": -0.937347,
+        "ema50_dist": -1.395027,
+        "ema200_dist": -1.86483,
+        "ema_cross_20_50": -0.889807,
+        "adx": 0.0,
+        "slope_4h": -0.278252,
+        "accel_1h": -2.304651,
+        "rsi": 28.987352,
+        "macd": -4.734153,
+        "macd_hist": -2.163046,
+        "stoch_k": 23.740094,
+        "roc_1h": -1.426751,
+        "mom_4h": -1.613418,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54212.6195,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.83
+      }
+    },
+    {
+      "id": "UNK_SHORT_W02",
+      "result_bucket": "WIN",
+      "n": 1041,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 2.5802,
+      "sharpe": 0.8477,
+      "max_dd": 0.0,
+      "ci_lo": 2.4361,
+      "ci_hi": 2.7575,
+      "avg_mae": null,
+      "avg_mfe": 2.4067,
+      "avg_hold": 722.4,
+      "center": {
+        "chg_24h": -1.727571,
+        "chg_12h": -1.504948,
+        "chg_8h": -1.244422,
+        "chg_4h": -1.072821,
+        "chg_2h": -0.895401,
+        "chg_1h": -0.59632,
+        "chg_30m": -0.317675,
+        "chg_15m": -0.174501,
+        "chg_5m": -0.100781,
+        "range_4h": 2.889025,
+        "range_1h": 1.397013,
+        "vol_4h": 0.239068,
+        "vol_1h": 0.237357,
+        "atr_pct": 0.371197,
+        "bb_width": 0.01565,
+        "bb_pos": 0.211654,
+        "rvol_1h": 1.401714,
+        "vol_spike_1h": 0.936703,
+        "dvol_1h": -147968134.614453,
+        "ema20_dist": -0.387742,
+        "ema50_dist": -0.675769,
+        "ema200_dist": -1.139472,
+        "ema_cross_20_50": -0.63559,
+        "adx": 0.0,
+        "slope_4h": -0.014355,
+        "accel_1h": 0.02228,
+        "rsi": 39.179121,
+        "macd": -0.137966,
+        "macd_hist": -0.012515,
+        "stoch_k": 28.56529,
+        "roc_1h": -0.59071,
+        "mom_4h": -1.06483,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54050.852958,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.83093
+      }
+    },
+    {
+      "id": "UNK_LONG_W03",
+      "result_bucket": "WIN",
+      "n": 782,
+      "direction_mode": "LONG",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.8696,
+      "sharpe": 1.1226,
+      "max_dd": 0.0,
+      "ci_lo": 1.7519,
+      "ci_hi": 1.99,
+      "avg_mae": null,
+      "avg_mfe": 1.8661,
+      "avg_hold": 649.7,
+      "center": {
+        "chg_24h": 0.486397,
+        "chg_12h": 1.073897,
+        "chg_8h": 1.190576,
+        "chg_4h": 1.007096,
+        "chg_2h": 0.790285,
+        "chg_1h": 0.670777,
+        "chg_30m": 0.405381,
+        "chg_15m": 0.18827,
+        "chg_5m": 0.064566,
+        "range_4h": 2.47453,
+        "range_1h": 1.439993,
+        "vol_4h": 0.218136,
+        "vol_1h": 0.20899,
+        "atr_pct": 0.34444,
+        "bb_width": 0.015333,
+        "bb_pos": 0.830516,
+        "rvol_1h": 1.885247,
+        "vol_spike_1h": 1.286972,
+        "dvol_1h": 977627448.237872,
+        "ema20_dist": 0.406807,
+        "ema50_dist": 0.650412,
+        "ema200_dist": 0.892134,
+        "ema_cross_20_50": 0.795578,
+        "adx": 0.0,
+        "slope_4h": 0.013699,
+        "accel_1h": 0.042807,
+        "rsi": 61.955916,
+        "macd": 0.11347,
+        "macd_hist": 0.052545,
+        "stoch_k": 76.267546,
+        "roc_1h": 0.643059,
+        "mom_4h": 1.029566,
+        "funding": 54.096732,
+        "funding_delta": 0.0,
+        "oi_delta": -54216.986371,
+        "fear_greed": 22.002884,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.83
+      }
+    },
+    {
+      "id": "UNK_SHORT_W01",
+      "result_bucket": "WIN",
+      "n": 2651,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.843,
+      "sharpe": 0.3816,
+      "max_dd": 0.0,
+      "ci_lo": 1.6672,
+      "ci_hi": 2.0228,
+      "avg_mae": null,
+      "avg_mfe": 1.6548,
+      "avg_hold": 1227.3,
+      "center": {
+        "chg_24h": -1.132811,
+        "chg_12h": -0.841796,
+        "chg_8h": -0.706511,
+        "chg_4h": -0.370749,
+        "chg_2h": -0.274108,
+        "chg_1h": -0.207337,
+        "chg_30m": -0.156503,
+        "chg_15m": -0.103063,
+        "chg_5m": -0.032683,
+        "range_4h": 1.237636,
+        "range_1h": 0.578057,
+        "vol_4h": 0.114199,
+        "vol_1h": 0.098827,
+        "atr_pct": 0.158748,
+        "bb_width": 0.006196,
+        "bb_pos": 0.222677,
+        "rvol_1h": 1.139683,
+        "vol_spike_1h": 1.035036,
+        "dvol_1h": 24851137.072773,
+        "ema20_dist": -0.156159,
+        "ema50_dist": -0.254726,
+        "ema200_dist": -0.554948,
+        "ema_cross_20_50": -0.633974,
+        "adx": 0.0,
+        "slope_4h": 0.042088,
+        "accel_1h": -0.340849,
+        "rsi": 41.177066,
+        "macd": -0.412769,
+        "macd_hist": -0.362769,
+        "stoch_k": 27.445685,
+        "roc_1h": -0.20893,
+        "mom_4h": -0.36761,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54165.068726,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.830115
+      }
+    },
+    {
+      "id": "UNK_SHORT_W04",
+      "result_bucket": "WIN",
+      "n": 114,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.8018,
+      "sharpe": 0.7901,
+      "max_dd": 0.0,
+      "ci_lo": 1.4182,
+      "ci_hi": 2.2155,
+      "avg_mae": null,
+      "avg_mfe": 1.8018,
+      "avg_hold": 495.5,
+      "center": {
+        "chg_24h": -1.548987,
+        "chg_12h": -1.215778,
+        "chg_8h": -1.114968,
+        "chg_4h": -0.28461,
+        "chg_2h": -0.351962,
+        "chg_1h": -0.341403,
+        "chg_30m": -0.309312,
+        "chg_15m": -0.254136,
+        "chg_5m": -0.104794,
+        "range_4h": 1.561184,
+        "range_1h": 0.856666,
+        "vol_4h": 0.158195,
+        "vol_1h": 0.122844,
+        "atr_pct": 0.209915,
+        "bb_width": 0.008264,
+        "bb_pos": 0.174275,
+        "rvol_1h": 1.744977,
+        "vol_spike_1h": 13.373444,
+        "dvol_1h": 1265063316.231216,
+        "ema20_dist": -0.259502,
+        "ema50_dist": -0.376216,
+        "ema200_dist": -0.646018,
+        "ema_cross_20_50": -0.592955,
+        "adx": 0.0,
+        "slope_4h": -0.041075,
+        "accel_1h": -0.059481,
+        "rsi": 40.164007,
+        "macd": -0.410956,
+        "macd_hist": -0.091028,
+        "stoch_k": 31.78183,
+        "roc_1h": -0.34574,
+        "mom_4h": -0.233847,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54212.6195,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.83
+      }
+    },
+    {
+      "id": "UNK_SHORT_W05",
+      "result_bucket": "WIN",
+      "n": 69,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.6409,
+      "sharpe": 1.6515,
+      "max_dd": 0.0,
+      "ci_lo": 1.3947,
+      "ci_hi": 1.8618,
+      "avg_mae": null,
+      "avg_mfe": 1.6409,
+      "avg_hold": 570.8,
+      "center": {
+        "chg_24h": -1.366307,
+        "chg_12h": -1.494738,
+        "chg_8h": -1.320313,
+        "chg_4h": -1.04848,
+        "chg_2h": -0.733509,
+        "chg_1h": -0.112742,
+        "chg_30m": -0.040467,
+        "chg_15m": -0.003528,
+        "chg_5m": 0.00474,
+        "range_4h": 1.58904,
+        "range_1h": 0.540622,
+        "vol_4h": 0.099517,
+        "vol_1h": 0.096325,
+        "atr_pct": 0.162524,
+        "bb_width": 0.008615,
+        "bb_pos": 0.407168,
+        "rvol_1h": 1.178392,
+        "vol_spike_1h": 0.610809,
+        "dvol_1h": -409.757101,
+        "ema20_dist": -0.157087,
+        "ema50_dist": -0.470615,
+        "ema200_dist": -1.063509,
+        "ema_cross_20_50": -1.0,
+        "adx": 0.0,
+        "slope_4h": -16.694101,
+        "accel_1h": 4.041066,
+        "rsi": 38.189587,
+        "macd": -108.300677,
+        "macd_hist": 9.894643,
+        "stoch_k": 47.170859,
+        "roc_1h": -0.114613,
+        "mom_4h": -1.048755,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54212.6195,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.83
+      }
+    },
+    {
+      "id": "UNK_SHORT_W00",
+      "result_bucket": "WIN",
+      "n": 2639,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.5536,
+      "sharpe": 0.9271,
+      "max_dd": 0.0,
+      "ci_lo": 1.494,
+      "ci_hi": 1.6127,
+      "avg_mae": null,
+      "avg_mfe": 1.5121,
+      "avg_hold": 846.5,
+      "center": {
+        "chg_24h": -0.611502,
+        "chg_12h": 0.092225,
+        "chg_8h": 0.145003,
+        "chg_4h": 0.232156,
+        "chg_2h": 0.150625,
+        "chg_1h": 0.158842,
+        "chg_30m": 0.084841,
+        "chg_15m": 0.041036,
+        "chg_5m": 0.014974,
+        "range_4h": 1.183516,
+        "range_1h": 0.555035,
+        "vol_4h": 0.117352,
+        "vol_1h": 0.098865,
+        "atr_pct": 0.156334,
+        "bb_width": 0.006182,
+        "bb_pos": 0.688677,
+        "rvol_1h": 1.265282,
+        "vol_spike_1h": 0.953192,
+        "dvol_1h": -21997433.470355,
+        "ema20_dist": 0.091374,
+        "ema50_dist": 0.13821,
+        "ema200_dist": 0.074924,
+        "ema_cross_20_50": 0.316292,
+        "adx": 0.0,
+        "slope_4h": 0.223799,
+        "accel_1h": 0.417618,
+        "rsi": 55.298845,
+        "macd": 2.432062,
+        "macd_hist": 0.556392,
+        "stoch_k": 66.442092,
+        "roc_1h": 0.158542,
+        "mom_4h": 0.234667,
+        "funding": 54.098196,
+        "funding_delta": 0.0,
+        "oi_delta": -54181.267449,
+        "fear_greed": 22.001592,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.830129
+      }
+    },
+    {
+      "id": "UNK_LONG_B07",
+      "result_bucket": "BE",
+      "n": 1977,
+      "direction_mode": "LONG",
+      "regime_mode": "UNK",
+      "wr": 0.0,
+      "pf": 0.0,
+      "ev": 0.0,
+      "sharpe": null,
+      "max_dd": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0,
+      "avg_mae": null,
+      "avg_mfe": null,
+      "avg_hold": 782.8,
+      "center": {
+        "chg_24h": -1.170545,
+        "chg_12h": -1.125651,
+        "chg_8h": -0.956974,
+        "chg_4h": -0.645975,
+        "chg_2h": -0.482517,
+        "chg_1h": -0.363606,
+        "chg_30m": -0.225299,
+        "chg_15m": -0.155038,
+        "chg_5m": -0.0449,
+        "range_4h": 1.456308,
+        "range_1h": 0.74538,
+        "vol_4h": 0.131492,
+        "vol_1h": 0.118901,
+        "atr_pct": 0.197002,
+        "bb_width": 0.008053,
+        "bb_pos": 0.14478,
+        "rvol_1h": 1.580543,
+        "vol_spike_1h": 1.676508,
+        "dvol_1h": 112755368.880585,
+        "ema20_dist": -0.248327,
+        "ema50_dist": -0.411511,
+        "ema200_dist": -0.786252,
+        "ema_cross_20_50": -0.898008,
+        "adx": 0.0,
+        "slope_4h": -0.136493,
+        "accel_1h": -0.121598,
+        "rsi": 38.269374,
+        "macd": -1.77135,
+        "macd_hist": -0.445983,
+        "stoch_k": 21.567875,
+        "roc_1h": -0.363389,
+        "mom_4h": -0.640896,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54224.779,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 50.02
+      }
+    },
+    {
+      "id": "UNK_LONG_B01",
+      "result_bucket": "BE",
+      "n": 1926,
+      "direction_mode": "LONG",
+      "regime_mode": "UNK",
+      "wr": 0.0,
+      "pf": 0.0,
+      "ev": 0.0,
+      "sharpe": null,
+      "max_dd": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0,
+      "avg_mae": null,
+      "avg_mfe": 0.2525,
+      "avg_hold": 1274.7,
+      "center": {
+        "chg_24h": -1.721646,
+        "chg_12h": -1.380515,
+        "chg_8h": -1.004394,
+        "chg_4h": -0.29721,
+        "chg_2h": -0.080572,
+        "chg_1h": 0.129745,
+        "chg_30m": 0.144108,
+        "chg_15m": 0.086073,
+        "chg_5m": 0.036558,
+        "range_4h": 1.708532,
+        "range_1h": 0.730139,
+        "vol_4h": 0.156982,
+        "vol_1h": 0.130909,
+        "atr_pct": 0.221552,
+        "bb_width": 0.007507,
+        "bb_pos": 0.63568,
+        "rvol_1h": 1.18396,
+        "vol_spike_1h": 0.958189,
+        "dvol_1h": -33166549.560289,
+        "ema20_dist": 0.061483,
+        "ema50_dist": -0.075686,
+        "ema200_dist": -0.716065,
+        "ema_cross_20_50": -0.753589,
+        "adx": 0.0,
+        "slope_4h": -0.08545,
+        "accel_1h": 0.102927,
+        "rsi": 51.539289,
+        "macd": 0.195723,
+        "macd_hist": 0.478622,
+        "stoch_k": 69.161747,
+        "roc_1h": 0.134433,
+        "mom_4h": -0.26912,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54224.779,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 50.02
+      }
+    },
+    {
+      "id": "UNK_SHORT_B04",
+      "result_bucket": "BE",
+      "n": 1826,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 0.0,
+      "pf": 0.0,
+      "ev": 0.0,
+      "sharpe": null,
+      "max_dd": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0,
+      "avg_mae": null,
+      "avg_mfe": null,
+      "avg_hold": 867.1,
+      "center": {
+        "chg_24h": 0.234116,
+        "chg_12h": 0.180416,
+        "chg_8h": 0.024345,
+        "chg_4h": 0.117214,
+        "chg_2h": 0.046159,
+        "chg_1h": 0.024381,
+        "chg_30m": 0.013666,
+        "chg_15m": 0.003995,
+        "chg_5m": 0.002693,
+        "range_4h": 0.863676,
+        "range_1h": 0.378383,
+        "vol_4h": 0.08392,
+        "vol_1h": 0.069016,
+        "atr_pct": 0.113251,
+        "bb_width": 0.004158,
+        "bb_pos": 0.526153,
+        "rvol_1h": 1.024419,
+        "vol_spike_1h": 1.013207,
+        "dvol_1h": -29152.475481,
+        "ema20_dist": 0.02052,
+        "ema50_dist": 0.04588,
+        "ema200_dist": 0.078617,
+        "ema_cross_20_50": 0.254052,
+        "adx": 0.0,
+        "slope_4h": 0.27855,
+        "accel_1h": 0.349975,
+        "rsi": 53.143246,
+        "macd": 0.417107,
+        "macd_hist": -0.531688,
+        "stoch_k": 50.937345,
+        "roc_1h": 0.024362,
+        "mom_4h": 0.11919,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54224.779,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 50.02
+      }
+    },
+    {
+      "id": "UNK_SHORT_B02",
+      "result_bucket": "BE",
+      "n": 1089,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 0.0,
+      "pf": 0.0,
+      "ev": 0.0,
+      "sharpe": null,
+      "max_dd": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0,
+      "avg_mae": null,
+      "avg_mfe": null,
+      "avg_hold": 809.3,
+      "center": {
+        "chg_24h": 1.153373,
+        "chg_12h": 1.099472,
+        "chg_8h": 0.901539,
+        "chg_4h": 0.854116,
+        "chg_2h": 0.63371,
+        "chg_1h": 0.577062,
+        "chg_30m": 0.371564,
+        "chg_15m": 0.24333,
+        "chg_5m": 0.094871,
+        "range_4h": 2.069579,
+        "range_1h": 1.152546,
+        "vol_4h": 0.187492,
+        "vol_1h": 0.178635,
+        "atr_pct": 0.281913,
+        "bb_width": 0.011883,
+        "bb_pos": 0.866109,
+        "rvol_1h": 1.686086,
+        "vol_spike_1h": 2323.168311,
+        "dvol_1h": 1144405652.807423,
+        "ema20_dist": 0.37551,
+        "ema50_dist": 0.558264,
+        "ema200_dist": 0.808034,
+        "ema_cross_20_50": 0.745627,
+        "adx": 0.0,
+        "slope_4h": 0.316023,
+        "accel_1h": -0.75817,
+        "rsi": 62.302673,
+        "macd": 2.827297,
+        "macd_hist": 0.326828,
+        "stoch_k": 81.249985,
+        "roc_1h": 0.568449,
+        "mom_4h": 0.836261,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54224.779,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 50.02
+      }
+    },
+    {
+      "id": "UNK_LONG_B03",
+      "result_bucket": "BE",
+      "n": 958,
+      "direction_mode": "LONG",
+      "regime_mode": "UNK",
+      "wr": 0.0,
+      "pf": 0.0,
+      "ev": 0.0,
+      "sharpe": null,
+      "max_dd": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0,
+      "avg_mae": null,
+      "avg_mfe": null,
+      "avg_hold": 1118.0,
+      "center": {
+        "chg_24h": 0.0,
+        "chg_12h": 0.0,
+        "chg_8h": -0.0,
+        "chg_4h": 0.0,
+        "chg_2h": 0.0,
+        "chg_1h": 0.0,
+        "chg_30m": 0.0,
+        "chg_15m": -0.0,
+        "chg_5m": 0.0,
+        "range_4h": 0.0,
+        "range_1h": -0.0,
+        "vol_4h": 0.0,
+        "vol_1h": 0.0,
+        "atr_pct": -0.0,
+        "bb_width": -0.0,
+        "bb_pos": 0.436554,
+        "rvol_1h": 0.942725,
+        "vol_spike_1h": 0.662308,
+        "dvol_1h": 2e-06,
+        "ema20_dist": -0.0,
+        "ema50_dist": -0.0,
+        "ema200_dist": -0.00038,
+        "ema_cross_20_50": -1.0,
+        "adx": 0.0,
+        "slope_4h": 0.0,
+        "accel_1h": -0.0,
+        "rsi": 100.0,
+        "macd": 0.0,
+        "macd_hist": -0.0,
+        "stoch_k": 50.0,
+        "roc_1h": -0.0,
+        "mom_4h": -0.0,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54208.380094,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 50.02
+      }
+    },
+    {
+      "id": "UNK_SHORT_B05",
+      "result_bucket": "BE",
+      "n": 877,
+      "direction_mode": "SHORT",
+      "regime_mode": "UNK",
+      "wr": 0.0,
+      "pf": 0.0,
+      "ev": 0.0,
+      "sharpe": null,
+      "max_dd": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0,
+      "avg_mae": null,
+      "avg_mfe": null,
+      "avg_hold": 1151.8,
+      "center": {
+        "chg_24h": 1.253655,
+        "chg_12h": 0.800209,
+        "chg_8h": 0.728439,
+        "chg_4h": 0.501632,
+        "chg_2h": -0.017381,
+        "chg_1h": -0.281416,
+        "chg_30m": -0.235921,
+        "chg_15m": -0.147592,
+        "chg_5m": -0.061385,
+        "range_4h": 1.93473,
+        "range_1h": 0.981361,
+        "vol_4h": 0.185882,
+        "vol_1h": 0.177845,
+        "atr_pct": 0.279602,
+        "bb_width": 0.010653,
+        "bb_pos": 0.297254,
+        "rvol_1h": 1.114012,
+        "vol_spike_1h": 1.106056,
+        "dvol_1h": -515681128.081876,
+        "ema20_dist": -0.140201,
+        "ema50_dist": 0.011739,
+        "ema200_dist": 0.433693,
+        "ema_cross_20_50": 0.773438,
+        "adx": 0.0,
+        "slope_4h": 0.233997,
+        "accel_1h": -0.37488,
+        "rsi": 46.815077,
+        "macd": 0.660353,
+        "macd_hist": -0.45481,
+        "stoch_k": 28.15152,
+        "roc_1h": -0.288199,
+        "mom_4h": 0.499332,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54224.779,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 50.02
+      }
+    },
+    {
+      "id": "UNK_LONG_B00",
+      "result_bucket": "BE",
+      "n": 697,
+      "direction_mode": "LONG",
+      "regime_mode": "UNK",
+      "wr": 0.0,
+      "pf": 0.0,
+      "ev": 0.0,
+      "sharpe": null,
+      "max_dd": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0,
+      "avg_mae": null,
+      "avg_mfe": null,
+      "avg_hold": 1249.1,
+      "center": {
+        "chg_24h": -3.412492,
+        "chg_12h": -2.857658,
+        "chg_8h": -2.229048,
+        "chg_4h": -1.567261,
+        "chg_2h": -1.482348,
+        "chg_1h": -0.739374,
+        "chg_30m": -0.35212,
+        "chg_15m": -0.089801,
+        "chg_5m": -0.001197,
+        "range_4h": 3.137714,
+        "range_1h": 1.696482,
+        "vol_4h": 0.223337,
+        "vol_1h": 0.255482,
+        "atr_pct": 0.371159,
+        "bb_width": 0.020134,
+        "bb_pos": 0.233973,
+        "rvol_1h": 2.735115,
+        "vol_spike_1h": 1.160179,
+        "dvol_1h": -901138912.917019,
+        "ema20_dist": -0.517272,
+        "ema50_dist": -1.023321,
+        "ema200_dist": -2.110776,
+        "ema_cross_20_50": -0.986733,
+        "adx": 0.0,
+        "slope_4h": -0.094225,
+        "accel_1h": -0.989681,
+        "rsi": 35.411087,
+        "macd": -1.556299,
+        "macd_hist": -0.673054,
+        "stoch_k": 37.167031,
+        "roc_1h": -0.72959,
+        "mom_4h": -1.624397,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54224.779,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 50.02
+      }
+    },
+    {
+      "id": "UNK_LONG_B06",
+      "result_bucket": "BE",
+      "n": 121,
+      "direction_mode": "LONG",
+      "regime_mode": "UNK",
+      "wr": 0.0,
+      "pf": 0.0,
+      "ev": 0.0,
+      "sharpe": null,
+      "max_dd": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0,
+      "avg_mae": null,
+      "avg_mfe": null,
+      "avg_hold": 1262.7,
+      "center": {
+        "chg_24h": -1.724229,
+        "chg_12h": -1.906075,
+        "chg_8h": -1.652086,
+        "chg_4h": -1.110225,
+        "chg_2h": -0.686373,
+        "chg_1h": -0.195233,
+        "chg_30m": -0.015982,
+        "chg_15m": 0.040696,
+        "chg_5m": 0.007255,
+        "range_4h": 1.993066,
+        "range_1h": 0.741359,
+        "vol_4h": 0.123094,
+        "vol_1h": 0.111433,
+        "atr_pct": 0.189593,
+        "bb_width": 0.010047,
+        "bb_pos": 0.396883,
+        "rvol_1h": 1.414291,
+        "vol_spike_1h": 0.70598,
+        "dvol_1h": -525.529844,
+        "ema20_dist": -0.176772,
+        "ema50_dist": -0.531081,
+        "ema200_dist": -1.203548,
+        "ema_cross_20_50": -1.0,
+        "adx": 0.0,
+        "slope_4h": -19.206659,
+        "accel_1h": 15.712413,
+        "rsi": 38.764721,
+        "macd": -123.726353,
+        "macd_hist": 8.73551,
+        "stoch_k": 45.439797,
+        "roc_1h": -0.192922,
+        "mom_4h": -1.110498,
+        "funding": 54.1,
+        "funding_delta": 0.0,
+        "oi_delta": -54224.779,
+        "fear_greed": 22.0,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 50.02
+      }
+    },
+    {
+      "id": "RANGE_SHORT_L01",
+      "result_bucket": "LOSS",
+      "n": 32,
+      "direction_mode": "SHORT",
+      "regime_mode": "RANGE",
+      "wr": 0.0,
+      "pf": 0.0,
+      "ev": -27.3102,
+      "sharpe": -1.4559,
+      "max_dd": -859.9201,
+      "ci_lo": -34.4717,
+      "ci_hi": -20.8423,
+      "avg_mae": -1.3655,
+      "avg_mfe": 1.4954,
+      "avg_hold": 23736.1,
+      "center": {
+        "chg_24h": -0.377842,
+        "chg_12h": -0.708095,
+        "chg_8h": -0.92412,
+        "chg_4h": -0.418322,
+        "chg_2h": 0.72528,
+        "chg_1h": 0.586955,
+        "chg_30m": 0.269793,
+        "chg_15m": 0.076819,
+        "chg_5m": 0.087448,
+        "range_4h": 2.471072,
+        "range_1h": 0.906453,
+        "vol_4h": 0.217599,
+        "vol_1h": 0.124016,
+        "atr_pct": 0.223462,
+        "bb_width": 0.010352,
+        "bb_pos": 0.904865,
+        "rvol_1h": 1.19894,
+        "vol_spike_1h": 0.649123,
+        "dvol_1h": 40603.438953,
+        "ema20_dist": 0.331561,
+        "ema50_dist": 0.236521,
+        "ema200_dist": -0.31719,
+        "ema_cross_20_50": -0.420719,
+        "adx": 0.0,
+        "slope_4h": -0.022253,
+        "accel_1h": 0.402223,
+        "rsi": 62.167928,
+        "macd": 3.776479,
+        "macd_hist": 1.89933,
+        "stoch_k": 89.201538,
+        "roc_1h": 0.595634,
+        "mom_4h": -0.409743,
+        "funding": 50.890275,
+        "funding_delta": 0.0,
+        "oi_delta": -393110.82251,
+        "fear_greed": 24.79704,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 49.68167
+      }
+    },
+    {
+      "id": "RANGE_LONG_L00",
+      "result_bucket": "LOSS",
+      "n": 24,
+      "direction_mode": "LONG",
+      "regime_mode": "RANGE",
+      "wr": 0.0,
+      "pf": 0.0,
+      "ev": -92.0061,
+      "sharpe": -1.1127,
+      "max_dd": -1995.0705,
+      "ci_lo": -119.9313,
+      "ci_hi": -60.7244,
+      "avg_mae": -4.6003,
+      "avg_mfe": 2.0474,
+      "avg_hold": 25203.7,
+      "center": {
+        "chg_24h": -2.389875,
+        "chg_12h": -2.808898,
+        "chg_8h": -2.153218,
+        "chg_4h": -1.940944,
+        "chg_2h": 0.344128,
+        "chg_1h": -0.303386,
+        "chg_30m": -0.211111,
+        "chg_15m": -0.115808,
+        "chg_5m": -0.075307,
+        "range_4h": 3.167439,
+        "range_1h": 0.635641,
+        "vol_4h": 0.244463,
+        "vol_1h": 0.100229,
+        "atr_pct": 0.225773,
+        "bb_width": 0.006875,
+        "bb_pos": 0.194787,
+        "rvol_1h": 0.60303,
+        "vol_spike_1h": 0.340525,
+        "dvol_1h": -216918.937548,
+        "ema20_dist": -0.151956,
+        "ema50_dist": -0.411596,
+        "ema200_dist": -1.746236,
+        "ema_cross_20_50": -0.825613,
+        "adx": 0.0,
+        "slope_4h": 0.000137,
+        "accel_1h": -0.002433,
+        "rsi": 43.950173,
+        "macd": 4.5e-05,
+        "macd_hist": -0.001176,
+        "stoch_k": 17.772809,
+        "roc_1h": -0.303386,
+        "mom_4h": -1.940944,
+        "funding": 54.052861,
+        "funding_delta": 0.0,
+        "oi_delta": -30011.075828,
+        "fear_greed": 22.040872,
+        "news_score": 0.0,
+        "macro_score": 0.0,
+        "btc_dom": 50.027302
+      }
+    }
+  ],
+  "transition_matrix": {
+    "states": [
+      "BULL",
+      "RANGE",
+      "BEAR",
+      "PANIC",
+      "RECOVERY",
+      "UNK"
+    ],
+    "counts": {
+      "RANGE": {
+        "RANGE": 86,
+        "UNK": 6
+      },
+      "UNK": {
+        "UNK": 18147,
+        "RANGE": 7
+      }
+    },
+    "probs": {
+      "BULL": {
+        "BULL": 0.0,
+        "RANGE": 0.0,
+        "BEAR": 0.0,
+        "PANIC": 0.0,
+        "RECOVERY": 0.0,
+        "UNK": 0.0
+      },
+      "RANGE": {
+        "BULL": 0.0,
+        "RANGE": 0.9348,
+        "BEAR": 0.0,
+        "PANIC": 0.0,
+        "RECOVERY": 0.0,
+        "UNK": 0.0652
+      },
+      "BEAR": {
+        "BULL": 0.0,
+        "RANGE": 0.0,
+        "BEAR": 0.0,
+        "PANIC": 0.0,
+        "RECOVERY": 0.0,
+        "UNK": 0.0
+      },
+      "PANIC": {
+        "BULL": 0.0,
+        "RANGE": 0.0,
+        "BEAR": 0.0,
+        "PANIC": 0.0,
+        "RECOVERY": 0.0,
+        "UNK": 0.0
+      },
+      "RECOVERY": {
+        "BULL": 0.0,
+        "RANGE": 0.0,
+        "BEAR": 0.0,
+        "PANIC": 0.0,
+        "RECOVERY": 0.0,
+        "UNK": 0.0
+      },
+      "UNK": {
+        "BULL": 0.0,
+        "RANGE": 0.0004,
+        "BEAR": 0.0,
+        "PANIC": 0.0,
+        "RECOVERY": 0.0,
+        "UNK": 0.9996
+      }
+    },
+    "n_transitions": 18246
+  },
+  "similarity_library": {
+    "ok": true,
+    "n": 18247,
+    "k_default": 100,
+    "feature_keys": [
+      "chg_24h",
+      "chg_12h",
+      "chg_8h",
+      "chg_4h",
+      "chg_2h",
+      "chg_1h",
+      "chg_30m",
+      "chg_15m",
+      "chg_5m",
+      "range_4h",
+      "range_1h",
+      "vol_4h",
+      "vol_1h",
+      "atr_pct",
+      "bb_width",
+      "bb_pos",
+      "rvol_1h",
+      "vol_spike_1h",
+      "dvol_1h",
+      "ema20_dist",
+      "ema50_dist",
+      "ema200_dist",
+      "ema_cross_20_50",
+      "adx",
+      "slope_4h",
+      "accel_1h",
+      "rsi",
+      "macd",
+      "macd_hist",
+      "stoch_k",
+      "roc_1h",
+      "mom_4h",
+      "funding",
+      "funding_delta",
+      "oi_delta",
+      "fear_greed",
+      "news_score",
+      "macro_score",
+      "btc_dom"
+    ]
+  },
+  "sequences": {
+    "3": [
+      {
+        "pattern": "WIN\u00d73\u2192SHORT",
+        "n": 1386,
+        "wr": 74.82,
+        "pf": 34.2638,
+        "ev": 1.8142
+      },
+      {
+        "pattern": "WIN\u00d73\u2192LONG",
+        "n": 1058,
+        "wr": 32.33,
+        "pf": null,
+        "ev": 0.8443
+      }
+    ],
+    "5": [
+      {
+        "pattern": "WIN\u00d75\u2192SHORT",
+        "n": 464,
+        "wr": 80.39,
+        "pf": 91.9741,
+        "ev": 2.2765
+      },
+      {
+        "pattern": "WIN\u00d75\u2192LONG",
+        "n": 373,
+        "wr": 39.68,
+        "pf": null,
+        "ev": 1.2812
+      }
+    ],
+    "10": [
+      {
+        "pattern": "WIN\u00d710\u2192LONG",
+        "n": 73,
+        "wr": 64.38,
+        "pf": null,
+        "ev": 2.3321
+      },
+      {
+        "pattern": "WIN\u00d710\u2192SHORT",
+        "n": 65,
+        "wr": 93.85,
+        "pf": null,
+        "ev": 3.5922
+      }
+    ]
+  },
+  "coin_dna": {
+    "BTC": {
+      "n": 961,
+      "wr": 45.68,
+      "pf": 32.8462,
+      "ev": 0.8669,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 260,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 104,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W05",
+          "n_coin": 69,
+          "pf": null,
+          "ev": 1.6409,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W06",
+          "n_coin": 4,
+          "pf": null,
+          "ev": 2.9137,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 1,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_SHORT_B04",
+          "n_coin": 223,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B06",
+          "n_coin": 121,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 74,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 63,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 27,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W00",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.5121,
+        "avg_hold": 846.5
+      }
+    },
+    "ETH": {
+      "n": 961,
+      "wr": 52.03,
+      "pf": 54.4738,
+      "ev": 1.4894,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 185,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 167,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 70,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_LONG_W03",
+          "n_coin": 48,
+          "pf": null,
+          "ev": 1.8696,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 20,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_SHORT_B04",
+          "n_coin": 164,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 112,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 92,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 36,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B00",
+          "n_coin": 34,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W00",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.5121,
+        "avg_hold": 846.5
+      }
+    },
+    "SOL": {
+      "n": 961,
+      "wr": 43.91,
+      "pf": 8.5868,
+      "ev": 0.5976,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 194,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 159,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 33,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 22,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_LONG_W03",
+          "n_coin": 6,
+          "pf": null,
+          "ev": 1.8696,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 146,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 146,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B04",
+          "n_coin": 140,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B00",
+          "n_coin": 53,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 32,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W00",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.5121,
+        "avg_hold": 846.5
+      }
+    },
+    "LINK": {
+      "n": 961,
+      "wr": 52.24,
+      "pf": 16.0673,
+      "ev": 1.6335,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 239,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 117,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 111,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 17,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W04",
+          "n_coin": 13,
+          "pf": null,
+          "ev": 1.8018,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 119,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 102,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B04",
+          "n_coin": 100,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B00",
+          "n_coin": 63,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 47,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W01",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.6548,
+        "avg_hold": 1227.3
+      }
+    },
+    "XRP": {
+      "n": 961,
+      "wr": 49.22,
+      "pf": 6.8741,
+      "ev": 0.6624,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 221,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 220,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 18,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_LONG_W03",
+          "n_coin": 10,
+          "pf": null,
+          "ev": 1.8696,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 4,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 166,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B04",
+          "n_coin": 154,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 75,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 45,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B00",
+          "n_coin": 26,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W01",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.6548,
+        "avg_hold": 1227.3
+      }
+    },
+    "BNB": {
+      "n": 960,
+      "wr": 49.06,
+      "pf": 15.911,
+      "ev": 0.6527,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 217,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 216,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 15,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_LONG_W03",
+          "n_coin": 13,
+          "pf": null,
+          "ev": 1.8696,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 7,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_SHORT_B04",
+          "n_coin": 234,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 147,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 76,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 25,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B05",
+          "n_coin": 4,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W01",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.6548,
+        "avg_hold": 1227.3
+      }
+    },
+    "AVAX": {
+      "n": 962,
+      "wr": 54.68,
+      "pf": 2.9777,
+      "ev": 0.4455,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 186,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 175,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 48,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_LONG_W03",
+          "n_coin": 44,
+          "pf": null,
+          "ev": 1.8696,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 36,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 135,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 104,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B04",
+          "n_coin": 94,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 34,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B00",
+          "n_coin": 32,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W01",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.6548,
+        "avg_hold": 1227.3
+      }
+    },
+    "DOGE": {
+      "n": 960,
+      "wr": 35.21,
+      "pf": 4.5243,
+      "ev": 0.3844,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 165,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 122,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 24,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 21,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W04",
+          "n_coin": 3,
+          "pf": null,
+          "ev": 1.8018,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_SHORT_B04",
+          "n_coin": 246,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 145,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 126,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 46,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B00",
+          "n_coin": 30,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W00",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.5121,
+        "avg_hold": 846.5
+      }
+    },
+    "ADA": {
+      "n": 962,
+      "wr": 48.65,
+      "pf": 3.9725,
+      "ev": 0.7726,
+      "best": [
+        {
+          "fingerprint": "UNK_LONG_W03",
+          "n_coin": 181,
+          "pf": null,
+          "ev": 1.8696,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 106,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 70,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 45,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 42,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 162,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B05",
+          "n_coin": 154,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 66,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 59,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B00",
+          "n_coin": 36,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_LONG_W03",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.8661,
+        "avg_hold": 649.7
+      }
+    },
+    "OP": {
+      "n": 961,
+      "wr": 61.91,
+      "pf": 4.7454,
+      "ev": 1.4016,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 155,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 112,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 103,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 89,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_LONG_W03",
+          "n_coin": 71,
+          "pf": null,
+          "ev": 1.8696,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 88,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B00",
+          "n_coin": 87,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 66,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B05",
+          "n_coin": 54,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B04",
+          "n_coin": 35,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W01",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.6548,
+        "avg_hold": 1227.3
+      }
+    },
+    "APT": {
+      "n": 962,
+      "wr": 56.24,
+      "pf": 31.0612,
+      "ev": 1.1502,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 196,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 196,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 73,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 48,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W04",
+          "n_coin": 15,
+          "pf": null,
+          "ev": 1.8018,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 144,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 129,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B00",
+          "n_coin": 42,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B05",
+          "n_coin": 41,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 38,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W01",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.6548,
+        "avg_hold": 1227.3
+      }
+    },
+    "ARB": {
+      "n": 958,
+      "wr": 47.18,
+      "pf": 1.5145,
+      "ev": 0.3468,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 171,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 135,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_LONG_W03",
+          "n_coin": 60,
+          "pf": null,
+          "ev": 1.8696,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 50,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 29,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_SHORT_B04",
+          "n_coin": 178,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 116,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 70,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 64,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B05",
+          "n_coin": 45,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W00",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.5121,
+        "avg_hold": 846.5
+      }
+    },
+    "INJ": {
+      "n": 960,
+      "wr": 53.12,
+      "pf": 4.0912,
+      "ev": 1.0682,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 174,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 125,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 93,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 63,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_LONG_W03",
+          "n_coin": 37,
+          "pf": null,
+          "ev": 1.8696,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 141,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 141,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B05",
+          "n_coin": 86,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 51,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B00",
+          "n_coin": 15,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W07",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 2.7848,
+        "avg_hold": 1340.0
+      }
+    },
+    "MANTA": {
+      "n": 958,
+      "wr": 45.72,
+      "pf": null,
+      "ev": 0.8057,
+      "best": [
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 112,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 90,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 89,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 65,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_LONG_W03",
+          "n_coin": 44,
+          "pf": null,
+          "ev": 1.8696,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 127,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B05",
+          "n_coin": 121,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 90,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 90,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B04",
+          "n_coin": 70,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_SHORT_W01",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.6548,
+        "avg_hold": 1227.3
+      }
+    },
+    "NEAR": {
+      "n": 960,
+      "wr": 49.38,
+      "pf": 2.566,
+      "ev": 0.7675,
+      "best": [
+        {
+          "fingerprint": "UNK_LONG_W03",
+          "n_coin": 117,
+          "pf": null,
+          "ev": 1.8696,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W02",
+          "n_coin": 111,
+          "pf": null,
+          "ev": 2.5802,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W01",
+          "n_coin": 94,
+          "pf": null,
+          "ev": 1.843,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W07",
+          "n_coin": 80,
+          "pf": null,
+          "ev": 3.1836,
+          "wr": 100.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_W00",
+          "n_coin": 65,
+          "pf": null,
+          "ev": 1.5536,
+          "wr": 100.0
+        }
+      ],
+      "worst": [
+        {
+          "fingerprint": "UNK_LONG_B07",
+          "n_coin": 111,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B00",
+          "n_coin": 100,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_LONG_B01",
+          "n_coin": 98,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B02",
+          "n_coin": 81,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        },
+        {
+          "fingerprint": "UNK_SHORT_B05",
+          "n_coin": 76,
+          "pf": 0.0,
+          "ev": 0.0,
+          "wr": 0.0
+        }
+      ],
+      "ideal_entry": "UNK_LONG_W03",
+      "ideal_exit": {
+        "avg_mae": null,
+        "avg_mfe": 1.8661,
+        "avg_hold": 649.7
+      }
+    }
+  },
+  "universal_dna": [
+    {
+      "fingerprint": "UNK_SHORT_W01",
+      "n_coins": 18,
+      "coins": [
+        "ADA",
+        "APT",
+        "ARB",
+        "AVAX",
+        "BNB",
+        "BTC",
+        "DOGE",
+        "ETH",
+        "INJ",
+        "LINK",
+        "MANTA",
+        "NEAR"
+      ],
+      "n": 2651,
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.843
+    },
+    {
+      "fingerprint": "UNK_SHORT_W00",
+      "n_coins": 18,
+      "coins": [
+        "ADA",
+        "APT",
+        "ARB",
+        "AVAX",
+        "BNB",
+        "BTC",
+        "DOGE",
+        "ETH",
+        "INJ",
+        "LINK",
+        "MANTA",
+        "NEAR"
+      ],
+      "n": 2639,
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.5536
+    },
+    {
+      "fingerprint": "UNK_SHORT_W07",
+      "n_coins": 18,
+      "coins": [
+        "ADA",
+        "APT",
+        "ARB",
+        "AVAX",
+        "BNB",
+        "BTC",
+        "DOGE",
+        "ETH",
+        "INJ",
+        "LINK",
+        "MANTA",
+        "NEAR"
+      ],
+      "n": 1202,
+      "wr": 100.0,
+      "pf": null,
+      "ev": 3.1836
+    },
+    {
+      "fingerprint": "UNK_SHORT_W02",
+      "n_coins": 17,
+      "coins": [
+        "ADA",
+        "APT",
+        "ARB",
+        "AVAX",
+        "BNB",
+        "DOGE",
+        "ETH",
+        "INJ",
+        "LINK",
+        "MANTA",
+        "NEAR",
+        "OP"
+      ],
+      "n": 1041,
+      "wr": 100.0,
+      "pf": null,
+      "ev": 2.5802
+    },
+    {
+      "fingerprint": "UNK_SHORT_W04",
+      "n_coins": 16,
+      "coins": [
+        "ADA",
+        "APT",
+        "ARB",
+        "AVAX",
+        "BNB",
+        "BTC",
+        "DOGE",
+        "ETH",
+        "INJ",
+        "LINK",
+        "MANTA",
+        "OP"
+      ],
+      "n": 114,
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.8018
+    },
+    {
+      "fingerprint": "UNK_LONG_W03",
+      "n_coins": 15,
+      "coins": [
+        "ADA",
+        "APT",
+        "ARB",
+        "AVAX",
+        "BNB",
+        "ETH",
+        "INJ",
+        "MANTA",
+        "NEAR",
+        "OP",
+        "PEPE",
+        "SOL"
+      ],
+      "n": 782,
+      "wr": 100.0,
+      "pf": null,
+      "ev": 1.8696
+    },
+    {
+      "fingerprint": "UNK_SHORT_W06",
+      "n_coins": 15,
+      "coins": [
+        "ADA",
+        "APT",
+        "AVAX",
+        "BTC",
+        "DOGE",
+        "ETH",
+        "INJ",
+        "LINK",
+        "MANTA",
+        "NEAR",
+        "OP",
+        "PEPE"
+      ],
+      "n": 222,
+      "wr": 100.0,
+      "pf": null,
+      "ev": 2.9137
+    }
+  ],
+  "mae_mfe": {
+    "n_mae": 56,
+    "n_mfe": 8752,
+    "avg_mae": -2.7519,
+    "avg_mfe": 1.9087,
+    "median_mae": -1.5196,
+    "median_mfe": 1.459
+  },
+  "current_market": {
+    "trade_id": 19173,
+    "symbol": "ADA",
+    "direction": "SHORT",
+    "opened_at": 1785619843,
+    "regime": "RANGE",
+    "fingerprint": "RANGE_SHORT_L01"
+  },
+  "similarity": {
+    "ok": true,
+    "k": 100,
+    "similarity_pct": 7.17,
+    "top_similarity_pct": 100.0,
+    "historical_pf": 0.6817,
+    "historical_ev": -2.9709,
+    "historical_wr": 42.0,
+    "avg_hold": 17155.7,
+    "avg_mae": -1.7285,
+    "avg_mfe": 1.7618,
+    "closest_fingerprint": "RANGE_SHORT_L01",
+    "n_neighbors": 100,
+    "recommendation": "RESEARCH ONLY"
+  },
+  "distributions": {
+    "WIN": {
+      "n": 8720,
+      "chg_24h": {
+        "mean": -1.119374,
+        "median": -0.976362,
+        "variance": 3.220394,
+        "n": 8720
+      },
+      "chg_12h": {
+        "mean": -0.681191,
+        "median": -0.627134,
+        "variance": 2.325833,
+        "n": 8720
+      },
+      "chg_8h": {
+        "mean": -0.519412,
+        "median": -0.392323,
+        "variance": 1.625865,
+        "n": 8720
+      },
+      "chg_4h": {
+        "mean": -0.243908,
+        "median": -0.135846,
+        "variance": 0.91127,
+        "n": 8720
+      },
+      "chg_2h": {
+        "mean": -0.15781,
+        "median": -0.087655,
+        "variance": 0.531448,
+        "n": 8720
+      },
+      "chg_1h": {
+        "mean": -0.048727,
+        "median": -0.014619,
+        "variance": 0.243491,
+        "n": 8720
+      },
+      "chg_30m": {
+        "mean": -0.025095,
+        "median": -0.014109,
+        "variance": 0.136377,
+        "n": 8720
+      },
+      "chg_15m": {
+        "mean": -0.016664,
+        "median": -0.006836,
+        "variance": 0.067499,
+        "n": 8720
+      },
+      "chg_5m": {
+        "mean": -0.003309,
+        "median": 0.0,
+        "variance": 0.028186,
+        "n": 8720
+      },
+      "range_4h": {
+        "mean": 1.74977,
+        "median": 1.498374,
+        "variance": 1.035405,
+        "n": 8720
+      },
+      "range_1h": {
+        "mean": 0.832129,
+        "median": 0.703405,
+        "variance": 0.283225,
+        "n": 8720
+      },
+      "vol_4h": {
+        "mean": 0.155554,
+        "median": 0.143037,
+        "variance": 0.005848,
+        "n": 8720
+      },
+      "vol_1h": {
+        "mean": 0.139456,
+        "median": 0.121458,
+        "variance": 0.007181,
+        "n": 8720
+      },
+      "atr_pct": {
+        "mean": 0.222968,
+        "median": 0.194821,
+        "variance": 0.015447,
+        "n": 8720
+      },
+      "bb_width": {
+        "mean": 0.009119,
+        "median": 0.007593,
+        "variance": 3.9e-05,
+        "n": 8720
+      },
+      "bb_pos": {
+        "mean": 0.469002,
+        "median": 0.45618,
+        "variance": 0.101115,
+        "n": 8720
+      },
+      "rvol_1h": {
+        "mean": 1.367195,
+        "median": 0.983455,
+        "variance": 3.655288,
+        "n": 8720
+      },
+      "vol_spike_1h": {
+        "mean": 1.176522,
+        "median": 0.634256,
+        "variance": 4.675356,
+        "n": 8720
+      },
+      "dvol_1h": {
+        "mean": -203630040.486743,
+        "median": -216.37,
+        "variance": 6.937739686736564e+19,
+        "n": 8720
+      },
+      "ema20_dist": {
+        "mean": -0.049333,
+        "median": -0.029357,
+        "variance": 0.08584,
+        "n": 8720
+      },
+      "ema50_dist": {
+        "mean": -0.131161,
+        "median": -0.090066,
+        "variance": 0.212578,
+        "n": 8720
+      },
+      "ema200_dist": {
+        "mean": -0.426076,
+        "median": -0.333406,
+        "variance": 0.758416,
+        "n": 8720
+      },
+      "ema_cross_20_50": {
+        "mean": -0.27133,
+        "median": -1.0,
+        "variance": 0.92638,
+        "n": 8720
+      },
+      "adx": {
+        "mean": null,
+        "median": null,
+        "variance": null,
+        "n": 0
+      },
+      "slope_4h": {
+        "mean": -0.062557,
+        "median": -5e-06,
+        "variance": 3.658874,
+        "n": 8720
+      },
+      "accel_1h": {
+        "mean": 0.001409,
+        "median": -0.0,
+        "variance": 39.856044,
+        "n": 8720
+      },
+      "rsi": {
+        "mean": 47.939111,
+        "median": 48.045464,
+        "variance": 103.892413,
+        "n": 8720
+      },
+      "macd": {
+        "mean": -0.398363,
+        "median": -5.2e-05,
+        "variance": 181.49514,
+        "n": 8720
+      },
+      "macd_hist": {
+        "mean": 0.067294,
+        "median": 0.0,
+        "variance": 13.752052,
+        "n": 8720
+      },
+      "stoch_k": {
+        "mean": 49.181739,
+        "median": 50.0,
+        "variance": 793.298707,
+        "n": 8720
+      },
+      "roc_1h": {
+        "mean": -0.049717,
+        "median": -0.014138,
+        "variance": 0.239307,
+        "n": 8720
+      },
+      "mom_4h": {
+        "mean": -0.241428,
+        "median": -0.131715,
+        "variance": 0.923364,
+        "n": 8720
+      },
+      "funding": {
+        "mean": 52.491176,
+        "median": 54.1,
+        "variance": 2.912569,
+        "n": 34
+      },
+      "funding_delta": {
+        "mean": null,
+        "median": null,
+        "variance": null,
+        "n": 0
+      },
+      "oi_delta": {
+        "mean": -130583.152382,
+        "median": -54212.6195,
+        "variance": 272626357463.8546,
+        "n": 34
+      },
+      "fear_greed": {
+        "mean": 23.411765,
+        "median": 22.0,
+        "variance": 2.242215,
+        "n": 34
+      },
+      "news_score": {
+        "mean": null,
+        "median": null,
+        "variance": null,
+        "n": 0
+      },
+      "macro_score": {
+        "mean": null,
+        "median": null,
+        "variance": null,
+        "n": 0
+      },
+      "btc_dom": {
+        "mean": 49.872353,
+        "median": 49.83,
+        "variance": 0.020277,
+        "n": 34
+      }
+    },
+    "BE": {
+      "n": 9471,
+      "chg_24h": {
+        "mean": -0.622185,
+        "median": -0.577054,
+        "variance": 5.202749,
+        "n": 9471
+      },
+      "chg_12h": {
+        "mean": -0.547234,
+        "median": -0.262812,
+        "variance": 2.860131,
+        "n": 9471
+      },
+      "chg_8h": {
+        "mean": -0.433655,
+        "median": -0.258908,
+        "variance": 1.704198,
+        "n": 9471
+      },
+      "chg_4h": {
+        "mean": -0.169432,
+        "median": -0.070435,
+        "variance": 0.754642,
+        "n": 9471
+      },
+      "chg_2h": {
+        "mean": -0.155047,
+        "median": -0.033996,
+        "variance": 0.461445,
+        "n": 9471
+      },
+      "chg_1h": {
+        "mean": -0.05911,
+        "median": 0.0,
+        "variance": 0.219567,
+        "n": 9471
+      },
+      "chg_30m": {
+        "mean": -0.016272,
+        "median": 0.0,
+        "variance": 0.121925,
+        "n": 9471
+      },
+      "chg_15m": {
+        "mean": -0.003403,
+        "median": 0.0,
+        "variance": 0.061706,
+        "n": 9471
+      },
+      "chg_5m": {
+        "mean": 0.004514,
+        "median": 0.0,
+        "variance": 0.022188,
+        "n": 9471
+      },
+      "range_4h": {
+        "mean": 1.519938,
+        "median": 1.435014,
+        "variance": 0.985507,
+        "n": 9471
+      },
+      "range_1h": {
+        "mean": 0.745707,
+        "median": 0.656345,
+        "variance": 0.308794,
+        "n": 9471
+      },
+      "vol_4h": {
+        "mean": 0.13469,
+        "median": 0.131114,
+        "variance": 0.005874,
+        "n": 9471
+      },
+      "vol_1h": {
+        "mean": 0.123667,
+        "median": 0.109486,
+        "variance": 0.007417,
+        "n": 9471
+      },
+      "atr_pct": {
+        "mean": 0.199522,
+        "median": 0.183392,
+        "variance": 0.015773,
+        "n": 9471
+      },
+      "bb_width": {
+        "mean": 0.008073,
+        "median": 0.006899,
+        "variance": 4.2e-05,
+        "n": 9471
+      },
+      "bb_pos": {
+        "mean": 0.459721,
+        "median": 0.436554,
+        "variance": 0.097519,
+        "n": 8513
+      },
+      "rvol_1h": {
+        "mean": 1.413605,
+        "median": 0.942725,
+        "variance": 6.046517,
+        "n": 8513
+      },
+      "vol_spike_1h": {
+        "mean": 365.058996,
+        "median": 0.662308,
+        "variance": 563267386.869092,
+        "n": 8513
+      },
+      "dvol_1h": {
+        "mean": 33431499.190803,
+        "median": 0.0,
+        "variance": 3.713749540032209e+19,
+        "n": 9471
+      },
+      "ema20_dist": {
+        "mean": -0.044149,
+        "median": -0.007497,
+        "variance": 0.079102,
+        "n": 9471
+      },
+      "ema50_dist": {
+        "mean": -0.11173,
+        "median": -0.059229,
+        "variance": 0.199281,
+        "n": 9471
+      },
+      "ema200_dist": {
+        "mean": -0.350732,
+        "median": -0.179587,
+        "variance": 0.975975,
+        "n": 9471
+      },
+      "ema_cross_20_50": {
+        "mean": -0.348326,
+        "median": -1.0,
+        "variance": 0.878669,
+        "n": 9471
+      },
+      "adx": {
+        "mean": null,
+        "median": null,
+        "variance": null,
+        "n": 0
+      },
+      "slope_4h": {
+        "mean": -0.197928,
+        "median": -2e-06,
+        "variance": 7.541504,
+        "n": 9471
+      },
+      "accel_1h": {
+        "mean": 0.035457,
+        "median": 0.0,
+        "variance": 73.337578,
+        "n": 9471
+      },
+      "rsi": {
+        "mean": 53.044254,
+        "median": 49.319665,
+        "variance": 344.026962,
+        "n": 9471
+      },
+      "macd": {
+        "mean": -1.493118,
+        "median": -2.2e-05,
+        "variance": 354.49596,
+        "n": 9471
+      },
+      "macd_hist": {
+        "mean": 0.018049,
+        "median": 0.0,
+        "variance": 24.613516,
+        "n": 9471
+      },
+      "stoch_k": {
+        "mean": 49.247754,
+        "median": 50.0,
+        "variance": 722.931336,
+        "n": 9471
+      },
+      "roc_1h": {
+        "mean": -0.058743,
+        "median": 0.0,
+        "variance": 0.216206,
+        "n": 9471
+      },
+      "mom_4h": {
+        "mean": -0.167878,
+        "median": -0.067636,
+        "variance": 0.753467,
+        "n": 9471
+      },
+      "funding": {
+        "mean": 54.1,
+        "median": 54.1,
+        "variance": 0.0,
+        "n": 3
+      },
+      "funding_delta": {
+        "mean": null,
+        "median": null,
+        "variance": null,
+        "n": 0
+      },
+      "oi_delta": {
+        "mean": -36150.458667,
+        "median": -54224.779,
+        "variance": 656034164.112042,
+        "n": 3
+      },
+      "fear_greed": {
+        "mean": 22.0,
+        "median": 22.0,
+        "variance": 0.0,
+        "n": 3
+      },
+      "news_score": {
+        "mean": null,
+        "median": null,
+        "variance": null,
+        "n": 0
+      },
+      "macro_score": {
+        "mean": null,
+        "median": null,
+        "variance": null,
+        "n": 0
+      },
+      "btc_dom": {
+        "mean": 50.076667,
+        "median": 50.02,
+        "variance": 0.006422,
+        "n": 3
+      }
+    },
+    "LOSS": {
+      "n": 56,
+      "chg_24h": {
+        "mean": -1.207419,
+        "median": -1.337111,
+        "variance": 3.827623,
+        "n": 56
+      },
+      "chg_12h": {
+        "mean": -1.578459,
+        "median": -1.65436,
+        "variance": 2.313828,
+        "n": 56
+      },
+      "chg_8h": {
+        "mean": -1.412369,
+        "median": -1.278244,
+        "variance": 1.398133,
+        "n": 56
+      },
+      "chg_4h": {
+        "mean": -1.048374,
+        "median": -0.997005,
+        "variance": 1.197945,
+        "n": 56
+      },
+      "chg_2h": {
+        "mean": 0.565487,
+        "median": 0.598258,
+        "variance": 0.148133,
+        "n": 56
+      },
+      "chg_1h": {
+        "mean": 0.203356,
+        "median": 0.298783,
+        "variance": 0.249163,
+        "n": 56
+      },
+      "chg_30m": {
+        "mean": 0.055514,
+        "median": 0.095576,
+        "variance": 0.075779,
+        "n": 56
+      },
+      "chg_15m": {
+        "mean": -0.01089,
+        "median": 0.0,
+        "variance": 0.022125,
+        "n": 56
+      },
+      "chg_5m": {
+        "mean": 0.018513,
+        "median": -0.032526,
+        "variance": 0.028546,
+        "n": 56
+      },
+      "range_4h": {
+        "mean": 2.767522,
+        "median": 2.7552,
+        "variance": 0.913183,
+        "n": 56
+      },
+      "range_1h": {
+        "mean": 0.792942,
+        "median": 0.715373,
+        "variance": 0.081777,
+        "n": 56
+      },
+      "vol_4h": {
+        "mean": 0.230449,
+        "median": 0.224727,
+        "variance": 0.004924,
+        "n": 56
+      },
+      "vol_1h": {
+        "mean": 0.113962,
+        "median": 0.101739,
+        "variance": 0.002012,
+        "n": 56
+      },
+      "atr_pct": {
+        "mean": 0.225076,
+        "median": 0.227413,
+        "variance": 0.004308,
+        "n": 56
+      },
+      "bb_width": {
+        "mean": 0.00892,
+        "median": 0.008805,
+        "variance": 1.1e-05,
+        "n": 56
+      },
+      "bb_pos": {
+        "mean": 0.586748,
+        "median": 0.803558,
+        "variance": 0.147554,
+        "n": 56
+      },
+      "rvol_1h": {
+        "mean": 0.941278,
+        "median": 0.912391,
+        "variance": 0.18769,
+        "n": 56
+      },
+      "vol_spike_1h": {
+        "mean": 0.496499,
+        "median": 0.438212,
+        "variance": 0.15898,
+        "n": 56
+      },
+      "dvol_1h": {
+        "mean": -97259.886375,
+        "median": -5285.2,
+        "variance": 251920789340.79257,
+        "n": 56
+      },
+      "ema20_dist": {
+        "mean": 0.121499,
+        "median": 0.182605,
+        "variance": 0.073887,
+        "n": 56
+      },
+      "ema50_dist": {
+        "mean": -0.034838,
+        "median": -0.101282,
+        "variance": 0.177845,
+        "n": 56
+      },
+      "ema200_dist": {
+        "mean": -0.90106,
+        "median": -0.634947,
+        "variance": 1.507473,
+        "n": 56
+      },
+      "ema_cross_20_50": {
+        "mean": -0.535714,
+        "median": -1.0,
+        "variance": 0.71301,
+        "n": 56
+      },
+      "adx": {
+        "mean": null,
+        "median": null,
+        "variance": null,
+        "n": 0
+      },
+      "slope_4h": {
+        "mean": -0.016073,
+        "median": -1.4e-05,
+        "variance": 0.057641,
+        "n": 56
+      },
+      "accel_1h": {
+        "mean": 0.271112,
+        "median": -6.6e-05,
+        "variance": 6.989518,
+        "n": 56
+      },
+      "rsi": {
+        "mean": 54.369655,
+        "median": 57.556245,
+        "variance": 106.957772,
+        "n": 56
+      },
+      "macd": {
+        "mean": 1.801413,
+        "median": 5.9e-05,
+        "variance": 83.71726,
+        "n": 56
+      },
+      "macd_hist": {
+        "mean": 0.915609,
+        "median": 0.000106,
+        "variance": 20.05077,
+        "n": 56
+      },
+      "stoch_k": {
+        "mean": 57.783574,
+        "median": 73.697159,
+        "variance": 1453.340122,
+        "n": 56
+      },
+      "roc_1h": {
+        "mean": 0.208592,
+        "median": 0.298783,
+        "variance": 0.256139,
+        "n": 56
+      },
+      "mom_4h": {
+        "mean": -1.043198,
+        "median": -0.997005,
+        "variance": 1.211764,
+        "n": 56
+      },
+      "funding": {
+        "mean": 52.317857,
+        "median": 50.7,
+        "variance": 2.958253,
+        "n": 56
+      },
+      "funding_delta": {
+        "mean": null,
+        "median": null,
+        "variance": null,
+        "n": 0
+      },
+      "oi_delta": {
+        "mean": -263103.876036,
+        "median": -58755.621,
+        "variance": 631187942903.0055,
+        "n": 56
+      },
+      "fear_greed": {
+        "mean": 23.553571,
+        "median": 25.0,
+        "variance": 2.24713,
+        "n": 56
+      },
+      "news_score": {
+        "mean": null,
+        "median": null,
+        "variance": null,
+        "n": 0
+      },
+      "macro_score": {
+        "mean": null,
+        "median": null,
+        "variance": null,
+        "n": 0
+      },
+      "btc_dom": {
+        "mean": 49.833393,
+        "median": 49.765,
+        "variance": 0.040069,
+        "n": 56
+      }
+    }
+  }
+}

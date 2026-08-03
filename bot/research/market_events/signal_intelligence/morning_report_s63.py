@@ -784,6 +784,10 @@ def run_morning_report(
         s55_info = {
             "missing": diag.get("n_missing"),
             "missing_pct": diag.get("missing_pct"),
+            "expected": diag.get("missing_expected"),
+            "unexpected": diag.get("missing_unexpected"),
+            "status": "OK" if int(diag.get("missing_unexpected") or 0) == 0 else "FAIL",
+            "verdict": diag.get("verdict"),
             "reasons": diag.get("reasons"),
         }
     except Exception as exc:
@@ -819,6 +823,32 @@ def run_morning_report(
     except Exception as exc:
         logger.debug("morning-report rules failed: %s", exc)
 
+    fingerprint: dict[str, Any] = {}
+    try:
+        from bot.research.market_events.signal_intelligence.market_fingerprint_v1 import (
+            run_market_fingerprint_v1,
+        )
+
+        fp = run_market_fingerprint_v1(conn, write_reports=False, limit=5000)
+        sim = fp.get("similarity") or {}
+        cur = fp.get("current_market") or {}
+        fingerprint = {
+            "symbol": cur.get("symbol"),
+            "direction": cur.get("direction"),
+            "regime": cur.get("regime"),
+            "similarity_pct": sim.get("similarity_pct"),
+            "closest_fingerprint": sim.get("closest_fingerprint") or cur.get("fingerprint"),
+            "historical_wr": sim.get("historical_wr"),
+            "historical_pf": sim.get("historical_pf"),
+            "historical_ev": sim.get("historical_ev"),
+            "recommendation": sim.get("recommendation") or "RESEARCH ONLY",
+            "n_snapshots": fp.get("n_snapshots"),
+            "elapsed_sec": fp.get("elapsed_sec"),
+        }
+    except Exception as exc:
+        logger.debug("morning-report fingerprint failed: %s", exc)
+        fingerprint = {"recommendation": "RESEARCH ONLY", "error": str(exc)[:120]}
+
     try:
         # Lightweight brain probe — no mutation
         brain_info = {
@@ -831,12 +861,16 @@ def run_morning_report(
     alerts = list(actions)
     if lake_info.get("lag"):
         alerts.insert(0, {"priority": "HIGH", "title": f"lake lag={lake_info.get('lag')}"})
-    if s55_info.get("missing_pct") is not None and float(s55_info["missing_pct"] or 0) >= 1.0:
+    # Only alert on unexpected S55 gaps — expected materialization misses are normal.
+    if int(s55_info.get("unexpected") or 0) > 0:
         alerts.insert(
             0,
             {
                 "priority": "HIGH",
-                "title": f"missing_s55={s55_info.get('missing')} ({s55_info.get('missing_pct')}%)",
+                "title": (
+                    f"missing_s55_unexpected={s55_info.get('unexpected')} "
+                    f"(expected={s55_info.get('expected')})"
+                ),
             },
         )
 
@@ -860,6 +894,7 @@ def run_morning_report(
         "top_action_items": actions,
         "lake": lake_info,
         "s55": s55_info,
+        "fingerprint": fingerprint,
         "brain": brain_info,
         "best_rules": best_rules,
         "worst_rules": worst_rules,
@@ -1086,6 +1121,7 @@ def format_morning_summary(report: dict[str, Any]) -> str:
     t = (report.get("trading") or {}).get("performance") or {}
     lake = report.get("lake") or {}
     s55 = report.get("s55") or {}
+    fp = report.get("fingerprint") or {}
     brain = report.get("brain") or {}
     best = (report.get("trading") or {}).get("best_strategy") or {}
     worst = (report.get("trading") or {}).get("worst_strategy") or {}
@@ -1124,7 +1160,33 @@ def format_morning_summary(report: dict[str, Any]) -> str:
         f"  n={lake.get('n_lake')} lag={lake.get('lag')} status={lake.get('status')}",
         "",
         "S55 joins",
-        f"  missing={s55.get('missing')} pct={s55.get('missing_pct')}%",
+        "Expected",
+        f"  {s55.get('expected')}",
+        "Unexpected",
+        f"  {s55.get('unexpected')}",
+        "Status",
+        f"  {s55.get('status') or 'n/a'}",
+        "",
+        "Current Market",
+        f"  {fp.get('symbol') or '—'} {fp.get('direction') or ''} regime={fp.get('regime') or '—'}",
+        "",
+        "Similarity",
+        f"  {fp.get('similarity_pct')}%",
+        "",
+        "Closest Fingerprint",
+        f"  {fp.get('closest_fingerprint') or 'n/a'}",
+        "",
+        "Historical WR",
+        f"  {fp.get('historical_wr')}%",
+        "",
+        "Historical PF",
+        f"  {fp.get('historical_pf')}",
+        "",
+        "Historical EV",
+        f"  {fp.get('historical_ev')}",
+        "",
+        "Recommendation",
+        f"  {fp.get('recommendation') or 'RESEARCH ONLY'}",
         "",
         "Brain",
         f"  {brain.get('status') or 'n/a'} notes={brain.get('notes') or '—'}",

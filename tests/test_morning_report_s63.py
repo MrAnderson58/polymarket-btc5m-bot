@@ -88,13 +88,14 @@ class TestMorningReportS63(unittest.TestCase):
                     "RANGE" if i % 2 else "WEAK_BEAR",
                 ),
             )
+            s55_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
             conn.execute(
                 """
                 INSERT INTO market_events_research_lake_v1 (
                   trade_id, symbol, direction, result, pnl, pnl_pct, status,
                   opened_at, closed_at, dataset_version, feature_version, schema_version,
-                  row_hash, updated_at, built_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, 't', 't', 't', ?, ?, ?)
+                  row_hash, updated_at, built_at, s55_id
+                ) VALUES (?, ?, ?, ?, ?, ?, 'CLOSED', ?, ?, 't', 't', 't', ?, ?, ?, ?)
                 """,
                 (
                     tid,
@@ -108,6 +109,7 @@ class TestMorningReportS63(unittest.TestCase):
                     f"h{tid}",
                     ts,
                     ts,
+                    s55_id,
                 ),
             )
             # Keep S56 seed for load_lab_trades preference path
@@ -165,6 +167,11 @@ class TestMorningReportS63(unittest.TestCase):
         summary = s63.format_morning_summary(out)
         self.assertIn("DB\nOK", summary)
         self.assertIn("rows\n80", summary)
+        self.assertIn("Expected", summary)
+        self.assertIn("Unexpected", summary)
+        self.assertIn("Status\n  OK", summary)
+        self.assertNotIn("[HIGH] missing_s55=", summary)
+        self.assertNotIn("missing_s55=", summary)
 
         md = Path(out["export_paths"]["markdown"])
         js = Path(out["export_paths"]["json"])
