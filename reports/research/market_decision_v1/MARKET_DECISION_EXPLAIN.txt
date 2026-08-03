@@ -1,0 +1,121 @@
+TRADE #601
+
+Decision:
+NO TRADE
+
+======================
+
+Replay
+✖
+
+Fingerprint
+✖
+
+Timeline
+✖
+
+DNA
+✖
+
+Rules
+✔ 0.85 Rule #6
+
+Edge
+✖
+
+Causality
+✖
+
+Brain
+✖
+
+----------------------
+
+Decision
+
+NO TRADE
+
+Reasons
+
+No historical edge
+Timeline mismatch
+Supporting modules 1<2
+Confidence 35%
+Historical WR 49.96%
+
+Decision Rank
+
+D
+
+Recommendation
+RESEARCH ONLY
+
+======== opposite sample ========
+
+TRADE #625
+
+Decision:
+TRADE LONG
+
+======================
+
+Replay
+✖
+
+Fingerprint
+✔ 0.21
+
+Timeline
+✖
+
+DNA
+✔ 0.89
+
+Rules
+✔ 0.85 Rule #1
+
+Edge
+✖
+
+Causality
+✖
+
+Brain
+✖
+
+----------------------
+
+Decision confidence
+
+49.87%
+
+Historical WR
+
+77.48%
+
+Historical PF
+
+22.5732
+
+Historical EV
+
+11.7026%
+
+Decision Rank
+
+C
+
+======================
+
+Why accepted
+
+Fingerprint support 0.21
+DNA support 0.89
+Rules matched (Rule #1)
+Historical WR 77.48%
+Historical PF 22.5732
+Historical EV 11.7026%
+Confidence 49.87%
+
+Recommendation
+RESEARCH ONLY

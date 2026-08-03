@@ -269,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
             "market-timeline",
             "market-decision",
             "market-decision-replay",
+            "market-decision-explain",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -474,7 +475,7 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         dest="trade_id",
-        help="explain-decision: paper trade id for S58 decision trace",
+        help="explain-decision / market-decision-explain: paper trade id",
     )
     parser.add_argument("--run-tag", default="e4_default", help="Historical replay run tag")
     parser.add_argument("--asset-class", default=None, help="Asset class filter (CRYPTO, EQUITY, …)")
@@ -2244,7 +2245,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{args.command} failed: {exc}", file=sys.stderr)
             return 1
 
-    if args.command in ("market-decision", "market-decision-replay"):
+    if args.command in ("market-decision", "market-decision-replay", "market-decision-explain"):
         from bot.research.market_events.db import retry_on_db_locked
         from bot.research.market_events.research_db_session import research_write_connection
         from bot.research.market_events.research_sync_v1 import (
@@ -2262,12 +2263,23 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{args.command} failed: {exc}", file=sys.stderr)
                 return 1
 
-            mode = "decide" if args.command == "market-decision" else "replay"
+            if args.command == "market-decision":
+                mode = "decide"
+            elif args.command == "market-decision-explain":
+                mode = "explain"
+            else:
+                mode = "replay"
+            trade_id = getattr(args, "trade_id", None)
 
             def _run_dec() -> dict:
                 with research_write_connection(db_path) as conn:
                     apply_migrations(conn)
-                    return run_market_decision_v1(conn, write_reports=True, mode=mode)
+                    return run_market_decision_v1(
+                        conn,
+                        write_reports=True,
+                        mode=mode,
+                        trade_id=int(trade_id) if trade_id is not None else None,
+                    )
 
             out = retry_on_db_locked(_run_dec)
             print(out.get("terminal") or "")
