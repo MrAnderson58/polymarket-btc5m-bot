@@ -1,0 +1,158 @@
+{
+  "ok": true,
+  "elapsed_sec": 249.325,
+  "production": {
+    "label": "Production",
+    "n": 19205,
+    "wr": 45.4,
+    "pf": 5.8162,
+    "pf_inf": false,
+    "ev": 0.7729,
+    "sharpe": 0.1448,
+    "max_dd": -1444.999,
+    "total": 14843.877,
+    "confidence": 0.546
+  },
+  "decision_engine": {
+    "label": "Decision Engine",
+    "n": 4111,
+    "wr": 76.23,
+    "pf": null,
+    "pf_inf": true,
+    "ev": 1.5337,
+    "sharpe": 1.0103,
+    "max_dd": 0.0,
+    "total": 6305.2284,
+    "confidence": 0.7623,
+    "long": 77,
+    "short": 4034
+  },
+  "skipped": 15094,
+  "n_production": 19205,
+  "n_kept": 4111,
+  "sample_decision": {
+    "ok": true,
+    "trade_id": 19173,
+    "symbol": "ADA",
+    "decision": "NO TRADE",
+    "direction": null,
+    "confidence": 0.3683,
+    "confidence_pct": 36.83,
+    "why": [
+      "Rule BLOCK #13 matched",
+      "Brain NO_TRADE",
+      "Brain conflict HIGH",
+      "No DNA/Rules/Edge support",
+      "Supporting modules 1<2",
+      "Confidence 37%"
+    ],
+    "reasons": [
+      "Rule BLOCK #13 matched",
+      "Brain NO_TRADE",
+      "Brain conflict HIGH",
+      "No DNA/Rules/Edge support",
+      "Supporting modules 1<2",
+      "Confidence 37%"
+    ],
+    "historical_wr": 71.0,
+    "historical_pf": 4.6438,
+    "historical_ev": 15.9936,
+    "scores": {
+      "fingerprint": {
+        "ok": true,
+        "module": "fingerprint",
+        "similarity_pct": 6.2,
+        "historical_wr": 42.0,
+        "historical_pf": 0.7319,
+        "historical_ev": -2.3303,
+        "closest_fingerprint": "RANGE_SHORT_L01",
+        "direction": "SHORT",
+        "pass": false,
+        "reason": "No historical edge"
+      },
+      "timeline": {
+        "ok": true,
+        "module": "timeline",
+        "similarity_pct": 48.3,
+        "historical_wr": 100.0,
+        "historical_pf": "inf",
+        "historical_ev": 0.9741,
+        "closest_chain": 69,
+        "confidence": 0.5696,
+        "direction": "SHORT",
+        "pass": true,
+        "reason": "Timeline 48.3%"
+      },
+      "dna": {
+        "ok": true,
+        "module": "dna",
+        "pass": false,
+        "match": null,
+        "reason": "DNA no match",
+        "similarity_pct": null
+      },
+      "rules": {
+        "ok": true,
+        "module": "rules",
+        "pass": false,
+        "blocked": true,
+        "rule": "BLOCK #13",
+        "match": "Funding+ + ATR>0.234",
+        "reason": "Rule BLOCK #13 matched"
+      },
+      "edge": {
+        "ok": true,
+        "module": "edge",
+        "pass": false,
+        "similarity_pct": 45.0,
+        "historical_ev": 49.337,
+        "historical_pf": 8.5558,
+        "direction": "LONG",
+        "matched": false,
+        "reason": "No historical edge"
+      },
+      "replay": {
+        "ok": false,
+        "module": "replay",
+        "pass": false,
+        "reason": "Replay unknown",
+        "similarity_pct": null
+      },
+      "causality": {
+        "ok": false,
+        "module": "causality",
+        "pass": false,
+        "reason": "Causality unknown",
+        "confidence": null
+      },
+      "brain": {
+        "ok": true,
+        "module": "brain",
+        "pass": false,
+        "brain_decision": "NO_TRADE",
+        "direction": null,
+        "confidence": 0.15,
+        "expected_ev": 0.0,
+        "expected_pf": 1.0,
+        "conflict": "HIGH",
+        "similarity_pct": 15.0,
+        "reason": "Brain NO_TRADE"
+      }
+    },
+    "supporting_modules": 1,
+    "research_only": true,
+    "recommendation": "RESEARCH ONLY"
+  },
+  "context_stats": {
+    "n_fp": 18247,
+    "n_tl": 18247,
+    "n_dna": 50,
+    "n_ready_rules": 25,
+    "n_blocks": 17,
+    "n_edges": 75,
+    "n_replays": 50,
+    "n_causality": 50,
+    "elapsed_build_sec": 44.956
+  },
+  "research_only": true
+}
