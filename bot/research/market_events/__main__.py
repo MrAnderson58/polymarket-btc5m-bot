@@ -276,6 +276,9 @@ def main(argv: list[str] | None = None) -> int:
             "decision-review",
             "decision-threshold-optimize",
             "decision-threshold-report",
+            "market-regime-transition",
+            "market-transition-report",
+            "market-transition-similarity",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -2389,6 +2392,46 @@ def main(argv: list[str] | None = None) -> int:
                     return run_decision_threshold_report(conn, write_reports=True)
 
             out = retry_on_db_locked(_run_thr)
+            print(out.get("terminal") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"{args.command} failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command in (
+        "market-regime-transition",
+        "market-transition-report",
+        "market-transition-similarity",
+    ):
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.market_regime_transition_v1 import (
+            run_market_regime_transition_v1,
+            run_market_transition_report,
+            run_market_transition_similarity,
+        )
+
+        try:
+            try:
+                db_path, db_source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"{args.command} failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_mrt() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    if args.command == "market-transition-similarity":
+                        return run_market_transition_similarity(conn)
+                    if args.command == "market-transition-report":
+                        return run_market_transition_report(conn, write_reports=True)
+                    return run_market_regime_transition_v1(conn, write_reports=True)
+
+            out = retry_on_db_locked(_run_mrt)
             print(out.get("terminal") or "")
             return 0 if out.get("ok") else 1
         except Exception as exc:

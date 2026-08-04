@@ -1064,6 +1064,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_alpha_validation_v2(conn)
     _ensure_research_lake_v1(conn)
     _ensure_decision_journal_v1(conn)
+    _ensure_regime_transition_v1(conn)
 
     if not applied:
         conn.commit()
@@ -3609,6 +3610,15 @@ def _ensure_decision_journal_v1(conn: Any) -> None:
     )
 
     ensure_decision_journal_schema(conn)
+
+
+def _ensure_regime_transition_v1(conn: Any) -> None:
+    """Create Market Regime Transition Engine V1 tables if missing."""
+    from bot.research.market_events.signal_intelligence.market_regime_transition_v1.schema import (
+        ensure_regime_transition_schema,
+    )
+
+    ensure_regime_transition_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """
