@@ -1,0 +1,38 @@
+{
+  "thresholds": {
+    "min_supporting": 1,
+    "min_confidence": 0.2,
+    "min_fingerprint": 30.0,
+    "min_timeline": 50.0,
+    "min_hist_wr": 70.0,
+    "min_hist_pf": 1.0,
+    "min_rules": 0
+  },
+  "label": "sup>=1 conf>=20% fp>=30% tl>=50% wr>=70% pf>=1 rules>=0",
+  "metrics": {
+    "trades": 2246,
+    "wr": 89.27,
+    "pf": null,
+    "ev": 1.8038,
+    "sharpe": 1.2545,
+    "max_dd": 0.0,
+    "false_rejects": 6715,
+    "false_approvals": 241,
+    "precision": 0.8927,
+    "recall": 0.2299,
+    "f1": 0.3656
+  },
+  "before": {
+    "trades": 4111,
+    "wr": 76.23,
+    "pf": null,
+    "ev": 1.5337,
+    "sharpe": 1.0103,
+    "max_dd": 0.0,
+    "false_rejects": 5586,
+    "false_approvals": 977,
+    "precision": 0.7623,
+    "recall": 0.3594,
+    "f1": 0.4885
+  }
+}

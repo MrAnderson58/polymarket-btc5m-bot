@@ -225,14 +225,16 @@ def run_decision_review(
     ensure_decision_journal_schema(conn)
     rows = load_journal_rows(conn)
     if not rows:
-        from bot.research.market_events.signal_intelligence.paper_decision_books_v1.engine import (
-            run_paper_decision_books_v1,
-        )
-
-        built = run_paper_decision_books_v1(conn, write_reports=False, rebuild=True)
-        if not built.get("ok"):
-            return built
-        rows = load_journal_rows(conn)
+        return {
+            "ok": False,
+            "error": "empty_journal",
+            "terminal": (
+                "DECISION REVIEW V1\n\n"
+                "ERROR empty journal — run: paper-decision-books"
+            ),
+            "research_only": True,
+            "elapsed_sec": round(time.time() - t0, 3),
+        }
 
     analysis = analyze_false_rejects(rows)
     analysis["ok"] = True

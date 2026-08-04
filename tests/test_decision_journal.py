@@ -149,19 +149,21 @@ class TestJournalBatch(unittest.TestCase):
         rows = []
         for i in range(5):
             rows.extend(build_journal_rows(_decision(tid=i + 1), _trade(tid=i + 1, pnl=1.0)))
-        n = insert_journal_batch(self.conn, rows)
+        n = insert_journal_batch(self.conn, rows, commit=True, ensure_schema=True)
         self.assertEqual(n, 15)
         loaded = load_journal_rows(self.conn)
         self.assertEqual(len(loaded), 15)
 
     def test_upsert_idempotent(self):
         rows = build_journal_rows(_decision(tid=9), _trade(tid=9))
-        insert_journal_batch(self.conn, rows)
-        insert_journal_batch(self.conn, rows)
+        insert_journal_batch(self.conn, rows, commit=True, ensure_schema=True)
+        insert_journal_batch(self.conn, rows, commit=True, ensure_schema=False)
         self.assertEqual(len(load_journal_rows(self.conn)), 3)
 
     def test_filter_by_book(self):
-        insert_journal_batch(self.conn, build_journal_rows(_decision(), _trade()))
+        insert_journal_batch(
+            self.conn, build_journal_rows(_decision(), _trade()), commit=True, ensure_schema=True
+        )
         b = load_journal_rows(self.conn, book=BOOK_B)
         self.assertEqual(len(b), 1)
         self.assertEqual(b[0]["book"], BOOK_B)
@@ -170,13 +172,17 @@ class TestJournalBatch(unittest.TestCase):
         insert_journal_batch(
             self.conn,
             build_journal_rows(_decision(trade=False), _trade()),
+            commit=True,
+            ensure_schema=True,
         )
         acc = load_journal_rows(self.conn, accepted_only=True)
         self.assertTrue(all(int(r["accepted"]) == 1 for r in acc))
         self.assertEqual(len(acc), 1)  # only A
 
     def test_clear_journal(self):
-        insert_journal_batch(self.conn, build_journal_rows(_decision(), _trade()))
+        insert_journal_batch(
+            self.conn, build_journal_rows(_decision(), _trade()), commit=True, ensure_schema=True
+        )
         clear_journal(self.conn)
         self.assertEqual(load_journal_rows(self.conn), [])
 
@@ -189,10 +195,18 @@ class TestJournalBatch(unittest.TestCase):
         for i in range(100):
             rows.extend(build_journal_rows(_decision(tid=i + 1), _trade(tid=i + 1)))
         t0 = time.perf_counter()
-        insert_journal_batch(self.conn, rows)
+        insert_journal_batch(self.conn, rows, commit=True, ensure_schema=True)
         ms = (time.perf_counter() - t0) * 1000.0
         self.assertLess(ms, 500.0)
         self.assertEqual(len(load_journal_rows(self.conn)), 300)
+
+    def test_no_commit_by_default(self):
+        rows = build_journal_rows(_decision(tid=1), _trade(tid=1))
+        ensure_decision_journal_schema(self.conn)
+        insert_journal_batch(self.conn, rows, commit=False, ensure_schema=False)
+        # uncommitted in some drivers still visible on same connection
+        self.conn.commit()
+        self.assertEqual(len(load_journal_rows(self.conn)), 3)
 
 
 if __name__ == "__main__":

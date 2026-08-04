@@ -16,6 +16,11 @@ from bot.research.market_events.signal_intelligence.paper_decision_books_v1.sche
     JOURNAL_TABLE,
     ensure_decision_journal_schema,
 )
+from bot.research.market_events.signal_intelligence.paper_decision_books_v1.writer import (
+    clear_journal,
+    insert_journal_batch,
+    replace_journal_atomic,
+)
 
 
 def _pnl(trade: dict[str, Any]) -> float | None:
@@ -113,87 +118,6 @@ def build_journal_rows(
     return rows
 
 
-def insert_journal_batch(conn: Any, rows: Sequence[dict[str, Any]]) -> int:
-    """Batched upsert — no N+1."""
-    if not rows:
-        return 0
-    ensure_decision_journal_schema(conn)
-    sql = f"""
-    INSERT INTO {JOURNAL_TABLE} (
-        trade_id, symbol, opened_at, decision, book, accepted, direction,
-        confidence, timeline_similarity, fingerprint_similarity,
-        dna, rules, edge, replay, brain, causality,
-        decision_rank, reasons_json,
-        historical_wr, historical_pf, historical_ev,
-        result, pnl, created_at
-    ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?,
-        ?, ?, ?, ?, ?, ?,
-        ?, ?,
-        ?, ?, ?,
-        ?, ?, ?
-    )
-    ON CONFLICT(trade_id, book) DO UPDATE SET
-        decision=excluded.decision,
-        accepted=excluded.accepted,
-        direction=excluded.direction,
-        confidence=excluded.confidence,
-        timeline_similarity=excluded.timeline_similarity,
-        fingerprint_similarity=excluded.fingerprint_similarity,
-        dna=excluded.dna,
-        rules=excluded.rules,
-        edge=excluded.edge,
-        replay=excluded.replay,
-        brain=excluded.brain,
-        causality=excluded.causality,
-        decision_rank=excluded.decision_rank,
-        reasons_json=excluded.reasons_json,
-        historical_wr=excluded.historical_wr,
-        historical_pf=excluded.historical_pf,
-        historical_ev=excluded.historical_ev,
-        result=excluded.result,
-        pnl=excluded.pnl,
-        created_at=excluded.created_at
-    """
-    payload = []
-    for r in rows:
-        payload.append(
-            (
-                int(r["trade_id"]),
-                r.get("symbol"),
-                r.get("opened_at"),
-                r.get("decision"),
-                r.get("book"),
-                int(r.get("accepted") or 0),
-                r.get("direction"),
-                r.get("confidence"),
-                r.get("timeline_similarity"),
-                r.get("fingerprint_similarity"),
-                r.get("dna"),
-                r.get("rules"),
-                r.get("edge"),
-                r.get("replay"),
-                r.get("brain"),
-                r.get("causality"),
-                r.get("decision_rank"),
-                r.get("reasons_json"),
-                r.get("historical_wr"),
-                r.get("historical_pf"),
-                r.get("historical_ev"),
-                r.get("result"),
-                r.get("pnl"),
-                int(r.get("created_at") or time.time()),
-            )
-        )
-    conn.executemany(sql, payload)
-    try:
-        conn.commit()
-    except Exception:
-        pass
-    return len(payload)
-
-
 def load_journal_rows(
     conn: Any,
     *,
@@ -226,19 +150,11 @@ def load_journal_rows(
     return out
 
 
-def clear_journal(conn: Any) -> None:
-    ensure_decision_journal_schema(conn)
-    conn.execute(f"DELETE FROM {JOURNAL_TABLE}")
-    try:
-        conn.commit()
-    except Exception:
-        pass
-
-
 __all__ = [
     "build_journal_rows",
     "clear_journal",
     "insert_journal_batch",
     "journal_row_from_decision",
     "load_journal_rows",
+    "replace_journal_atomic",
 ]

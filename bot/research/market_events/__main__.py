@@ -274,6 +274,8 @@ def main(argv: list[str] | None = None) -> int:
             "paper-decision-books",
             "paper-book-report",
             "decision-review",
+            "decision-threshold-optimize",
+            "decision-threshold-report",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -2354,6 +2356,39 @@ def main(argv: list[str] | None = None) -> int:
                     return run_paper_book_report(conn, write_reports=True)
 
             out = retry_on_db_locked(_run_books)
+            print(out.get("terminal") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"{args.command} failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command in ("decision-threshold-optimize", "decision-threshold-report"):
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.decision_threshold_optimizer_v1 import (
+            run_decision_threshold_optimize,
+            run_decision_threshold_report,
+        )
+
+        try:
+            try:
+                db_path, db_source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"{args.command} failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_thr() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    if args.command == "decision-threshold-optimize":
+                        return run_decision_threshold_optimize(conn, write_reports=True)
+                    return run_decision_threshold_report(conn, write_reports=True)
+
+            out = retry_on_db_locked(_run_thr)
             print(out.get("terminal") or "")
             return 0 if out.get("ok") else 1
         except Exception as exc:
