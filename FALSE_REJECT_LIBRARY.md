@@ -1,0 +1,24 @@
+# FALSE_REJECT_LIBRARY
+
+- n=1048 total=1972.9928 EV=1.8826 mod=timeline — `timeline:Wrong Timeline:No historical edge|Timeline mismatch|No DNA/Rules/Edge support`
+- n=1044 total=1968.7588 EV=1.8858 mod=confidence — `confidence:Wrong Confidence:Confidence 42%`
+- n=737 total=1491.5584 EV=2.0238 mod=timeline — `timeline:Wrong Timeline:No historical edge|Timeline mismatch|Supporting modules 1<2`
+- n=622 total=1166.6445 EV=1.8756 mod=dna — `dna:Wrong DNA:No historical edge|No DNA/Rules/Edge support|Supporting modules 1<2`
+- n=560 total=1128.812 EV=2.0157 mod=edge — `edge:False Reject:No historical edge`
+- n=534 total=942.2034 EV=1.7644 mod=dna — `dna:Wrong DNA:No DNA/Rules/Edge support|Supporting modules 1<2`
+- n=308 total=857.1499 EV=2.783 mod=timeline — `timeline:Wrong Timeline:No historical edge|Timeline mismatch`
+- n=512 total=781.8965 EV=1.5271 mod=dna — `dna:Wrong DNA:No DNA/Rules/Edge support`
+- n=2 total=230.213 EV=115.1065 mod=timeline — `timeline:Wrong Timeline:No historical edge|Timeline mismatch|Direction unclear`
+- n=102 total=166.9087 EV=1.6364 mod=dna — `dna:Wrong DNA:No DNA/Rules/Edge support|Direction unclear`
+- n=49 total=159.6053 EV=3.2573 mod=edge — `edge:False Reject:No historical edge|Direction unclear`
+- n=6 total=145.8994 EV=24.3166 mod=timeline — `timeline:Wrong Timeline:Rule BLOCK #1 matched|No historical edge|Timeline mismatch`
+- n=2 total=116.8659 EV=58.4329 mod=rules — `rules:Wrong Rule:Rule BLOCK #1 matched|Brain NO_TRADE|Brain conflict HIGH`
+- n=6 total=106.0307 EV=17.6718 mod=timeline — `timeline:Wrong Timeline:Brain NO_TRADE|Brain conflict HIGH|No historical edge`
+- n=1 total=83.1011 EV=83.1011 mod=dna — `dna:Wrong DNA:No historical edge|No DNA/Rules/Edge support|Direction unclear`
+- n=2 total=81.9452 EV=40.9726 mod=dna — `dna:Wrong DNA:Rule BLOCK #13 matched|Brain NO_TRADE|Brain conflict HIGH`
+- n=43 total=73.6286 EV=1.7123 mod=direction — `direction:Wrong Direction:Direction unclear`
+- n=2 total=57.423 EV=28.7115 mod=timeline — `timeline:Wrong Timeline:Rule BLOCK #13 matched|No historical edge|Timeline mismatch`
+- n=2 total=50.7302 EV=25.3651 mod=timeline — `timeline:Wrong Timeline:Rule BLOCK #1 matched|Brain NO_TRADE|Brain conflict HIGH`
+- n=2 total=26.307 EV=13.1535 mod=dna — `dna:Wrong DNA:Brain NO_TRADE|Brain conflict HIGH|No DNA/Rules/Edge support`
+- n=1 total=9.1852 EV=9.1852 mod=brain — `brain:False Reject:Brain NO_TRADE|Brain conflict HIGH`
+- n=1 total=2.8633 EV=2.8633 mod=timeline — `timeline:Wrong Timeline:Rule BLOCK #13 matched|Brain NO_TRADE|Brain conflict HIGH`

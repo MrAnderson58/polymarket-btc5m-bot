@@ -1065,6 +1065,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_research_lake_v1(conn)
     _ensure_decision_journal_v1(conn)
     _ensure_regime_transition_v1(conn)
+    _ensure_decision_error_learning_v1(conn)
 
     if not applied:
         conn.commit()
@@ -3619,6 +3620,15 @@ def _ensure_regime_transition_v1(conn: Any) -> None:
     )
 
     ensure_regime_transition_schema(conn)
+
+
+def _ensure_decision_error_learning_v1(conn: Any) -> None:
+    """Create Decision Error Learning Engine V1 tables if missing."""
+    from bot.research.market_events.signal_intelligence.decision_error_learning_v1.schema import (
+        ensure_decision_error_schema,
+    )
+
+    ensure_decision_error_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """

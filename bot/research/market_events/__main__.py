@@ -279,6 +279,9 @@ def main(argv: list[str] | None = None) -> int:
             "market-regime-transition",
             "market-transition-report",
             "market-transition-similarity",
+            "decision-error-learning",
+            "decision-error-report",
+            "decision-error-review",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -2432,6 +2435,46 @@ def main(argv: list[str] | None = None) -> int:
                     return run_market_regime_transition_v1(conn, write_reports=True)
 
             out = retry_on_db_locked(_run_mrt)
+            print(out.get("terminal") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"{args.command} failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command in (
+        "decision-error-learning",
+        "decision-error-report",
+        "decision-error-review",
+    ):
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.decision_error_learning_v1 import (
+            run_decision_error_learning_v1,
+            run_decision_error_report,
+            run_decision_error_review,
+        )
+
+        try:
+            try:
+                db_path, db_source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"{args.command} failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_del() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    if args.command == "decision-error-review":
+                        return run_decision_error_review(conn)
+                    if args.command == "decision-error-report":
+                        return run_decision_error_report(conn, write_reports=True)
+                    return run_decision_error_learning_v1(conn, write_reports=True)
+
+            out = retry_on_db_locked(_run_del)
             print(out.get("terminal") or "")
             return 0 if out.get("ok") else 1
         except Exception as exc:
