@@ -1063,6 +1063,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_experiment_engine_v1(conn)
     _ensure_alpha_validation_v2(conn)
     _ensure_research_lake_v1(conn)
+    _ensure_decision_journal_v1(conn)
 
     if not applied:
         conn.commit()
@@ -3599,6 +3600,15 @@ def _ensure_research_lake_v1(conn: Any) -> None:
     )
 
     ensure_research_lake_schema(conn)
+
+
+def _ensure_decision_journal_v1(conn: Any) -> None:
+    """Create Paper Decision Journal V1 tables if missing (research-only)."""
+    from bot.research.market_events.signal_intelligence.paper_decision_books_v1.schema import (
+        ensure_decision_journal_schema,
+    )
+
+    ensure_decision_journal_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """

@@ -20,6 +20,10 @@ from bot.research.market_events.signal_intelligence.market_timeline_v1.windows i
     load_candle_book,
     timeline_trade,
 )
+from bot.research.market_events.signal_intelligence.research_probe_v1 import (
+    canonical_probe,
+    current_market_from_probe,
+)
 
 
 def _load_trades(conn: Any, *, limit: int | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -84,7 +88,14 @@ def run_market_timeline_v1(
     clustered = cluster_histories(timelines, k=18, min_n=40)
     chains = mined.get("chains") or []
     top = mined.get("top_chains") or []
-    sim = match_current(timelines, chains)
+    probe = canonical_probe(conn)
+    probe_tl = None
+    if probe.get("ok") and probe.get("trade"):
+        probe_tl = timeline_trade(probe["trade"], book)
+    sim = match_current(timelines, chains, current=probe_tl)
+    current = current_market_from_probe(probe)
+    if current and sim.get("current"):
+        current = {**current, **(sim.get("current") or {})}
 
     top_chain = top[0] if top else None
     elapsed = round(time.time() - t0, 3)
@@ -105,7 +116,7 @@ def run_market_timeline_v1(
         "top_chains": top,
         "top_chain": top_chain,
         "similarity": sim,
-        "current_market": sim.get("current"),
+        "current_market": current or sim.get("current"),
         "research_only": True,
         "paper_unchanged": True,
         "execution_unchanged": True,

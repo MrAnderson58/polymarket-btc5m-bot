@@ -824,18 +824,26 @@ def run_morning_report(
         logger.debug("morning-report rules failed: %s", exc)
 
     fingerprint: dict[str, Any] = {}
+    timeline: dict[str, Any] = {}
+    decision: dict[str, Any] = {}
     try:
         from bot.research.market_events.signal_intelligence.market_fingerprint_v1 import (
             run_market_fingerprint_v1,
         )
+        from bot.research.market_events.signal_intelligence.research_probe_v1 import (
+            canonical_probe,
+        )
 
+        probe = canonical_probe(conn)
         fp = run_market_fingerprint_v1(conn, write_reports=False, limit=5000)
         sim = fp.get("similarity") or {}
         cur = fp.get("current_market") or {}
         fingerprint = {
-            "symbol": cur.get("symbol"),
-            "direction": cur.get("direction"),
-            "regime": cur.get("regime"),
+            "symbol": cur.get("symbol") or probe.get("symbol"),
+            "direction": cur.get("direction") or probe.get("direction"),
+            "regime": cur.get("regime") or probe.get("regime"),
+            "trade_id": cur.get("trade_id") or probe.get("trade_id"),
+            "probe_time": probe.get("time_label"),
             "similarity_pct": sim.get("similarity_pct"),
             "closest_fingerprint": sim.get("closest_fingerprint") or cur.get("fingerprint"),
             "historical_wr": sim.get("historical_wr"),
@@ -850,6 +858,54 @@ def run_morning_report(
         fingerprint = {"recommendation": "RESEARCH ONLY", "error": str(exc)[:120]}
 
     try:
+        from bot.research.market_events.signal_intelligence.market_timeline_v1 import (
+            run_market_timeline_v1,
+        )
+
+        tl = run_market_timeline_v1(conn, write_reports=False, limit=5000)
+        tsim = tl.get("similarity") or {}
+        tcur = tl.get("current_market") or {}
+        timeline = {
+            "symbol": tcur.get("symbol") or fingerprint.get("symbol"),
+            "direction": tcur.get("direction") or fingerprint.get("direction"),
+            "trade_id": tcur.get("trade_id") or fingerprint.get("trade_id"),
+            "similarity_pct": tsim.get("similarity_pct"),
+            "closest_chain": tsim.get("closest_chain"),
+            "historical_wr": tsim.get("historical_wr"),
+            "historical_pf": tsim.get("historical_pf"),
+            "historical_ev": tsim.get("historical_ev"),
+            "recommendation": tsim.get("recommendation") or "RESEARCH ONLY",
+        }
+    except Exception as exc:
+        logger.debug("morning-report timeline failed: %s", exc)
+        timeline = {"recommendation": "RESEARCH ONLY", "error": str(exc)[:120]}
+
+    try:
+        from bot.research.market_events.signal_intelligence.market_decision_v1 import (
+            run_market_decision_v1,
+        )
+
+        dec = run_market_decision_v1(conn, write_reports=False, mode="decide", limit=5000)
+        sample = dec.get("sample_decision") or {}
+        probe = sample.get("probe") or {}
+        decision = {
+            "symbol": probe.get("symbol") or fingerprint.get("symbol"),
+            "trade_id": probe.get("trade_id") or fingerprint.get("trade_id"),
+            "decision": sample.get("decision"),
+            "direction": sample.get("direction"),
+            "confidence_pct": sample.get("confidence_pct"),
+            "historical_wr": sample.get("historical_wr"),
+            "historical_pf": sample.get("historical_pf"),
+            "historical_ev": sample.get("historical_ev"),
+            "decision_rank": sample.get("decision_rank"),
+            "why": (sample.get("why") or [])[:6],
+            "recommendation": sample.get("recommendation") or "RESEARCH ONLY",
+        }
+    except Exception as exc:
+        logger.debug("morning-report decision failed: %s", exc)
+        decision = {"recommendation": "RESEARCH ONLY", "error": str(exc)[:120]}
+
+    try:
         # Lightweight brain probe — no mutation
         brain_info = {
             "status": "observe",
@@ -857,6 +913,63 @@ def run_morning_report(
         }
     except Exception:
         pass
+
+    decision_books: dict[str, Any] = {}
+    try:
+        from bot.research.market_events.signal_intelligence.paper_decision_books_v1.books import (
+            BOOK_A,
+            BOOK_B,
+            BOOK_C,
+        )
+        from bot.research.market_events.signal_intelligence.paper_decision_books_v1.journal import (
+            load_journal_rows,
+        )
+        from bot.research.market_events.signal_intelligence.paper_decision_books_v1.metrics import (
+            book_stats_from_rows,
+            partition_by_book,
+        )
+
+        jrows = load_journal_rows(conn)
+        by_book = partition_by_book(jrows)
+        day = 86400
+        today_cut = wall_now - (wall_now % day)
+        yday_cut = today_cut - day
+
+        def _slice(rows: list, lo: int, hi: int) -> list:
+            out = []
+            for r in rows:
+                oa = int(r.get("opened_at") or 0)
+                if lo <= oa < hi and int(r.get("accepted") or 0) == 1:
+                    out.append(r)
+            return out
+
+        def _book_day(book_id: str) -> dict[str, Any]:
+            rows = by_book.get(book_id) or []
+            today = book_stats_from_rows(_slice(rows, today_cut, wall_now + 1))
+            yday = book_stats_from_rows(_slice(rows, yday_cut, today_cut))
+            all_s = book_stats_from_rows(rows)
+            return {
+                "id": book_id,
+                "all": all_s,
+                "today": today,
+                "yesterday": yday,
+                "delta_wr": (
+                    None
+                    if today.get("wr") is None or yday.get("wr") is None
+                    else round(float(today["wr"]) - float(yday["wr"]), 4)
+                ),
+                "delta_trades": (today.get("trades") or 0) - (yday.get("trades") or 0),
+            }
+
+        decision_books = {
+            "A": _book_day(BOOK_A),
+            "B": _book_day(BOOK_B),
+            "C": _book_day(BOOK_C),
+            "n_journal": len(jrows),
+        }
+    except Exception as exc:
+        logger.debug("morning-report decision books failed: %s", exc)
+        decision_books = {"error": str(exc)[:120]}
 
     alerts = list(actions)
     if lake_info.get("lag"):
@@ -895,6 +1008,9 @@ def run_morning_report(
         "lake": lake_info,
         "s55": s55_info,
         "fingerprint": fingerprint,
+        "timeline": timeline,
+        "decision": decision,
+        "decision_books": decision_books,
         "brain": brain_info,
         "best_rules": best_rules,
         "worst_rules": worst_rules,
@@ -1122,6 +1238,8 @@ def format_morning_summary(report: dict[str, Any]) -> str:
     lake = report.get("lake") or {}
     s55 = report.get("s55") or {}
     fp = report.get("fingerprint") or {}
+    tl = report.get("timeline") or {}
+    dec = report.get("decision") or {}
     brain = report.get("brain") or {}
     best = (report.get("trading") or {}).get("best_strategy") or {}
     worst = (report.get("trading") or {}).get("worst_strategy") or {}
@@ -1187,6 +1305,28 @@ def format_morning_summary(report: dict[str, Any]) -> str:
         "",
         "Recommendation",
         f"  {fp.get('recommendation') or 'RESEARCH ONLY'}",
+        "",
+        "Timeline",
+        f"  {tl.get('symbol') or fp.get('symbol') or '—'} similarity={tl.get('similarity_pct')}% "
+        f"chain=#{tl.get('closest_chain') or 'n/a'}",
+        "",
+        "Decision",
+        f"  {dec.get('decision') or '—'} {dec.get('direction') or ''} "
+        f"conf={dec.get('confidence_pct')}% rank={dec.get('decision_rank') or '—'}",
+        "",
+        "Decision Books",
+    ])
+    dbks = report.get("decision_books") or {}
+    for key, label in (("A", "Book A"), ("B", "Book B"), ("C", "Book C")):
+        b = dbks.get(key) or {}
+        y = b.get("yesterday") or {}
+        t = b.get("today") or {}
+        lines.append(
+            f"  {label}  yday trades={y.get('trades') or 0} WR={y.get('wr')}  "
+            f"today trades={t.get('trades') or 0} WR={t.get('wr')}  "
+            f"Δtrades={b.get('delta_trades')} ΔWR={b.get('delta_wr')}"
+        )
+    lines.extend([
         "",
         "Brain",
         f"  {brain.get('status') or 'n/a'} notes={brain.get('notes') or '—'}",

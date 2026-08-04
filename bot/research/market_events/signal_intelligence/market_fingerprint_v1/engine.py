@@ -34,6 +34,31 @@ from bot.research.market_events.signal_intelligence.market_fingerprint_v1.stats 
     feature_distributions,
     mae_mfe_summary,
 )
+from bot.research.market_events.signal_intelligence.research_probe_v1 import (
+    canonical_probe,
+    current_market_from_probe,
+)
+
+
+def _resolve_probe_snapshot(
+    conn: Any,
+    book: dict[str, Any],
+    snapshots: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Canonical latest-lake probe snapshot (not max from limited corpus)."""
+    probe = canonical_probe(conn)
+    if probe.get("ok") and probe.get("trade"):
+        snap = snapshot_trade(probe["trade"], book)
+        if snap is not None:
+            return snap
+    tid = int(probe.get("trade_id") or 0)
+    if tid:
+        for s in snapshots:
+            if int(s.get("trade_id") or 0) == tid:
+                return s
+    if snapshots:
+        return max(snapshots, key=lambda r: int(r.get("opened_at") or 0))
+    return None
 
 
 def _load_trades(conn: Any, *, limit: int | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -108,25 +133,30 @@ def run_market_fingerprint_v1(
     universal = universal_dna(snapshots, assignments, clusters)
 
     sim_index = build_similarity_index(snapshots)
-    # Current market ≈ latest snapshot (research probe)
+    probe = canonical_probe(conn)
+    probe_snap = _resolve_probe_snapshot(conn, book, snapshots)
     current = None
     sim = {"ok": False, "recommendation": "RESEARCH ONLY"}
-    if snapshots and sim_index.get("ok"):
-        latest = max(snapshots, key=lambda r: int(r.get("opened_at") or 0))
+    if probe_snap is not None and sim_index.get("ok"):
         sim = query_similarity(
             sim_index,
-            latest.get("vector") or [],
+            probe_snap.get("vector") or [],
             k=k_neighbors,
             assignments=assignments,
         )
-        current = {
-            "trade_id": latest.get("trade_id"),
-            "symbol": latest.get("symbol"),
-            "direction": latest.get("direction"),
-            "opened_at": latest.get("opened_at"),
-            "regime": latest.get("regime"),
-            "fingerprint": assignments.get(int(latest.get("trade_id") or 0)),
-        }
+        tid = int(probe_snap.get("trade_id") or 0)
+        current = current_market_from_probe(
+            probe if probe.get("ok") else {
+                "ok": True,
+                "trade_id": tid,
+                "symbol": probe_snap.get("symbol"),
+                "direction": probe_snap.get("direction"),
+                "opened_at": probe_snap.get("opened_at"),
+                "regime": probe_snap.get("regime"),
+                "source": "research_lake_v1",
+            },
+            extra={"fingerprint": assignments.get(tid)},
+        )
 
     # Drop heavy sklearn objects before return/serialize
     similarity_library = {

@@ -12,6 +12,7 @@ from bot.research.market_events.signal_intelligence.research_lake_v1.health impo
     research_lake_health_v1,
 )
 from bot.research.market_events.signal_intelligence.research_lake_v1.loader import (
+    load_latest_lake_trade,
     load_research_lake_rows,
     research_lake_row_count,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "ensure_research_lake_schema",
     "format_s55_join_audit",
     "lake_lag",
+    "load_latest_lake_trade",
     "load_research_lake_rows",
     "materialize_closed_from_s40_reviews",
     "repair_s55_joins",

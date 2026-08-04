@@ -58,55 +58,81 @@ def load_research_lake_rows(
 
     out: list[dict[str, Any]] = []
     for r in raw:
-        row = {k: r[k] for k in r.keys()} if hasattr(r, "keys") else dict(r)
-        feats = _parse(row.get("features_json"))
-        macro = _parse(row.get("macro_json"))
-        news = _parse(row.get("news_json"))
-        patterns = _parse(row.get("patterns_json"))
-        flat: dict[str, Any] = {
-            "trade_id": row.get("trade_id"),
-            "id": row.get("trade_id"),
-            "symbol": row.get("symbol"),
-            "direction": row.get("direction"),
-            "entry": row.get("entry"),
-            "exit": row.get("exit"),
-            "result": row.get("result"),
-            "pnl": row.get("pnl"),
-            "pnl_pct": row.get("pnl_pct"),
-            "pnl_usd": row.get("pnl"),
-            "gate": row.get("gate"),
-            "gate_decision": row.get("gate"),
-            "confidence": row.get("confidence"),
-            "regime": row.get("regime"),
-            "market_regime": row.get("regime"),
-            "feature_version": row.get("feature_version"),
-            "dataset_version": row.get("dataset_version"),
-            "schema_version": row.get("schema_version"),
-            "closed_at": row.get("closed_at"),
-            "opened_at": row.get("opened_at"),
-            "status": row.get("status") or "CLOSED",
-            "alpha_labels": _parse(row.get("alpha_labels_json")),
-            "optimizer_state": _parse(row.get("optimizer_state_json")),
-            "experiment_state": _parse(row.get("experiment_state_json")),
-            "patterns": patterns,
-            "macro": macro,
-            "news": news,
-            "features_json": row.get("features_json"),
-            "_source": "research_lake_v1",
-        }
-        for k, v in feats.items():
-            if flat.get(k) is None:
-                flat[k] = v
-        for k, v in macro.items():
-            if flat.get(k) is None:
-                flat[k] = v
-        for k, v in news.items():
-            if flat.get(k) is None:
-                flat[k] = v
-        if flat.get("pattern") is None and patterns.get("pattern") is not None:
-            flat["pattern"] = patterns.get("pattern")
-        out.append(flat)
+        out.append(_flatten_lake_row(r))
     return out
 
 
-__all__ = ["load_research_lake_rows", "research_lake_row_count"]
+def _flatten_lake_row(row: Any) -> dict[str, Any]:
+    """Normalize one lake SQL row to research trade dict."""
+    row = {k: row[k] for k in row.keys()} if hasattr(row, "keys") else dict(row)
+    feats = _parse(row.get("features_json"))
+    macro = _parse(row.get("macro_json"))
+    news = _parse(row.get("news_json"))
+    patterns = _parse(row.get("patterns_json"))
+    flat: dict[str, Any] = {
+        "trade_id": row.get("trade_id"),
+        "id": row.get("trade_id"),
+        "symbol": row.get("symbol"),
+        "direction": row.get("direction"),
+        "entry": row.get("entry"),
+        "exit": row.get("exit"),
+        "result": row.get("result"),
+        "pnl": row.get("pnl"),
+        "pnl_pct": row.get("pnl_pct"),
+        "pnl_usd": row.get("pnl"),
+        "gate": row.get("gate"),
+        "gate_decision": row.get("gate"),
+        "confidence": row.get("confidence"),
+        "regime": row.get("regime"),
+        "market_regime": row.get("regime"),
+        "feature_version": row.get("feature_version"),
+        "dataset_version": row.get("dataset_version"),
+        "schema_version": row.get("schema_version"),
+        "closed_at": row.get("closed_at"),
+        "opened_at": row.get("opened_at"),
+        "status": row.get("status") or "CLOSED",
+        "alpha_labels": _parse(row.get("alpha_labels_json")),
+        "optimizer_state": _parse(row.get("optimizer_state_json")),
+        "experiment_state": _parse(row.get("experiment_state_json")),
+        "patterns": patterns,
+        "macro": macro,
+        "news": news,
+        "features_json": row.get("features_json"),
+        "_source": "research_lake_v1",
+    }
+    for k, v in feats.items():
+        if flat.get(k) is None:
+            flat[k] = v
+    for k, v in macro.items():
+        if flat.get(k) is None:
+            flat[k] = v
+    for k, v in news.items():
+        if flat.get(k) is None:
+            flat[k] = v
+    if flat.get("pattern") is None and patterns.get("pattern") is not None:
+        flat["pattern"] = patterns.get("pattern")
+    return flat
+
+
+def load_latest_lake_trade(
+    conn: Any,
+    *,
+    require_pnl: bool = True,
+) -> dict[str, Any] | None:
+    """Latest lake trade by opened_at — canonical research probe (not LIMIT-ASC slice)."""
+    ensure_research_lake_schema(conn)
+    sql = f"SELECT * FROM {LAKE_TABLE}"
+    if require_pnl:
+        sql += " WHERE pnl IS NOT NULL"
+    sql += " ORDER BY COALESCE(opened_at, closed_at, trade_id) DESC LIMIT 1"
+    try:
+        row = conn.execute(sql).fetchone()
+    except Exception as exc:
+        logger.warning("research_lake latest probe failed: %s", exc)
+        return None
+    if not row:
+        return None
+    return _flatten_lake_row(row)
+
+
+__all__ = ["load_latest_lake_trade", "load_research_lake_rows", "research_lake_row_count"]

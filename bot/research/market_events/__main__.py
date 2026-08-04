@@ -270,6 +270,10 @@ def main(argv: list[str] | None = None) -> int:
             "market-decision",
             "market-decision-replay",
             "market-decision-explain",
+            "research-consistency-audit",
+            "paper-decision-books",
+            "paper-book-report",
+            "decision-review",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -2282,6 +2286,74 @@ def main(argv: list[str] | None = None) -> int:
                     )
 
             out = retry_on_db_locked(_run_dec)
+            print(out.get("terminal") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"{args.command} failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "research-consistency-audit":
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.research_consistency_audit_v1 import (
+            run_research_consistency_audit_v1,
+        )
+
+        try:
+            try:
+                db_path, db_source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"research-consistency-audit failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_audit() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    return run_research_consistency_audit_v1(
+                        conn, db_path=db_path, db_source=db_source
+                    )
+
+            out = retry_on_db_locked(_run_audit)
+            print(out.get("terminal") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"research-consistency-audit failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command in ("paper-decision-books", "paper-book-report", "decision-review"):
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.paper_decision_books_v1 import (
+            run_decision_review,
+            run_paper_book_report,
+            run_paper_decision_books_v1,
+        )
+
+        try:
+            try:
+                db_path, db_source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"{args.command} failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_books() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    if args.command == "paper-decision-books":
+                        return run_paper_decision_books_v1(conn, write_reports=True)
+                    if args.command == "decision-review":
+                        return run_decision_review(conn, write_reports=True)
+                    return run_paper_book_report(conn, write_reports=True)
+
+            out = retry_on_db_locked(_run_books)
             print(out.get("terminal") or "")
             return 0 if out.get("ok") else 1
         except Exception as exc:

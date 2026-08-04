@@ -25,6 +25,10 @@ from bot.research.market_events.signal_intelligence.market_decision_v1.report im
     format_terminal,
     write_artifacts,
 )
+from bot.research.market_events.signal_intelligence.research_probe_v1 import (
+    canonical_probe,
+    current_market_from_probe,
+)
 
 
 def run_market_decision_v1(
@@ -65,6 +69,7 @@ def run_market_decision_v1(
 
     if mode == "explain":
         trades = ctx.get("trades") or []
+        probe = canonical_probe(conn)
         if trade_id is not None:
             target = find_trade(ctx, int(trade_id))
             if target is None:
@@ -77,7 +82,9 @@ def run_market_decision_v1(
                     "research_only": True,
                 }
         else:
-            target = max(trades, key=lambda r: int(r.get("opened_at") or r.get("closed_at") or 0))
+            target = (probe.get("trade") if probe.get("ok") else None) or max(
+                trades, key=lambda r: int(r.get("opened_at") or r.get("closed_at") or 0)
+            )
 
         primary = explain_trade(ctx, target)
         opposite = None
@@ -118,8 +125,12 @@ def run_market_decision_v1(
 
     if mode == "decide":
         trades = ctx.get("trades") or []
-        latest = max(trades, key=lambda r: int(r.get("opened_at") or r.get("closed_at") or 0))
+        probe = canonical_probe(conn)
+        latest = (probe.get("trade") if probe.get("ok") else None) or max(
+            trades, key=lambda r: int(r.get("opened_at") or r.get("closed_at") or 0)
+        )
         sample = explain_from_decision(decide_one(ctx, latest))
+        sample["probe"] = current_market_from_probe(probe)
         elapsed = round(time.time() - t0, 3)
         result = {
             "ok": True,
