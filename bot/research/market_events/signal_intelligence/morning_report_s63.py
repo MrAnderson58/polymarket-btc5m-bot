@@ -971,6 +971,48 @@ def run_morning_report(
         logger.debug("morning-report decision books failed: %s", exc)
         decision_books = {"error": str(exc)[:120]}
 
+    today_elite: dict[str, Any] = {"n": 0, "candidates": []}
+    try:
+        from bot.research.market_events.signal_intelligence.elite_candidate_v1 import (
+            run_elite_candidates_v1,
+            today_elite_slice,
+        )
+
+        elite_out = run_elite_candidates_v1(
+            conn, write_reports=False, persist=False, learn=True
+        )
+        if elite_out.get("ok"):
+            sliced = today_elite_slice(
+                elite_out.get("candidates") or [], now=wall_now
+            )
+            # If none opened "today", still show top stored A+/A/ELITE for morning
+            show = sliced or list(elite_out.get("candidates") or [])[:10]
+            today_elite = {
+                "n": len(show),
+                "today_n": len(sliced),
+                "categories": elite_out.get("categories"),
+                "candidates": [
+                    {
+                        "trade_id": c.get("trade_id"),
+                        "symbol": c.get("symbol"),
+                        "direction": c.get("direction"),
+                        "score": c.get("score"),
+                        "category": c.get("category"),
+                        "historical_wr": c.get("historical_wr"),
+                        "historical_pf": c.get("historical_pf"),
+                        "historical_ev": c.get("historical_ev"),
+                        "expected_ev": c.get("expected_ev"),
+                        "supporting_modules": c.get("supporting_modules"),
+                        "why": (c.get("why") or [])[:4],
+                    }
+                    for c in show[:10]
+                ],
+                "elapsed_sec": elite_out.get("elapsed_sec"),
+            }
+    except Exception as exc:
+        logger.debug("morning-report elite failed: %s", exc)
+        today_elite = {"error": str(exc)[:120], "n": 0, "candidates": []}
+
     alerts = list(actions)
     if lake_info.get("lag"):
         alerts.insert(0, {"priority": "HIGH", "title": f"lake lag={lake_info.get('lag')}"})
@@ -1011,6 +1053,7 @@ def run_morning_report(
         "timeline": timeline,
         "decision": decision,
         "decision_books": decision_books,
+        "today_elite": today_elite,
         "brain": brain_info,
         "best_rules": best_rules,
         "worst_rules": worst_rules,
@@ -1326,6 +1369,22 @@ def format_morning_summary(report: dict[str, Any]) -> str:
             f"today trades={t.get('trades') or 0} WR={t.get('wr')}  "
             f"Δtrades={b.get('delta_trades')} ΔWR={b.get('delta_wr')}"
         )
+    lines.extend(["", "TODAY ELITE"])
+    te = report.get("today_elite") or {}
+    cands = te.get("candidates") or []
+    if not cands:
+        lines.append("  (none)")
+    else:
+        for i, c in enumerate(cands[:8], 1):
+            lines.append(
+                f"  {i}. {c.get('symbol')} {c.get('direction')}  "
+                f"Score {c.get('score')} {c.get('category')}  "
+                f"WR {c.get('historical_wr')} PF {c.get('historical_pf')} "
+                f"EV {c.get('expected_ev') or c.get('historical_ev')}"
+            )
+            mods = c.get("supporting_modules") or []
+            if mods:
+                lines.append(f"     Reason {' '.join(str(m).title() for m in mods[:5])}")
     lines.extend([
         "",
         "Brain",
