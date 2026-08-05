@@ -286,6 +286,9 @@ def main(argv: list[str] | None = None) -> int:
             "elite-report",
             "elite-review",
             "elite-explain",
+            "elite-profile",
+            "elite-profile-report",
+            "elite-profile-review",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -2527,6 +2530,46 @@ def main(argv: list[str] | None = None) -> int:
                     return run_elite_candidates_v1(conn, write_reports=True)
 
             out = retry_on_db_locked(_run_elite)
+            print(out.get("terminal") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"{args.command} failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command in (
+        "elite-profile",
+        "elite-profile-report",
+        "elite-profile-review",
+    ):
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.elite_market_profile_v1 import (
+            run_elite_market_profile_v1,
+            run_elite_profile_report,
+            run_elite_profile_review,
+        )
+
+        try:
+            try:
+                db_path, db_source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"{args.command} failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_emp() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    if args.command == "elite-profile-review":
+                        return run_elite_profile_review(conn)
+                    if args.command == "elite-profile-report":
+                        return run_elite_profile_report(conn, write_reports=True)
+                    return run_elite_market_profile_v1(conn, write_reports=True)
+
+            out = retry_on_db_locked(_run_emp)
             print(out.get("terminal") or "")
             return 0 if out.get("ok") else 1
         except Exception as exc:
