@@ -1069,6 +1069,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_elite_candidate_v1(conn)
     _ensure_elite_market_profile_v1(conn)
     _ensure_elite_profile_audit_v1(conn)
+    _ensure_portfolio_sim_v1(conn)
 
     if not applied:
         conn.commit()
@@ -3659,6 +3660,15 @@ def _ensure_elite_profile_audit_v1(conn: Any) -> None:
     )
 
     ensure_elite_profile_audit_schema(conn)
+
+
+def _ensure_portfolio_sim_v1(conn: Any) -> None:
+    """Create Portfolio Simulator V1 tables if missing."""
+    from bot.research.market_events.signal_intelligence.portfolio_simulator_v1.schema import (
+        ensure_portfolio_sim_schema,
+    )
+
+    ensure_portfolio_sim_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """
