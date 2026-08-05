@@ -1068,6 +1068,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_decision_error_learning_v1(conn)
     _ensure_elite_candidate_v1(conn)
     _ensure_elite_market_profile_v1(conn)
+    _ensure_elite_profile_audit_v1(conn)
 
     if not applied:
         conn.commit()
@@ -3649,6 +3650,15 @@ def _ensure_elite_market_profile_v1(conn: Any) -> None:
     )
 
     ensure_elite_market_profile_schema(conn)
+
+
+def _ensure_elite_profile_audit_v1(conn: Any) -> None:
+    """Create Elite Profile Audit V1 tables if missing."""
+    from bot.research.market_events.signal_intelligence.elite_profile_audit_v1.schema import (
+        ensure_elite_profile_audit_schema,
+    )
+
+    ensure_elite_profile_audit_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """
