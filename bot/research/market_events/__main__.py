@@ -295,6 +295,8 @@ def main(argv: list[str] | None = None) -> int:
             "portfolio-sim",
             "portfolio-report",
             "portfolio-compare",
+            "reality-validation",
+            "reality-report",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -2656,6 +2658,42 @@ def main(argv: list[str] | None = None) -> int:
                     return run_portfolio_sim_v1(conn, write_reports=True)
 
             out = retry_on_db_locked(_run_ps)
+            print(out.get("terminal") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"{args.command} failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command in (
+        "reality-validation",
+        "reality-report",
+    ):
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.reality_validation_v1 import (
+            run_reality_report,
+            run_reality_validation_v1,
+        )
+
+        try:
+            try:
+                db_path, db_source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"{args.command} failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_rv() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    if args.command == "reality-report":
+                        return run_reality_report(conn, write_reports=True)
+                    return run_reality_validation_v1(conn, write_reports=True)
+
+            out = retry_on_db_locked(_run_rv)
             print(out.get("terminal") or "")
             return 0 if out.get("ok") else 1
         except Exception as exc:

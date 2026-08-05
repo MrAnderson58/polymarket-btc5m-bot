@@ -1070,6 +1070,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_elite_market_profile_v1(conn)
     _ensure_elite_profile_audit_v1(conn)
     _ensure_portfolio_sim_v1(conn)
+    _ensure_reality_validation_v1(conn)
 
     if not applied:
         conn.commit()
@@ -3669,6 +3670,15 @@ def _ensure_portfolio_sim_v1(conn: Any) -> None:
     )
 
     ensure_portfolio_sim_schema(conn)
+
+
+def _ensure_reality_validation_v1(conn: Any) -> None:
+    """Create Reality Validation Engine V1 tables if missing."""
+    from bot.research.market_events.signal_intelligence.reality_validation_v1.schema import (
+        ensure_reality_validation_schema,
+    )
+
+    ensure_reality_validation_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """
