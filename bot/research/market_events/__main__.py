@@ -300,6 +300,9 @@ def main(argv: list[str] | None = None) -> int:
             "paper-math",
             "paper-math-report",
             "paper-math-review",
+            "forward-monitor",
+            "forward-report",
+            "forward-weekly",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -2737,6 +2740,46 @@ def main(argv: list[str] | None = None) -> int:
                     return run_paper_math_v1(conn, write_reports=True)
 
             out = retry_on_db_locked(_run_pm)
+            print(out.get("terminal") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"{args.command} failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command in (
+        "forward-monitor",
+        "forward-report",
+        "forward-weekly",
+    ):
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.forward_validation_v1 import (
+            run_forward_monitor_v1,
+            run_forward_report,
+            run_forward_weekly,
+        )
+
+        try:
+            try:
+                db_path, db_source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"{args.command} failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_fv() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    if args.command == "forward-weekly":
+                        return run_forward_weekly(conn, write_reports=True)
+                    if args.command == "forward-report":
+                        return run_forward_report(conn, write_reports=True)
+                    return run_forward_monitor_v1(conn, write_reports=True)
+
+            out = retry_on_db_locked(_run_fv)
             print(out.get("terminal") or "")
             return 0 if out.get("ok") else 1
         except Exception as exc:

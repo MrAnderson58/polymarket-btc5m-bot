@@ -1072,6 +1072,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_portfolio_sim_v1(conn)
     _ensure_reality_validation_v1(conn)
     _ensure_paper_math_validation_v1(conn)
+    _ensure_forward_validation_v1(conn)
 
     if not applied:
         conn.commit()
@@ -3689,6 +3690,15 @@ def _ensure_paper_math_validation_v1(conn: Any) -> None:
     )
 
     ensure_paper_math_schema(conn)
+
+
+def _ensure_forward_validation_v1(conn: Any) -> None:
+    """Create Forward Validation Monitor V1 tables if missing."""
+    from bot.research.market_events.signal_intelligence.forward_validation_v1.schema import (
+        ensure_forward_validation_schema,
+    )
+
+    ensure_forward_validation_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """
