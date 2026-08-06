@@ -12,11 +12,10 @@ from bot.research.market_events.signal_intelligence.elite_candidate_v1.context i
 )
 from bot.research.market_events.signal_intelligence.elite_candidate_v1.engine import score_row
 from bot.research.market_events.signal_intelligence.elite_candidate_v1.score import (
-    STORE_CATEGORIES,
     should_store,
 )
-from bot.research.market_events.signal_intelligence.elite_candidate_v1.store import (
-    load_stored_candidates,
+from bot.research.market_events.signal_intelligence.research_integrity_v1.canonical import (
+    load_canonical_elite,
 )
 from bot.research.market_events.signal_intelligence.elite_market_profile_v1.features import (
     extract_tags,
@@ -85,7 +84,7 @@ def run_elite_market_profile_v1(
     t0 = time.time()
     ensure_elite_market_profile_schema(conn)
 
-    elite = load_stored_candidates(conn, categories=list(STORE_CATEGORIES))
+    elite = load_canonical_elite(conn)
     journal = load_decision_book_rows(conn)
     if not elite:
         # Fallback: score journal once if store empty

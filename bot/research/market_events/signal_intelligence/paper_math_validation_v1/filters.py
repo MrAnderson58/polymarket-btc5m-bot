@@ -221,8 +221,16 @@ def book_c_allows(ok_entry: bool, fails: list[str]) -> bool:
     return bool(ok_entry)
 
 
-def book_d_allows(ok_entry: bool, fails: list[str], *, duplicate: bool) -> bool:
-    """Strict Mathematics reference: entry pass + never duplicate."""
+def book_d_allows(
+    ok_entry: bool,
+    fails: list[str],
+    *,
+    duplicate: bool,
+    feature_store_ok: bool = True,
+) -> bool:
+    """Strict Mathematics reference: entry pass + never duplicate + Feature Store required."""
+    if not feature_store_ok:
+        return False
     if duplicate or "book_duplicate" in fails:
         return False
     return bool(ok_entry)

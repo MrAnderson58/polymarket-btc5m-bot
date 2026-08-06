@@ -12,11 +12,8 @@ from bot.research.market_events.research_db_session import research_write_lock
 from bot.research.market_events.signal_intelligence.elite_candidate_v1.context import (
     load_decision_book_rows,
 )
-from bot.research.market_events.signal_intelligence.elite_candidate_v1.score import (
-    STORE_CATEGORIES,
-)
-from bot.research.market_events.signal_intelligence.elite_candidate_v1.store import (
-    load_stored_candidates,
+from bot.research.market_events.signal_intelligence.research_integrity_v1.canonical import (
+    load_canonical_elite,
 )
 from bot.research.market_events.signal_intelligence.elite_profile_audit_v1.audits import (
     coin_audit,
@@ -275,7 +272,7 @@ def run_elite_profile_audit_v1(
 
     lake = load_research_lake_rows(conn, require_pnl=False)
     journal = load_decision_book_rows(conn)
-    elite_store = load_stored_candidates(conn, categories=list(STORE_CATEGORIES))
+    elite_store = load_canonical_elite(conn)
     lake_by = {int(r.get("trade_id") or 0): r for r in lake if int(r.get("trade_id") or 0)}
     journal_by = {int(r.get("trade_id") or 0): r for r in journal if int(r.get("trade_id") or 0)}
 

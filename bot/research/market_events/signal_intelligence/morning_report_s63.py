@@ -973,42 +973,37 @@ def run_morning_report(
 
     today_elite: dict[str, Any] = {"n": 0, "candidates": []}
     try:
-        from bot.research.market_events.signal_intelligence.elite_candidate_v1 import (
-            run_elite_candidates_v1,
+        from bot.research.market_events.signal_intelligence.elite_candidate_v1.engine import (
             today_elite_slice,
         )
-
-        elite_out = run_elite_candidates_v1(
-            conn, write_reports=False, persist=False, learn=True
+        from bot.research.market_events.signal_intelligence.research_integrity_v1.canonical import (
+            load_canonical_elite,
         )
-        if elite_out.get("ok"):
-            sliced = today_elite_slice(
-                elite_out.get("candidates") or [], now=wall_now
-            )
-            # If none opened "today", still show top stored A+/A/ELITE for morning
-            show = sliced or list(elite_out.get("candidates") or [])[:10]
-            today_elite = {
-                "n": len(show),
-                "today_n": len(sliced),
-                "categories": elite_out.get("categories"),
-                "candidates": [
-                    {
-                        "trade_id": c.get("trade_id"),
-                        "symbol": c.get("symbol"),
-                        "direction": c.get("direction"),
-                        "score": c.get("score"),
-                        "category": c.get("category"),
-                        "historical_wr": c.get("historical_wr"),
-                        "historical_pf": c.get("historical_pf"),
-                        "historical_ev": c.get("historical_ev"),
-                        "expected_ev": c.get("expected_ev"),
-                        "supporting_modules": c.get("supporting_modules"),
-                        "why": (c.get("why") or [])[:4],
-                    }
-                    for c in show[:10]
-                ],
-                "elapsed_sec": elite_out.get("elapsed_sec"),
-            }
+
+        elite_candidates = load_canonical_elite(conn)
+        sliced = today_elite_slice(elite_candidates, now=wall_now)
+        show = sliced or list(elite_candidates)[:10]
+        today_elite = {
+            "n": len(show),
+            "today_n": len(sliced),
+            "categories": {"ELITE", "A+", "A"},
+            "candidates": [
+                {
+                    "trade_id": c.get("trade_id"),
+                    "symbol": c.get("symbol"),
+                    "direction": c.get("direction"),
+                    "score": c.get("score"),
+                    "category": c.get("category"),
+                    "historical_wr": c.get("historical_wr"),
+                    "historical_pf": c.get("historical_pf"),
+                    "historical_ev": c.get("historical_ev"),
+                    "expected_ev": c.get("expected_ev"),
+                    "supporting_modules": c.get("supporting_modules"),
+                    "why": (c.get("why") or [])[:4],
+                }
+                for c in show[:10]
+            ],
+        }
     except Exception as exc:
         logger.debug("morning-report elite failed: %s", exc)
         today_elite = {"error": str(exc)[:120], "n": 0, "candidates": []}

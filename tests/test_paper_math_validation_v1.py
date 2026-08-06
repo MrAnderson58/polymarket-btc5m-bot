@@ -177,6 +177,8 @@ class TestFilters(unittest.TestCase):
         self.assertTrue(book_c_allows(True, []))
         self.assertFalse(book_d_allows(True, [], duplicate=True))
         self.assertTrue(book_d_allows(True, [], duplicate=False))
+        self.assertFalse(book_d_allows(True, [], duplicate=False, feature_store_ok=False))
+        self.assertTrue(book_d_allows(True, [], duplicate=False, feature_store_ok=True))
 
     def test_thresholds(self):
         self.assertEqual(MIN_CONFIDENCE, 0.75)

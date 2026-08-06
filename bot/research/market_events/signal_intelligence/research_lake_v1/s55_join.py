@@ -134,9 +134,11 @@ def diagnose_missing_s55_joins(conn: Any, *, limit: int | None = None) -> dict[s
         rows = conn.execute(
             f"""
             SELECT l.trade_id, l.symbol, l.opened_at, l.closed_at, l.s55_id,
-                   NULL, NULL, NULL, NULL, NULL, NULL,
-                   f.id, f.paper_trade_id, f.s40_signal_type, f.s40_signal_id,
-                   f.symbol, f.closed_at, f.features_json
+                   NULL AS s40_signal_type, NULL AS s40_signal_id, NULL AS p_symbol,
+                   NULL AS created_at, NULL AS p_closed, NULL AS exit_reason,
+                   f.id AS f_id, f.paper_trade_id AS f_paper_trade_id,
+                   f.s40_signal_type AS f_s40_type, f.s40_signal_id AS f_s40_id,
+                   f.symbol AS f_symbol, f.closed_at AS f_closed, f.features_json AS f_feats
             FROM {LAKE_TABLE} l
             LEFT JOIN {_S55} f ON f.id = l.s55_id
             ORDER BY l.trade_id ASC
@@ -180,8 +182,11 @@ def diagnose_missing_s55_joins(conn: Any, *, limit: int | None = None) -> dict[s
 
     def _row_get(r: Any, key: str, idx: int) -> Any:
         if hasattr(r, "keys"):
-            return r[key]
-        return r[idx]
+            try:
+                return r[key]
+            except (KeyError, IndexError):
+                return r[idx] if idx < len(r) else None
+        return r[idx] if idx < len(r) else None
 
     for r in rows:
         trade_id = int(_row_get(r, "trade_id", 0))
@@ -535,11 +540,133 @@ def repair_s55_joins(conn: Any, *, limit: int | None = None) -> dict[str, Any]:
     }
 
 
+def reconcile_timestamp_mismatches(
+    conn: Any,
+    *,
+    max_delta_sec: int = 60,
+) -> dict[str, Any]:
+    """
+    Auto-reconcile TIMESTAMP_MISMATCH when lake closed_at vs S55 closed_at
+    differs by < max_delta_sec. Otherwise leave for report.
+    """
+    ensure_research_lake_schema(conn)
+    max_delta = int(max_delta_sec)
+    reconciled = 0
+    remaining = 0
+    samples_remaining: list[int] = []
+
+    # Index real S55 by symbol
+    by_sym: dict[str, list[dict[str, Any]]] = {}
+    try:
+        for r in conn.execute(
+            f"SELECT id, paper_trade_id, symbol, closed_at, s40_signal_type, features_json "
+            f"FROM {_S55}"
+        ).fetchall():
+            if hasattr(r, "keys"):
+                f_type, f_feats = r["s40_signal_type"], r["features_json"]
+                sym = str(r["symbol"] or "").upper()
+                cid = int(r["id"])
+                closed = r["closed_at"]
+            else:
+                f_type, f_feats = r[4], r[5]
+                sym = str(r[2] or "").upper()
+                cid = int(r[0])
+                closed = r[3]
+            if _is_stub_s55(f_type, f_feats):
+                continue
+            try:
+                c_i = int(closed) if closed is not None else None
+            except Exception:
+                c_i = None
+            by_sym.setdefault(sym, []).append({"id": cid, "closed_at": c_i})
+    except Exception:
+        pass
+
+    rows = conn.execute(
+        f"""
+        SELECT l.trade_id, l.symbol, l.closed_at, l.s55_id,
+               f.id AS f_id, f.closed_at AS f_closed, f.features_json, f.s40_signal_type
+        FROM {LAKE_TABLE} l
+        LEFT JOIN {_S55} f ON f.id = l.s55_id
+        """
+    ).fetchall()
+
+    for r in rows:
+        trade_id = int(r[0] if not hasattr(r, "keys") else r["trade_id"])
+        sym = str(r[1] if not hasattr(r, "keys") else r["symbol"] or "").upper()
+        l_closed = r[2] if not hasattr(r, "keys") else r["closed_at"]
+        s55_id = r[3] if not hasattr(r, "keys") else r["s55_id"]
+        f_id = r[4] if not hasattr(r, "keys") else r["f_id"]
+        f_closed = r[5] if not hasattr(r, "keys") else r["f_closed"]
+        f_type = r[7] if not hasattr(r, "keys") else r["s40_signal_type"]
+        f_feats = r[6] if not hasattr(r, "keys") else r["features_json"]
+
+        linked_real = bool(
+            s55_id is not None and f_id is not None
+            and not _is_stub_s55(f_type, f_feats)
+        )
+        if linked_real:
+            continue
+
+        try:
+            lc = int(l_closed) if l_closed is not None else None
+        except Exception:
+            lc = None
+        if lc is None or not sym:
+            continue
+
+        best_id = None
+        best_delta = None
+        for h in by_sym.get(sym, []):
+            hc = h.get("closed_at")
+            if hc is None:
+                continue
+            delta = abs(int(hc) - lc)
+            if delta <= max_delta:
+                if best_delta is None or delta < best_delta:
+                    best_delta = delta
+                    best_id = int(h["id"])
+
+        if best_id is not None:
+            conn.execute(
+                f"UPDATE {LAKE_TABLE} SET s55_id = ? WHERE trade_id = ?",
+                (best_id, trade_id),
+            )
+            reconciled += 1
+        else:
+            # Would classify as TIMESTAMP_MISMATCH if fuzzy within 300s
+            fuzzy = False
+            for h in by_sym.get(sym, []):
+                hc = h.get("closed_at")
+                if hc is not None and abs(int(hc) - lc) <= 300:
+                    fuzzy = True
+                    break
+            if fuzzy:
+                remaining += 1
+                if len(samples_remaining) < 20:
+                    samples_remaining.append(trade_id)
+
+    if reconciled:
+        try:
+            conn.commit()
+        except Exception:
+            pass
+
+    return {
+        "ok": True,
+        "max_delta_sec": max_delta,
+        "reconciled": reconciled,
+        "remaining_timestamp_mismatch": remaining,
+        "samples_remaining": samples_remaining,
+    }
+
+
 __all__ = [
     "EXPECTED_REASONS",
     "REASONS",
     "UNEXPECTED_REASONS",
     "diagnose_missing_s55_joins",
     "format_s55_join_audit",
+    "reconcile_timestamp_mismatches",
     "repair_s55_joins",
 ]

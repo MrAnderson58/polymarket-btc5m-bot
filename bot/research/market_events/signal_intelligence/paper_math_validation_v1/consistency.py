@@ -9,8 +9,8 @@ from typing import Any, Sequence
 from bot.research.market_events.signal_intelligence.elite_candidate_v1.score import (
     STORE_CATEGORIES,
 )
-from bot.research.market_events.signal_intelligence.elite_candidate_v1.store import (
-    load_stored_candidates,
+from bot.research.market_events.signal_intelligence.research_integrity_v1.canonical import (
+    load_canonical_elite,
 )
 from bot.research.market_events.signal_intelligence.paper_decision_books_v1.books import (
     BOOK_A,
@@ -93,7 +93,7 @@ def elite_corpus_consistency(conn: Any) -> dict[str, Any]:
     Elite Profile must use the same audited corpus (no separate sampling).
     Compare stored elite trade_ids to audit payload / candidate store.
     """
-    elite = load_stored_candidates(conn, categories=list(STORE_CATEGORIES))
+    elite = load_canonical_elite(conn)
     elite_ids = sorted({int(r.get("trade_id") or 0) for r in elite if int(r.get("trade_id") or 0)})
     if not elite_ids:
         return {

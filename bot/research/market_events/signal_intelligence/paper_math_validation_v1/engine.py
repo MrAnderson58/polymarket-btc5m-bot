@@ -8,11 +8,9 @@ from typing import Any
 
 from bot.research.market_events.config import BASE_DIR
 from bot.research.market_events.research_db_session import research_write_lock
-from bot.research.market_events.signal_intelligence.elite_candidate_v1.score import (
-    STORE_CATEGORIES,
-)
-from bot.research.market_events.signal_intelligence.elite_candidate_v1.store import (
-    load_stored_candidates,
+from bot.research.market_events.signal_intelligence.research_integrity_v1.canonical import (
+    feature_store_status,
+    load_canonical_elite,
 )
 from bot.research.market_events.signal_intelligence.paper_decision_books_v1.books import (
     BOOK_A as JOURNAL_BOOK_A,
@@ -125,6 +123,7 @@ def build_math_rows(
     candidates: list[dict[str, Any]],
     *,
     reality_score: float | None,
+    feature_store_ok: bool = True,
 ) -> list[dict[str, Any]]:
     """Apply entry/stop filters; emit Book C + Book D rows. No discretionary trades."""
     out: list[dict[str, Any]] = []
@@ -154,11 +153,15 @@ def build_math_rows(
             cand, book=BOOK_C, accepted=c_ok, fails=fails, almost=almost,
             why_entered=why_entered, reality_score=reality_score, now=now,
         ))
-        # Book D — reference; never duplicates
-        d_ok = book_d_allows(ok, fails, duplicate=dup)
+        # Book D — reference; never duplicates; refuses when Feature Store missing
+        d_ok = book_d_allows(
+            ok, fails, duplicate=dup, feature_store_ok=feature_store_ok,
+        )
         if d_ok:
             accepted_ids.add(tid)
         d_fails = list(fails)
+        if not feature_store_ok and "feature_store_missing" not in d_fails:
+            d_fails.append("feature_store_missing")
         if dup and "book_duplicate" not in d_fails:
             d_fails.append("book_duplicate")
         out.append(_book_row(
@@ -227,7 +230,7 @@ def load_candidates(conn: Any) -> list[dict[str, Any]]:
     No new indicators / features. Batch joins — no N+1.
     """
     journal_b = load_journal_rows(conn, book=JOURNAL_BOOK_B)
-    elites = load_stored_candidates(conn, categories=list(STORE_CATEGORIES))
+    elites = load_canonical_elite(conn)
     elite_by_id = {int(e.get("trade_id") or 0): e for e in elites}
 
     # Prefer TRADE decisions from Book B; enrich with elite meta when present
@@ -464,7 +467,12 @@ def run_paper_math_v1(
         dataset_b=fp2,
     )
 
-    math_rows = build_math_rows(candidates, reality_score=reality_score)
+    fs = feature_store_status()
+    math_rows = build_math_rows(
+        candidates,
+        reality_score=reality_score,
+        feature_store_ok=bool(fs.get("ok")),
+    )
 
     # Journal A/B metrics (baseline / decision) — consume only
     rows_a = load_journal_rows(conn, book=JOURNAL_BOOK_A)

@@ -175,6 +175,15 @@ def _flat_rows(result: dict[str, Any]) -> list[dict[str, Any]]:
             "value_real": result.get("elapsed_sec"),
         },
     ]
+    ds = result.get("dataset") or {}
+    if ds:
+        rows.extend([
+            {"section": "dataset", "key": "dataset_version", "value_text": ds.get("dataset_version")},
+            {"section": "dataset", "key": "lake_rows", "value_real": float(ds.get("lake_rows") or 0)},
+            {"section": "dataset", "key": "build_ts", "value_real": float(ds.get("build_ts") or 0) if ds.get("build_ts") else None},
+            {"section": "dataset", "key": "hash", "value_text": ds.get("hash")},
+            {"section": "dataset", "key": "reality_score", "value_real": result.get("reality_score")},
+        ])
     for section in (
         "walk_forward", "oos", "monte_carlo", "stress", "regimes",
         "leave_one_coin", "leave_one_month", "overfit", "reality",
@@ -377,6 +386,11 @@ def run_reality_validation_v1(
     fails = fail_reasons(parts, overfit, reality)
     largest = (fails[0]["reason"] if fails else "none_detected")
 
+    from bot.research.market_events.signal_intelligence.research_integrity_v1.canonical import (
+        get_canonical_dataset_meta,
+    )
+    dataset_meta = get_canonical_dataset_meta(conn)
+
     elapsed = round(time.time() - t0, 3)
     result: dict[str, Any] = {
         "ok": True,
@@ -387,6 +401,7 @@ def run_reality_validation_v1(
         "elapsed_sec": elapsed,
         "n_trades": len(trades),
         "source": source,
+        "dataset": dataset_meta,
         "portfolio_meta": portfolio_meta,
         "reality_score": reality.get("reality_score"),
         "overfitting_score": overfit.get("overfitting_score"),
