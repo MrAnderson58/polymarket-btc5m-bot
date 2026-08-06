@@ -19,6 +19,7 @@ from bot.research.market_events.signal_intelligence.research_lake_v1.s55_join im
     UNEXPECTED_REASONS,
     diagnose_missing_s55_joins,
     reconcile_timestamp_mismatches,
+    repair_s55_joins,
 )
 from bot.research.market_events.signal_intelligence.research_lake_v1.loader import (
     research_lake_row_count,
@@ -123,6 +124,53 @@ def fix_elite_canonical(conn: Any) -> dict[str, Any]:
     }
 
 
+def fix_s55_infrastructure(conn: Any, *, apply: bool = True) -> dict[str, Any]:
+    """
+    Repair S55 joins + reconcile timestamps until missing_unexpected == 0
+    or emit precise explanation for remaining gaps.
+    """
+    before = diagnose_missing_s55_joins(conn)
+    repair: dict[str, Any] = {}
+    recon60: dict[str, Any] = {}
+    recon300: dict[str, Any] = {}
+    if apply:
+        repair = repair_s55_joins(conn)
+        recon60 = reconcile_timestamp_mismatches(conn, max_delta_sec=60)
+        remaining = int(recon60.get("remaining_timestamp_mismatch") or 0)
+        if remaining > 0:
+            recon300 = reconcile_timestamp_mismatches(conn, max_delta_sec=300)
+    after = diagnose_missing_s55_joins(conn)
+    unexpected = int(after.get("missing_unexpected") or 0)
+    explanation: list[str] = []
+    if unexpected > 0:
+        for reason in UNEXPECTED_REASONS:
+            cnt = int((after.get("reasons") or {}).get(reason) or 0)
+            if cnt > 0:
+                samples = (after.get("samples") or {}).get(reason) or []
+                explanation.append(
+                    f"{reason}={cnt}"
+                    + (f" samples={samples[:5]}" if samples else "")
+                )
+        if not explanation:
+            explanation.append(f"missing_unexpected={unexpected} (no reason breakdown)")
+
+    no_s55 = int((after.get("reasons") or {}).get("NO_S55_RECORD") or 0)
+    ts_mismatch = int((after.get("reasons") or {}).get("TIMESTAMP_MISMATCH") or 0)
+    return {
+        "ok": unexpected == 0,
+        "fixed": apply and unexpected < int(before.get("missing_unexpected") or 0),
+        "unexpected_s55": unexpected,
+        "NO_S55_RECORD": no_s55,
+        "TIMESTAMP_MISMATCH": ts_mismatch,
+        "before": before,
+        "after": after,
+        "repair": repair,
+        "reconcile_60": recon60,
+        "reconcile_300": recon300,
+        "impossible_explanation": explanation,
+    }
+
+
 def fix_s55_audit(conn: Any) -> dict[str, Any]:
     """
     FIX 3: Investigate NO_S55_RECORD — why Feature Store was never built.
@@ -136,6 +184,11 @@ def fix_s55_audit(conn: Any) -> dict[str, Any]:
         pass
     n_lake = research_lake_row_count(conn)
     no_s55 = int((audit.get("reasons") or {}).get("NO_S55_RECORD") or 0)
+    unexpected = int(audit.get("missing_unexpected") or 0)
+    if unexpected == 0:
+        unexpected = sum(
+            int((audit.get("reasons") or {}).get(r) or 0) for r in UNEXPECTED_REASONS
+        )
 
     root_causes: list[str] = []
     if fs.get("missing"):
@@ -148,15 +201,13 @@ def fix_s55_audit(conn: Any) -> dict[str, Any]:
         root_causes.append("majority_lake_missing_s55")
 
     return {
-        "ok": no_s55 == 0 or no_s55 in (audit.get("missing_expected") or 0),
-        "fixed": False,  # investigation only unless repair run separately
+        "ok": unexpected == 0,
+        "fixed": False,
         "n_lake": n_lake,
         "n_s55": n_s55,
         "NO_S55_RECORD": no_s55,
         "TIMESTAMP_MISMATCH": int((audit.get("reasons") or {}).get("TIMESTAMP_MISMATCH") or 0),
-        "unexpected_s55": sum(
-            int((audit.get("reasons") or {}).get(r) or 0) for r in UNEXPECTED_REASONS
-        ),
+        "unexpected_s55": unexpected,
         "feature_store": fs,
         "pipeline": {
             "generation_stage": "S42 paper trade close → S55 feature row (collector)",
@@ -217,5 +268,6 @@ __all__ = [
     "fix_elite_canonical",
     "fix_reality_dataset_parity",
     "fix_s55_audit",
+    "fix_s55_infrastructure",
     "fix_timestamp_reconcile",
 ]

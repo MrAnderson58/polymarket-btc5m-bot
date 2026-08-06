@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from bot.research.market_events.config import BASE_DIR
-from bot.research.market_events.research_db_session import research_write_lock
+from bot.research.market_events.research_write_manager import research_write_batch
 from bot.research.market_events.signal_intelligence.elite_candidate_v1.score import (
     STORE_CATEGORIES,
 )
@@ -130,32 +130,31 @@ def load_validation_trades(conn: Any, source: str = "combined") -> list[dict[str
 def persist_reality(conn: Any, *, rows: list[dict[str, Any]]) -> int:
     ensure_reality_validation_schema(conn)
     now = int(time.time())
-    with research_write_lock():
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            conn.execute(f"DELETE FROM {TABLE}")
-            conn.executemany(
+    payload = [
+        (
+            str(r.get("section")),
+            str(r.get("key")),
+            r.get("value_real"),
+            r.get("value_text"),
+            json.dumps(r.get("meta") or {}, default=str),
+            now,
+        )
+        for r in rows
+    ]
+
+    def _write(c: Any) -> int:
+        c.execute(f"DELETE FROM {TABLE}")
+        if payload:
+            c.executemany(
                 f"""
                 INSERT INTO {TABLE}(section, key, value_real, value_text, meta_json, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                [
-                    (
-                        str(r.get("section")),
-                        str(r.get("key")),
-                        r.get("value_real"),
-                        r.get("value_text"),
-                        json.dumps(r.get("meta") or {}, default=str),
-                        now,
-                    )
-                    for r in rows
-                ],
+                payload,
             )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-    return len(rows)
+        return len(payload)
+
+    return research_write_batch(conn, _write)
 
 
 def _flat_rows(result: dict[str, Any]) -> list[dict[str, Any]]:

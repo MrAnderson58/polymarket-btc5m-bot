@@ -682,6 +682,12 @@ def main(argv: list[str] | None = None) -> int:
         help="research-selftest: rebuild golden expectations_v1.json",
     )
     parser.add_argument(
+        "--infra",
+        action="store_true",
+        dest="infra",
+        help="research-selftest: run Integrity/Lake/Reality/Paper/Morning infrastructure checks",
+    )
+    parser.add_argument(
         "--full-perf",
         action="store_true",
         help="research-selftest: run 100/1000/5000/10000 performance suite",
@@ -2676,7 +2682,10 @@ def main(argv: list[str] | None = None) -> int:
         "reality-report",
     ):
         from bot.research.market_events.db import retry_on_db_locked
-        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_db_session import (
+            research_migrate_then_readonly,
+            research_write_connection,
+        )
         from bot.research.market_events.research_sync_v1 import (
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
@@ -2684,6 +2693,10 @@ def main(argv: list[str] | None = None) -> int:
         from bot.research.market_events.signal_intelligence.reality_validation_v1 import (
             run_reality_report,
             run_reality_validation_v1,
+        )
+        from bot.research.market_events.signal_intelligence.reality_validation_v1.engine import (
+            _flat_rows,
+            persist_reality,
         )
 
         try:
@@ -2694,11 +2707,15 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
 
             def _run_rv() -> dict:
-                with research_write_connection(db_path) as conn:
-                    apply_migrations(conn)
+                with research_migrate_then_readonly(db_path) as conn:
                     if args.command == "reality-report":
                         return run_reality_report(conn, write_reports=True)
-                    return run_reality_validation_v1(conn, write_reports=True)
+                    out = run_reality_validation_v1(conn, write_reports=True, persist=False)
+                if args.command == "reality-validation":
+                    with research_write_connection(db_path) as wconn:
+                        apply_migrations(wconn)
+                        persist_reality(wconn, rows=_flat_rows(out))
+                return out
 
             out = retry_on_db_locked(_run_rv)
             print(out.get("terminal") or "")
@@ -4658,6 +4675,30 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "research-selftest":
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+
+        if bool(getattr(args, "infra", False)):
+            from bot.research.market_events.signal_intelligence.research_infrastructure_v1 import (
+                format_infrastructure_selftest,
+                run_research_infrastructure_selftest,
+            )
+
+            try:
+                db_path, _, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"research-selftest failed: {exc}", file=sys.stderr)
+                return 1
+            report = run_research_infrastructure_selftest(db_path)
+            print(format_infrastructure_selftest(report))
+            by = report.by_name()
+            for key in ("Integrity", "Lake", "Reality", "Paper", "Morning"):
+                c = by.get(key)
+                print(f"{key}={'PASS' if c and c.passed else 'FAIL'}")
+            return 0 if report.ok else 1
+
         from bot.research.market_events.research_qa.selftest import (
             format_selftest_report,
             run_research_selftest,

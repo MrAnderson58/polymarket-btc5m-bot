@@ -7,12 +7,13 @@ import time
 from typing import Any
 
 from bot.research.market_events.config import BASE_DIR
-from bot.research.market_events.research_db_session import research_write_lock
+from bot.research.market_events.research_write_manager import research_replace_table
 from bot.research.market_events.signal_intelligence.research_integrity_v1.fixes import (
     fix_book_d_feature_store,
     fix_elite_canonical,
     fix_reality_dataset_parity,
     fix_s55_audit,
+    fix_s55_infrastructure,
     fix_timestamp_reconcile,
 )
 from bot.research.market_events.signal_intelligence.research_integrity_v1.schema import (
@@ -26,32 +27,26 @@ OUT_DIR = BASE_DIR / "reports" / "research" / "research_integrity_v1"
 def persist_integrity(conn: Any, *, rows: list[dict[str, Any]]) -> int:
     ensure_research_integrity_schema(conn)
     now = int(time.time())
-    with research_write_lock():
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            conn.execute(f"DELETE FROM {TABLE}")
-            conn.executemany(
-                f"""
-                INSERT INTO {TABLE}(section, key, value_real, value_text, meta_json, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        str(r.get("section")),
-                        str(r.get("key")),
-                        r.get("value_real"),
-                        r.get("value_text"),
-                        json.dumps(r.get("meta") or {}, default=str),
-                        now,
-                    )
-                    for r in rows
-                ],
-            )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-    return len(rows)
+    payload = [
+        (
+            str(r.get("section")),
+            str(r.get("key")),
+            r.get("value_real"),
+            r.get("value_text"),
+            json.dumps(r.get("meta") or {}, default=str),
+            now,
+        )
+        for r in rows
+    ]
+    return research_replace_table(
+        conn,
+        delete_sql=f"DELETE FROM {TABLE}",
+        insert_sql=f"""
+            INSERT INTO {TABLE}(section, key, value_real, value_text, meta_json, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+        rows=payload,
+    )
 
 
 def write_integrity_report(result: dict[str, Any]) -> dict[str, str]:
@@ -149,16 +144,18 @@ def run_research_integrity_v1(
     t0 = time.time()
     ensure_research_integrity_schema(conn)
 
+    s55_infra = fix_s55_infrastructure(conn, apply=True)
     reality = fix_reality_dataset_parity(conn)
     elite = fix_elite_canonical(conn)
     s55 = fix_s55_audit(conn)
-    ts = fix_timestamp_reconcile(conn, apply=reconcile_timestamps)
+    ts = fix_timestamp_reconcile(conn, apply=False)
     book_d = fix_book_d_feature_store(conn)
 
     all_ok = all([
         reality.get("ok"),
         elite.get("ok"),
         book_d.get("ok"),
+        s55_infra.get("ok"),
     ])
 
     elapsed = round(time.time() - t0, 3)
@@ -172,11 +169,13 @@ def run_research_integrity_v1(
         "reality": reality,
         "elite": elite,
         "s55": s55,
+        "s55_infra": s55_infra,
         "timestamp": ts,
         "book_d": book_d,
         "reality_fixed": bool(reality.get("ok")),
         "elite_fixed": bool(elite.get("ok")),
-        "unexpected_s55": int(s55.get("unexpected_s55") or 0),
+        "unexpected_s55": int(s55_infra.get("unexpected_s55") or 0),
+        "impossible_explanation": s55_infra.get("impossible_explanation") or [],
     }
     result["terminal"] = format_terminal(result)
 

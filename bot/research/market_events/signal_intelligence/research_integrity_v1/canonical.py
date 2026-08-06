@@ -216,15 +216,20 @@ def persist_reality_dataset_binding(
         ("hash", None, meta.get("hash")),
         ("reality_score", reality_score, None),
     ]
-    for key, vr, vt in rows:
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO reality_validation_v1(section, key, value_real, value_text, updated_at)
-            VALUES ('dataset', ?, ?, ?, ?)
-            """,
-            (key, vr, vt, now),
-        )
-    conn.commit()
+    from bot.research.market_events.research_write_manager import research_write_batch
+
+    def _write(c: Any) -> int:
+        for key, vr, vt in rows:
+            c.execute(
+                """
+                INSERT OR REPLACE INTO reality_validation_v1(section, key, value_real, value_text, updated_at)
+                VALUES ('dataset', ?, ?, ?, ?)
+                """,
+                (key, vr, vt, now),
+            )
+        return len(rows)
+
+    research_write_batch(conn, _write)
 
 
 __all__ = [

@@ -487,6 +487,10 @@ class TestEngine(unittest.TestCase):
         return_value={"ok": True, "n_elite": 3, "issues": []},
     )
     @mock.patch(
+        "bot.research.market_events.signal_intelligence.research_integrity_v1.engine.fix_s55_infrastructure",
+        return_value={"ok": True, "unexpected_s55": 0, "impossible_explanation": []},
+    )
+    @mock.patch(
         "bot.research.market_events.signal_intelligence.research_integrity_v1.engine.fix_s55_audit",
         return_value={"unexpected_s55": 0, "NO_S55_RECORD": 100, "TIMESTAMP_MISMATCH": 5},
     )
@@ -682,6 +686,10 @@ class TestIntegrityFlags(unittest.TestCase):
         return_value={"before": 0, "after": 0, "reconciled": 0},
     )
     @mock.patch(
+        "bot.research.market_events.signal_intelligence.research_integrity_v1.engine.fix_s55_infrastructure",
+        return_value={"ok": True, "unexpected_s55": 0, "impossible_explanation": []},
+    )
+    @mock.patch(
         "bot.research.market_events.signal_intelligence.research_integrity_v1.engine.fix_s55_audit",
         return_value={"unexpected_s55": 0},
     )
@@ -770,6 +778,9 @@ class TestExtraIntegrity(unittest.TestCase):
         ), mock.patch(
             "bot.research.market_events.signal_intelligence.research_integrity_v1.engine.fix_elite_canonical",
             return_value={"ok": True, "issues": []},
+        ), mock.patch(
+            "bot.research.market_events.signal_intelligence.research_integrity_v1.engine.fix_s55_infrastructure",
+            return_value={"ok": True, "unexpected_s55": 0, "impossible_explanation": []},
         ), mock.patch(
             "bot.research.market_events.signal_intelligence.research_integrity_v1.engine.fix_s55_audit",
             return_value={"unexpected_s55": 0},
