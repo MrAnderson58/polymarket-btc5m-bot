@@ -1075,6 +1075,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_forward_validation_v1(conn)
     _ensure_research_integrity_v1(conn)
     _ensure_decision_funnel_v1(conn)
+    _ensure_replay_recovery_v1(conn)
 
     if not applied:
         conn.commit()
@@ -3719,6 +3720,15 @@ def _ensure_decision_funnel_v1(conn: Any) -> None:
     )
 
     ensure_decision_funnel_schema(conn)
+
+
+def _ensure_replay_recovery_v1(conn: Any) -> None:
+    """Create Replay Recovery Investigation V1 tables if missing."""
+    from bot.research.market_events.signal_intelligence.replay_recovery_v1.schema import (
+        ensure_replay_recovery_schema,
+    )
+
+    ensure_replay_recovery_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """
