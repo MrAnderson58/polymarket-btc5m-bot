@@ -308,6 +308,8 @@ def main(argv: list[str] | None = None) -> int:
             "decision-waterfall",
             "decision-rejectors",
             "replay-recovery",
+            "daily-research-package",
+            "daily-hermes-report",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -2906,6 +2908,39 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if out.get("ok") else 1
         except Exception as exc:
             print(f"replay-recovery failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command in ("daily-research-package", "daily-hermes-report"):
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.hermes_daily_v1 import (
+            run_daily_hermes_report,
+            run_daily_research_package,
+        )
+
+        try:
+            try:
+                db_path, db_source, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"{args.command} failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run_hermes_daily() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    if args.command == "daily-research-package":
+                        return run_daily_research_package(conn, write_files=True, persist=True)
+                    return run_daily_hermes_report(conn, offline=False, rebuild_package=True)
+
+            out = retry_on_db_locked(_run_hermes_daily)
+            print(out.get("terminal") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"{args.command} failed: {exc}", file=sys.stderr)
             return 1
 
     if args.command == "alpha-engine":
