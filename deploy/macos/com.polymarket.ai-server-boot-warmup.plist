@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.polymarket.multi-source</string>
+    <string>com.polymarket.ai-server-boot-warmup</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot/deploy/macos/run-multi-source.sh</string>
+        <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot/deploy/macos/run-ai-server-boot-warmup.sh</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot</string>
@@ -18,11 +18,11 @@
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <false/>
     <key>StandardOutPath</key>
-    <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot/logs/launchd-com.polymarket.multi-source.log</string>
+    <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot/logs/launchd-com.polymarket.ai-server-boot-warmup.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot/logs/launchd-com.polymarket.multi-source.err.log</string>
+    <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot/logs/launchd-com.polymarket.ai-server-boot-warmup.err.log</string>
     <key>ThrottleInterval</key>
     <integer>30</integer>
 </dict>

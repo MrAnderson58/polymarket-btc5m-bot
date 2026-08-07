@@ -1,9 +1,16 @@
 # Reboot Runbook — Mac Mini
 
-Target recovery time: **5–10 minutes** after macOS is back online.
+Target recovery time: **2–3 minutes** after macOS is back online when Server Infrastructure V1 launchd agents are installed.
 
-Repository: `~/polymarket-btc5m-bot`  
-Branch: `migration/clob-v2`
+See also: [`SERVER_INFRASTRUCTURE_V1.md`](SERVER_INFRASTRUCTURE_V1.md)
+
+```bash
+python -m bot.research.market_events ai-server-health
+python -m bot.research.market_events ai-server-reboot-sim
+```
+
+Repository: `/Users/andrey/polymarket-bot/polymarket-btc5m-bot`  
+Branch: `develop-terminal`
 
 ---
 

@@ -17,10 +17,8 @@
     </dict>
     <key>RunAtLoad</key>
     <true/>
-
     <key>KeepAlive</key>
     <true/>
-
     <key>StandardOutPath</key>
     <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot/logs/launchd-com.polymarket.ai-worker.log</string>
     <key>StandardErrorPath</key>

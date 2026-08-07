@@ -4,6 +4,7 @@ __pycache__/
 *.db
 backups/*.sql.gz
 backups/*.db.gz
+backups/ai_server_v1/
 data/
 reports/**/*.md
 reports/**/*.json

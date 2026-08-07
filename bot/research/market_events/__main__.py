@@ -311,6 +311,12 @@ def main(argv: list[str] | None = None) -> int:
             "daily-research-package",
             "daily-hermes-report",
             "hermes-autostart-audit",
+            "ai-server-health",
+            "ai-server-backup",
+            "ai-server-watchdog",
+            "ai-server-git-morning",
+            "ai-server-install-launchd",
+            "ai-server-reboot-sim",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -2952,6 +2958,26 @@ def main(argv: list[str] | None = None) -> int:
         out = audit_autostart()
         print(out.get("terminal") or "")
         return 0 if out.get("ok") else 1
+
+    if args.command in (
+        "ai-server-health",
+        "ai-server-backup",
+        "ai-server-watchdog",
+        "ai-server-git-morning",
+        "ai-server-install-launchd",
+        "ai-server-reboot-sim",
+    ):
+        from bot.ops.server_infra_v1.__main__ import main as infra_main
+
+        mapped = {
+            "ai-server-health": "health",
+            "ai-server-backup": "backup",
+            "ai-server-watchdog": "watchdog",
+            "ai-server-git-morning": "git-morning",
+            "ai-server-install-launchd": "install-launchd",
+            "ai-server-reboot-sim": "reboot-sim",
+        }
+        return infra_main([mapped[args.command]])
 
     if args.command == "alpha-engine":
         from bot.research.market_events.db import is_database_locked, retry_on_db_locked

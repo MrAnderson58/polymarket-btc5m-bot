@@ -17,7 +17,6 @@
     </dict>
     <key>RunAtLoad</key>
     <true/>
-
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
@@ -25,7 +24,6 @@
         <key>Minute</key>
         <integer>15</integer>
     </dict>
-
     <key>StandardOutPath</key>
     <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot/logs/launchd-com.polymarket.hermes-daily.log</string>
     <key>StandardErrorPath</key>

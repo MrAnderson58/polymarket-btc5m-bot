@@ -1,0 +1,23 @@
+{
+  "folders": [
+    {
+      "name": "Trading",
+      "path": "/Users/andrey/polymarket-bot/polymarket-btc5m-bot"
+    },
+    {
+      "name": "Travel",
+      "path": "/Users/andrey/travel-ai"
+    },
+    {
+      "name": "Hermes Docs",
+      "path": "/Users/andrey/polymarket-bot/polymarket-btc5m-bot/docs"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/.pytest_cache": true,
+      "**/logs/**/*.log": true
+    }
+  }
+}
