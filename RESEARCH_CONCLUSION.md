@@ -2,54 +2,53 @@
 
 ## 1. Executive Summary
 
-- Package generated_at=1786087656 bytes=79643
-- Reality score=85.98 lake_rows=19205.0
-- Elite n=4111 categories={'ELITE': 1204, 'A+': 1659, 'A': 1248}
+- Hermes Autonomous V2 package_bytes=47214 (max 102400)
+- Reality=85.98 Elite=4111 cats={'ELITE': 1204, 'A+': 1659, 'A': 1248}
+- Top rejector=Replay n=19155
 - Replay recoverable_ev=16940.4952 protected_ev=831.9049
-- Top funnel rejector=Replay n=19155
-- Book B stats={'trades': 4111, 'wr': 76.23, 'pf': None, 'pf_inf': True, 'ev': 1.5337, 'sharpe': 1.0103, 'max_dd': 0.0, 'total': 6305.2284, 'n_rows': 19205, 'n_accepted': 4111}
-- Samples closed=100 accepted=30 rejected=30
-- Mode=offline_template (Claude not invoked)
-- research_only=true no_strategy_change=true
+- Book B={'trades': 4111, 'wr': 76.23, 'pf': None, 'pf_inf': True, 'ev': 1.5337, 'sharpe': 1.0103, 'max_dd': 0.0, 'total': 6305.2284, 'n_rows': 19205, 'n_accepted': 4111}
+- Samples closed=50 acc=15 rej=15
+- Mode=offline_template package_only=true
+- No Gate/Strategy/Execution changes
+- Self-check passed before analysis
+- Autonomous next calc prioritized by EV
 
 ## 2. Today's Findings
 
-1. Compact package built without reading the full Research Lake.
-2. Replay remains the dominant first-rejector when funnel stats are present.
-3. Reality binding is consumed as a scalar score + dataset meta only.
-4. Elite corpus size and category mix are summarized statistically.
-5. Book statistics are aggregates (WR/PF/EV/Sharpe), not raw rows.
-6. Last-N accepted/rejected samples are slim fields only.
-7. Forward/morning content included as truncated report heads when available.
-8. Fingerprint/Timeline included as compact summaries / report heads.
-9. Token budget targets: <50k input, <10k output.
-10. Offline conclusion used when Claude API is blocked or unconfigured.
+1. Package-only analysis (no SQLite/Lake/logs/optimizer reads by Hermes).
+2. Package ≤100KB with statistics + slim last-N trades.
+3. Replay remains primary funnel bottleneck when present.
+4. Elite mix summarized by category counts only.
+5. Book stats are WR/PF/EV/Sharpe aggregates.
+6. Cost policy: ask Python to aggregate if >40k input tokens.
+7. NEXT_RESEARCH lists TOP 5 novel math ideas only.
+8. DAILY_SCORECARD written from package scorecard_inputs.
+9. Self-check (integrity/health/status) embedded in package.
+10. Offline conclusion when Claude unavailable.
 
 ## 3. Top Mathematical Discoveries
 
-- Discoveries require Hermes LLM pass for narrative; offline mode reports only package metrics.
-- Net Replay EV (protected−recoverable) if present: -16108.5903
+- Net replay EV signal: -16108.5903
+- Full narrative discoveries require LLM pass; offline reports package metrics only.
 
 ## 4. Rejected Trades Analysis
 
-- n last_30_rejected=30
-- Inspect slim module scores (replay/timeline/fingerprint/brain) in package samples.
+- n last_15_rejected=15
+- Compare slim replay/timeline/fingerprint fields in package samples.
 
 ## 5. Accepted Trades Analysis
 
-- n last_30_accepted=30
-- Compare confidence / historical_wr / historical_ev distributions in package.
+- n last_15_accepted=15
+- Inspect confidence / historical_wr / historical_ev distributions.
 
 ## 6. Replay Investigation
 
-- recoverable_ev=16940.4952
-- protected_ev=831.9049
+- recoverable_ev=16940.4952 protected_ev=831.9049
 - largest_mistake={'trade_id': 19201, 'symbol': 'WIF', 'pnl': 77.7242, 'replay': None, 'reason': 'replay_missing', 'regime': 'RANGE'}
 
 ## 7. Reality Validation
 
 - reality_score=85.98
-- dataset hash/version/rows bound in package.reality
 
 ## 8. Elite Review
 
@@ -58,31 +57,36 @@
 ## 9. New Hypotheses
 
 ### H1
-- Reason: Replay missing scores drive FN recoverable EV.
-- Expected Improvement: Higher attribution clarity for Replay coverage.
-- Required Sample Size: ≥1000 Replay-missing closed trades.
-- Expected Validation Method: Replay Recovery + Reality rebind on same lake hash.
+- Reason: Replay FN conditional on other modules pass concentrates recoverable EV.
+- Expected Improvement: Higher precision Replay coverage math.
+- Required Sample Size: ≥1000 Replay-reject closed trades.
+- Expected Validation Method: package funnel + reality rebind.
 
 ### H2
-- Reason: Funnel first-rejector ≠ sole causal module.
-- Expected Improvement: Better module influence vs waterfall interpretation.
-- Required Sample Size: full Book A corpus on integrity-bound lake.
-- Expected Validation Method: Decision Funnel module_influence deltas.
+- Reason: First-rejector ≠ causal influence.
+- Expected Improvement: Better module priority ranking.
+- Required Sample Size: full Book A on integrity-bound lake (Python aggregate).
+- Expected Validation Method: leave-one-out ΔEV matrix.
 
 ### H3
-- Reason: Book D sparsity may be Feature Store / filter interaction.
-- Expected Improvement: Clearer math-book bottleneck ranking.
+- Reason: Book D sparsity may be FS×filter interaction.
+- Expected Improvement: denser math-book acceptance without Gate changes.
 - Required Sample Size: all math-book candidates under frozen filters.
-- Expected Validation Method: paper-math-report + integrity Book D gate.
+- Expected Validation Method: paper-math survival table.
 
 ## 10. Recommended Mathematics
 
-- Coverage rate of Replay NULL vs below-floor rejects by coin/session.
-- Conditional EV of Replay FN given Timeline/Fingerprint pass.
-- Bootstrap CI on recoverable_ev and protected_ev.
+- Conditional Replay FN EV with bootstrap CI
+- Session×coin Replay NULL coverage
+- Module influence vs first-rejector matrix
 
 ## 11. Research Priority
 
-- P1: Replay missing-score coverage mathematics
-- P2: Funnel influence vs first-rejector reconciliation
-- P3: Book D sparsity attribution under Feature Store gate
+- P1: Conditional Replay FN EV
+- P2: Influence vs first-rejector matrix
+- P3: Book D sparsity attribution
+
+## 12. Autonomous Next Calculation
+
+- Selected: Conditional EV of Replay FN given Timeline+Fingerprint pass
+- Why: maximizes expected recoverable EV clarity without production changes

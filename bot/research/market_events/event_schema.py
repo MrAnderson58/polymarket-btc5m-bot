@@ -1077,6 +1077,7 @@ def apply_migrations(conn: Any) -> list[str]:
     _ensure_decision_funnel_v1(conn)
     _ensure_replay_recovery_v1(conn)
     _ensure_hermes_daily_v1(conn)
+    _ensure_hermes_autonomous_v2(conn)
 
     if not applied:
         conn.commit()
@@ -3739,6 +3740,15 @@ def _ensure_hermes_daily_v1(conn: Any) -> None:
     )
 
     ensure_hermes_daily_schema(conn)
+
+
+def _ensure_hermes_autonomous_v2(conn: Any) -> None:
+    """Create Hermes Autonomous Research V2 tables if missing."""
+    from bot.research.market_events.signal_intelligence.hermes_autonomous_v2.schema import (
+        ensure_hermes_autonomous_schema,
+    )
+
+    ensure_hermes_autonomous_schema(conn)
 
 
 S56_POSTMORTEM_DDL = """

@@ -310,6 +310,7 @@ def main(argv: list[str] | None = None) -> int:
             "replay-recovery",
             "daily-research-package",
             "daily-hermes-report",
+            "hermes-autostart-audit",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -2917,7 +2918,7 @@ def main(argv: list[str] | None = None) -> int:
             ResearchSyncError,
             resolve_research_analytics_sqlite_path,
         )
-        from bot.research.market_events.signal_intelligence.hermes_daily_v1 import (
+        from bot.research.market_events.signal_intelligence.hermes_autonomous_v2 import (
             run_daily_hermes_report,
             run_daily_research_package,
         )
@@ -2942,6 +2943,15 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             print(f"{args.command} failed: {exc}", file=sys.stderr)
             return 1
+
+    if args.command == "hermes-autostart-audit":
+        from bot.research.market_events.signal_intelligence.hermes_autonomous_v2 import (
+            audit_autostart,
+        )
+
+        out = audit_autostart()
+        print(out.get("terminal") or "")
+        return 0 if out.get("ok") else 1
 
     if args.command == "alpha-engine":
         from bot.research.market_events.db import is_database_locked, retry_on_db_locked
@@ -3279,6 +3289,23 @@ def main(argv: list[str] | None = None) -> int:
             print(out.get("report_markdown") or "")
             if out.get("profile_markdown"):
                 print(out.get("profile_markdown"))
+            # Hermes Autonomous V2: auto-build compact RESEARCH_PACKAGE after lake build
+            package_meta: dict = {}
+            try:
+                from bot.research.market_events.signal_intelligence.hermes_autonomous_v2 import (
+                    run_daily_research_package,
+                )
+
+                def _pkg() -> dict:
+                    with research_write_connection(db_path) as conn:
+                        apply_migrations(conn)
+                        return run_daily_research_package(conn, write_files=True, persist=True)
+
+                package_meta = retry_on_db_locked(_pkg)
+                print(package_meta.get("terminal") or "")
+            except Exception as pkg_exc:
+                print(f"daily-research-package (auto) failed: {pkg_exc}", file=sys.stderr)
+                package_meta = {"ok": False, "error": str(pkg_exc)}
             print(
                 json.dumps({
                     "ok": out.get("ok"),
@@ -3305,6 +3332,11 @@ def main(argv: list[str] | None = None) -> int:
                     "schema_version": out.get("schema_version"),
                     "analytics_db": str(db_path),
                     "source": source,
+                    "research_package": {
+                        "ok": package_meta.get("ok"),
+                        "package_bytes": package_meta.get("package_bytes"),
+                        "estimated_tokens": package_meta.get("estimated_tokens"),
+                    },
                 }, indent=2, default=str),
                 file=sys.stderr,
             )
