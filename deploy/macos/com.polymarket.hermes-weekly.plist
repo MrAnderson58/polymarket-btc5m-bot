@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.polymarket.hermes-weekly</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot/deploy/macos/run-hermes-weekly.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>0</integer>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot/logs/launchd-com.polymarket.hermes-weekly.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/andrey/polymarket-bot/polymarket-btc5m-bot/logs/launchd-com.polymarket.hermes-weekly.err.log</string>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+</dict>
+</plist>

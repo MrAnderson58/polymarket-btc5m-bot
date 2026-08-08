@@ -5,6 +5,4 @@ cd "${REPO}"
 if [[ -f "${REPO}/.env" ]]; then set -a; source "${REPO}/.env"; set +a; fi
 PY="${REPO}/.venv/bin/python"
 [[ -x "${PY}" ]] || PY="$(command -v python3)"
-# Stage: package then DeepSeek daily (research-only)
-"${PY}" -m bot.research.market_events daily-research-package
-exec "${PY}" -m bot.research.market_events hermes-daily
+exec "${PY}" -m bot.research.market_events hermes-weekly

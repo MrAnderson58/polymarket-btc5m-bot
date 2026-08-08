@@ -156,12 +156,19 @@ class TestHealthChecks(unittest.TestCase):
             Check("Database", "PASS"), Check("Queues", "PASS"),
             Check("Launchd", "PASS"), Check("Backups", "PASS"),
             Check("Watchdog", "PASS"),
+            Check("Trading LIVE", "PASS"), Check("Research", "PASS"),
         ]
         with mock.patch("bot.ops.server_infra_v1.health.check_ssh", return_value=pass_checks[0]), mock.patch(
             "bot.ops.server_infra_v1.health.check_tailscale", return_value=pass_checks[1]
         ), mock.patch(
             "bot.ops.server_infra_v1.health.check_service",
             side_effect=pass_checks[2:12],
+        ), mock.patch(
+            "bot.ops.server_infra_v1.health.check_trading_live_off",
+            return_value=pass_checks[20],
+        ), mock.patch(
+            "bot.ops.server_infra_v1.health.check_research_workers",
+            return_value=pass_checks[21],
         ), mock.patch(
             "bot.ops.server_infra_v1.health.check_disk", return_value=(pass_checks[12], {})
         ), mock.patch(

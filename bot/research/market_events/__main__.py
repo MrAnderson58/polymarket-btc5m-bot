@@ -317,6 +317,8 @@ def main(argv: list[str] | None = None) -> int:
             "ai-server-git-morning",
             "ai-server-install-launchd",
             "ai-server-reboot-sim",
+            "hermes-daily",
+            "hermes-weekly",
             "quant-research",
             "quant-report",
             "quant-debug",
@@ -2978,6 +2980,43 @@ def main(argv: list[str] | None = None) -> int:
             "ai-server-reboot-sim": "reboot-sim",
         }
         return infra_main([mapped[args.command]])
+
+    if args.command in ("hermes-daily", "hermes-weekly"):
+        from bot.research.market_events.db import retry_on_db_locked
+        from bot.research.market_events.research_db_session import research_write_connection
+        from bot.research.market_events.research_sync_v1 import (
+            ResearchSyncError,
+            resolve_research_analytics_sqlite_path,
+        )
+        from bot.research.market_events.signal_intelligence.hermes_schedule_v1 import (
+            run_hermes_daily,
+            run_hermes_weekly,
+        )
+        from bot.research.market_events.signal_intelligence.hermes_schedule_v1.schedule import (
+            ensure_hermes_schedule_templates,
+        )
+
+        ensure_hermes_schedule_templates()
+        try:
+            try:
+                db_path, _, _ = resolve_research_analytics_sqlite_path()
+            except ResearchSyncError as exc:
+                print(f"{args.command} failed: {exc}", file=sys.stderr)
+                return 1
+
+            def _run() -> dict:
+                with research_write_connection(db_path) as conn:
+                    apply_migrations(conn)
+                    if args.command == "hermes-daily":
+                        return run_hermes_daily(conn, offline=False, rebuild_package=True)
+                    return run_hermes_weekly(conn, offline=False)
+
+            out = retry_on_db_locked(_run)
+            print(out.get("terminal") or "")
+            return 0 if out.get("ok") else 1
+        except Exception as exc:
+            print(f"{args.command} failed: {exc}", file=sys.stderr)
+            return 1
 
     if args.command == "alpha-engine":
         from bot.research.market_events.db import is_database_locked, retry_on_db_locked

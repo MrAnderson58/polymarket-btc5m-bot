@@ -124,26 +124,55 @@ def check_service(svc: dict[str, str], loaded: set[str]) -> Check:
     installed = (LAUNCH_AGENTS / f"{label}.plist").exists()
     is_loaded = label in loaded
 
+    # Real-process checks for Trading / Travel (never trust launchd alone / stale pidfiles)
+    if svc["key"] == "trading":
+        from bot.ops.server_infra_v1.process_health import trading_paper_status
+
+        st = trading_paper_status()
+        live_off = not st["is_live"]
+        paper_on = bool(st["is_paper"])
+        if st["duplicates"]:
+            return Check(title, "FAIL", f"duplicate bot.main n={st['count']}")
+        if st["running"] and paper_on and live_off:
+            detail = f"paper process pid={st['pids']} launchd_loaded={is_loaded}"
+            return Check("Trading PAPER", "PASS", detail)
+        if st["running"] and st["is_live"]:
+            return Check("Trading LIVE", "FAIL", "LIVE trading process detected — must be OFF")
+        if installed and is_loaded and not st["running"]:
+            return Check(title, "FAIL", "launchd loaded but no real bot.main process")
+        if not st["running"]:
+            return Check(title, "FAIL", "bot.main not running")
+        return Check(title, "WARN", f"running but mode={st['trading_mode']}")
+
     if svc["key"] == "travel":
+        from bot.ops.server_infra_v1.process_health import travel_status
+
         travel_enabled = os.environ.get("AI_SERVER_TRAVEL_ENABLED", "1") != "0"
         if not travel_enabled:
             return Check(title, "PASS", "disabled via AI_SERVER_TRAVEL_ENABLED=0")
-        if not TRAVEL_AI_ROOT.exists():
-            # template must still be installed for reboot autonomy
-            if installed and is_loaded:
+        st = travel_status(root=TRAVEL_AI_ROOT)
+        if st["duplicates"]:
+            return Check(title, "FAIL", f"duplicate travel processes n={st['count']}")
+        if st["running"]:
+            # pidfile optional; if present must match
+            if st["pidfile_ok"] or not Path(st["pidfile"]).exists():
                 return Check(
                     title,
-                    "WARN",
-                    f"launchd loaded; TRAVEL_AI_ROOT missing ({TRAVEL_AI_ROOT})",
+                    "PASS",
+                    f"real process pids={st['pids']} launchd_loaded={is_loaded}",
                 )
             return Check(
                 title,
                 "WARN",
-                f"TRAVEL_AI_ROOT missing ({TRAVEL_AI_ROOT}); set path or disable",
+                f"process live but pidfile stale/mismatch detail={st['pidfile_detail']}",
             )
+        if Path(st["pidfile"]).exists() and not st["running"]:
+            return Check(title, "FAIL", f"stale pidfile without process ({st['pidfile']})")
+        if installed and is_loaded:
+            return Check(title, "FAIL", "launchd loaded but no real Travel process")
+        return Check(title, "FAIL", "Travel process not running")
 
     if svc["schedule"] == "daily":
-        # Hermes: PASS if template+agent installed (not always running)
         if installed and is_loaded:
             return Check(title, "PASS", f"scheduled launchd {label}")
         if installed:
@@ -156,6 +185,31 @@ def check_service(svc: dict[str, str], loaded: set[str]) -> Check:
         return Check(title, "WARN", f"installed but not loaded: {label}")
     return Check(title, "FAIL", f"launchd missing: {label}")
 
+
+def check_trading_live_off() -> Check:
+    from bot.ops.server_infra_v1.process_health import trading_paper_status
+
+    st = trading_paper_status()
+    if st["is_live"]:
+        return Check("Trading LIVE", "FAIL", "LIVE_ENABLED path active (TRADING_MODE=live)")
+    return Check("Trading LIVE", "PASS", "OFF (not TRADING_MODE=live)")
+
+
+def check_research_workers(loaded: set[str]) -> Check:
+    keys = ("learning", "event-engine", "news", "multi-source", "ai-worker", "observe", "dashboard")
+    labels = {
+        "learning": "com.polymarket.learning",
+        "event-engine": "com.polymarket.event-engine",
+        "news": "com.polymarket.news-intel",
+        "multi-source": "com.polymarket.multi-source",
+        "ai-worker": "com.polymarket.ai-worker",
+        "observe": "com.polymarket.observe",
+        "dashboard": "com.polymarket.dashboard",
+    }
+    missing = [k for k in keys if labels[k] not in loaded]
+    if missing:
+        return Check("Research", "FAIL", f"not loaded: {', '.join(missing)}")
+    return Check("Research", "PASS", "core research workers launchd loaded")
 
 def check_disk() -> tuple[Check, dict[str, Any]]:
     usage = shutil.disk_usage(str(REPO))
@@ -291,6 +345,9 @@ def run_ai_server_health(*, include_watchdog: bool = True) -> dict[str, Any]:
 
     for svc in AI_SERVER_SERVICES:
         bundle.checks.append(check_service(svc, loaded))
+
+    bundle.checks.append(check_trading_live_off())
+    bundle.checks.append(check_research_workers(loaded))
 
     disk_c, disk_m = check_disk()
     ram_c, ram_m = check_ram()
